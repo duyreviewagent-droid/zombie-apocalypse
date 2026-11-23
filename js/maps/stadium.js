@@ -12,7 +12,8 @@
 import * as LOOT from '../loot.js';
 import { tier } from '../tex.js';
 const ITEMS = LOOT.ITEMS || {}, LOOT_PANEL = !!(LOOT.LOOT_KINDS && LOOT.LOOT_KINDS.panel);
-import { textures, signAtlas, barsTexture, geos, builder, rng, HOME, AWAY } from './stadium.kit.js';
+import { textures, signAtlas, barsTexture, geos, builder, rng, bakePerson, HOME, AWAY } from './stadium.kit.js';
+const Q_NOREAL = () => { try { return new URLSearchParams(location.search).has('noreal'); } catch { return false; } };   // (test hook: the far figures only)
 
 export const ID = 'stadium';
 // ---- the shape of the ground (all the numbers in one place) ----
@@ -813,43 +814,129 @@ export function buildMap(K) {
         float b = max(0.0, sin(cT * (5.0 + ph * 3.0) + ph * 40.0)); transformed.y += b * b * cCheer * smoothstep(0.3, 0.9, position.y);
         transformed.x += sin(cT * 1.3 + ph * 20.0) * 0.03 * smoothstep(0.6, 1.3, position.y);
         transformed *= step(fract(ph * 91.7), cKeep); }`); }; m.customProgramCacheKey = () => 'sdCrowd' + rough; return m; };
-  // three instanced parts per person: shirt + arms (team colours), trousers + shoes, head + hair (skin, hair colour)
-  const C3 = (rt, rb, h, seg = 7) => new THREE.CylinderGeometry(rt, rb, h, seg);
-  const SEAT = {   // (seated: legs mostly hidden by the row in front, so cheap boxes; ~170 triangles a fan)
-    top: G.merge([C3(0.15, 0.17, 0.5, 6).scale(1, 1, 0.7).translate(0, 0.84, -0.06), new THREE.SphereGeometry(0.17, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.15, 0.5, 0.75).translate(0, 1.07, -0.06),
-      C3(0.05, 0.045, 0.3, 4).rotateX(-0.5).translate(-0.21, 0.92, 0.02), C3(0.05, 0.045, 0.3, 4).rotateX(-0.5).translate(0.21, 0.92, 0.02), C3(0.045, 0.04, 0.26, 4).rotateX(-1.3).translate(-0.19, 0.76, 0.16), C3(0.045, 0.04, 0.26, 4).rotateX(-1.3).translate(0.19, 0.76, 0.16)]),
-    legs: G.merge([new THREE.BoxGeometry(0.34, 0.14, 0.42).translate(0, 0.52, 0.13), new THREE.BoxGeometry(0.3, 0.46, 0.12).translate(0, 0.25, 0.33), new THREE.BoxGeometry(0.3, 0.07, 0.24).translate(0, 0.035, 0.38)]),
-    head: G.merge([new THREE.SphereGeometry(0.1, 7, 5).scale(0.9, 1.15, 1).translate(0, 1.25, -0.04)]),
-    hair: G.merge([new THREE.SphereGeometry(0.105, 7, 3, 0, Math.PI * 2, 0, Math.PI * 0.55).scale(0.92, 1.1, 1.03).translate(0, 1.265, -0.05)]),
+  // three instanced parts per person, far off: shirt + arms (team colours), trousers + shoes, skin (head, neck, hands),
+  // hair / hat. Up close (see "real people" below) they're the game's own character models.
+  const LT = tier(), sg = LT > 1 ? 5 : 7;
+  const C3 = (rt, rb, h, seg = sg) => new THREE.CylinderGeometry(rt, rb, h, seg);
+  const Sph = (r, ws, hs, p0 = 0, p1 = Math.PI) => new THREE.SphereGeometry(r, ws, hs, 0, Math.PI * 2, p0, p1);
+  const Bx = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+  const torso = (y, z) => [C3(0.185, 0.145, 0.5, 8).scale(1, 1, 0.6).translate(0, y, z), Sph(0.185, 8, 3, 0, Math.PI / 2).scale(1.08, 0.42, 0.62).translate(0, y + 0.25, z)];
+  const headK = (y, z) => [C3(0.048, 0.055, 0.12, 6).translate(0, y - 0.13, z), Sph(0.1, 9, 7).scale(0.86, 1.1, 0.97).translate(0, y, z), Bx(0.026, 0.045, 0.04).translate(0, y - 0.01, z + 0.095),
+    Sph(0.022, 4, 3).scale(0.6, 1, 0.8).translate(-0.088, y, z), Sph(0.022, 4, 3).scale(0.6, 1, 0.8).translate(0.088, y, z)];
+  const hairK = (y, z) => [Sph(0.106, 9, 4, 0, Math.PI * 0.5).scale(0.9, 1.08, 1.02).translate(0, y + 0.012, z - 0.006), Sph(0.104, 8, 3, Math.PI * 0.5, Math.PI * 0.22).scale(0.9, 1.08, 1.0).translate(0, y + 0.012, z - 0.012)];
+  const SEAT = {   // (sitting: hips on the seat pan, thighs forward, hands on the knees)
+    top: G.merge([...torso(0.84, -0.06), C3(0.055, 0.047, 0.28).rotateX(-0.25).translate(-0.215, 0.95, -0.03), C3(0.055, 0.047, 0.28).rotateX(-0.25).translate(0.215, 0.95, -0.03),
+      C3(0.047, 0.04, 0.26).rotateX(-1.3).translate(-0.2, 0.79, 0.09), C3(0.047, 0.04, 0.26).rotateX(-1.3).translate(0.2, 0.79, 0.09)]),
+    legs: G.merge([C3(0.155, 0.15, 0.16, 8).scale(1, 1, 0.72).translate(0, 0.53, -0.04), C3(0.082, 0.068, 0.46).rotateX(Math.PI / 2).translate(-0.095, 0.5, 0.17), C3(0.082, 0.068, 0.46).rotateX(Math.PI / 2).translate(0.095, 0.5, 0.17),
+      C3(0.06, 0.048, 0.44).translate(-0.095, 0.26, 0.38), C3(0.06, 0.048, 0.44).translate(0.095, 0.26, 0.38), Bx(0.1, 0.07, 0.24).translate(-0.095, 0.035, 0.43), Bx(0.1, 0.07, 0.24).translate(0.095, 0.035, 0.43)]),
+    head: G.merge([...headK(1.27, -0.05), Sph(0.042, 5, 4).scale(0.85, 0.6, 1.3).translate(-0.17, 0.7, 0.21), Sph(0.042, 5, 4).scale(0.85, 0.6, 1.3).translate(0.17, 0.7, 0.21)]),
+    hair: G.merge(hairK(1.27, -0.05)),
   };
   const STAND = {
-    top: G.merge([C3(0.16, 0.15, 0.58).scale(1, 1, 0.68).translate(0, 1.2, 0), new THREE.SphereGeometry(0.17, 7, 4, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.15, 0.5, 0.72).translate(0, 1.47, 0),
-      C3(0.05, 0.042, 0.62, 5).rotateZ(0.08).translate(-0.215, 1.17, 0), C3(0.05, 0.042, 0.62, 5).rotateZ(-0.08).translate(0.215, 1.17, 0)]),
-    legs: G.merge([C3(0.08, 0.06, 0.88, 5).translate(-0.095, 0.47, 0), C3(0.08, 0.06, 0.88, 5).translate(0.095, 0.47, 0), new THREE.BoxGeometry(0.1, 0.07, 0.25).translate(-0.095, 0.035, 0.05), new THREE.BoxGeometry(0.1, 0.07, 0.25).translate(0.095, 0.035, 0.05)]),
-    head: G.merge([C3(0.05, 0.055, 0.1, 6).translate(0, 1.53, 0), new THREE.SphereGeometry(0.1, 8, 6).scale(0.9, 1.1, 1).translate(0, 1.66, 0.01)]),
-    hair: G.merge([new THREE.SphereGeometry(0.105, 8, 4, 0, Math.PI * 2, 0, Math.PI * 0.55).scale(0.92, 1.1, 1.03).translate(0, 1.675, 0)]),
+    top: G.merge([...torso(1.21, 0), C3(0.055, 0.047, 0.3).rotateZ(0.06).translate(-0.218, 1.3, 0), C3(0.055, 0.047, 0.3).rotateZ(-0.06).translate(0.218, 1.3, 0),
+      C3(0.047, 0.04, 0.27).rotateZ(0.03).translate(-0.228, 1.02, 0.01), C3(0.047, 0.04, 0.27).rotateZ(-0.03).translate(0.228, 1.02, 0.01)]),
+    legs: G.merge([C3(0.155, 0.15, 0.16, 8).scale(1, 1, 0.68).translate(0, 0.92, 0), C3(0.082, 0.056, 0.86).translate(-0.095, 0.5, 0), C3(0.082, 0.056, 0.86).translate(0.095, 0.5, 0),
+      Bx(0.1, 0.07, 0.25).translate(-0.095, 0.035, 0.04), Bx(0.1, 0.07, 0.25).translate(0.095, 0.035, 0.04)]),
+    head: G.merge([...headK(1.63, 0.01), Sph(0.042, 5, 4).scale(0.75, 1.3, 0.6).translate(-0.232, 0.84, 0.02), Sph(0.042, 5, 4).scale(0.75, 1.3, 0.6).translate(0.232, 0.84, 0.02)]),
+    hair: G.merge(hairK(1.63, 0.01)),
   };
   const SHIRT = [new THREE.Color(HOME.col), new THREE.Color(HOME.col2), new THREE.Color(0xd8b020), new THREE.Color(0x2a2c30), new THREE.Color(0x4a5a6a), new THREE.Color(0xe8e4dc)];
-  const SKIN = [0xf0c8a8, 0xd8a880, 0xa87050, 0x6a4430, 0xe8b898].map(c => new THREE.Color(c));
-  const JEANS = [0x2a3448, 0x1c1e22, 0x3a3a3c, 0x4a4030, 0x2a3a5a].map(c => new THREE.Color(c));
-  const HAIR = [0x1a1410, 0x3a2414, 0x6a4a2a, 0xb89060, 0x8a8a88, 0x2a1a10].map(c => new THREE.Color(c));
+  const SKIN = [0xf0c8a8, 0xd8a880, 0xa87050, 0x6a4430, 0xe8b898, 0xc89070].map(c => new THREE.Color(c));
+  const JEANS = [0x2a3448, 0x1c1e22, 0x3a3a3c, 0x4a4030, 0x2a3a5a, 0x5a5448].map(c => new THREE.Color(c));
+  const HAIR = [0x1a1410, 0x3a2414, 0x6a4a2a, 0xb89060, 0x8a8a88, 0x2a1a10, 0x101010].map(c => new THREE.Color(c));
+  // everybody's look, picked once (its own random sequence: the layout's stays as it was)
+  const CR = rng(909), pick = a => a[Math.floor(CR() * a.length)];
+  const dress = (list, seated) => list.map(f => {
+    const [x, y, z, yaw, ci] = seated ? f : [f[0], 0, f[1], f[2], f[3]], hair = pick(HAIR);
+    return { x, y, z, yaw, s: 0.9 + CR() * 0.18, shirt: (CR() < 0.2 ? SHIRT[3 + Math.floor(CR() * 3)] : SHIRT[ci]).clone().multiplyScalar(0.8 + CR() * 0.3),
+      legs: pick(JEANS), skin: pick(SKIN), hair, hat: CR() < 0.3 ? SHIRT[ci] : hair, kind: CR(), near: false };
+  });
+  const mtx = new THREE.Matrix4(), qY = new THREE.Quaternion(), vS = new THREE.Vector3(), vP = new THREE.Vector3(), AY = new THREE.Vector3(0, 1, 0), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+  const place = f => mtx.compose(vP.set(f.x, f.y, f.z), qY.setFromAxisAngle(AY, f.yaw), vS.setScalar(f.s));
   const people = (list, kit, seated) => {
     const n = list.length, parts = ['top', 'legs', 'head', 'hair'].map(k => new THREE.InstancedMesh(kit[k], crowdMat(k === 'head' ? 0.6 : 0.85), n));
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0), c = new THREE.Color();
     list.forEach((f, i) => {
-      const [x, y, z, yaw, ci] = seated ? f : [f[0], 0, f[1], f[2], f[3]];
-      m.compose(p.set(x, y, z), q.setFromAxisAngle(Y, yaw), s.setScalar(0.9 + R() * 0.18)); for (const im of parts) im.setMatrixAt(i, m);
-      parts[0].setColorAt(i, c.copy(R() < 0.2 ? SHIRT[3 + Math.floor(R() * 3)] : SHIRT[ci]).multiplyScalar(0.8 + R() * 0.3));
-      parts[1].setColorAt(i, JEANS[Math.floor(R() * JEANS.length)]); parts[2].setColorAt(i, SKIN[Math.floor(R() * SKIN.length)]);
-      parts[3].setColorAt(i, R() < 0.3 ? c.copy(SHIRT[ci]) : HAIR[Math.floor(R() * HAIR.length)]);   // (a third of them in a bobble hat)
+      place(f); for (const im of parts) im.setMatrixAt(i, mtx);
+      parts[0].setColorAt(i, f.shirt); parts[1].setColorAt(i, f.legs); parts[2].setColorAt(i, f.skin); parts[3].setColorAt(i, f.hat);   // (a third of them in a bobble hat)
     });
     for (const im of parts) { im.castShadow = !seated; im.receiveShadow = true; im.computeBoundingSphere(); crowd.add(im); }
+    return { list, parts, seated };
   };
-  // phones / tablets: a thinner crowd in the seats (it's ~2 M triangles at full strength); an even spread, picked
-  // without touching the layout's random sequence
-  // 60% fewer fans everywhere (seats and the standing crowd), and fewer again on phones / tablets
-  { const LT = tier(), keep = 0.4 * (LT > 1 ? 0.4 : LT ? 0.65 : 1), thin = l => l.filter((f, i) => (i * 0.6180339887) % 1 < keep);
-    people(thin(fans), SEAT, true); people(thin(standers), STAND, false); }
+  // 60% fewer fans everywhere (seats and the standing crowd), and fewer again on phones / tablets; an even spread,
+  // picked without touching the layout's random sequence
+  const keep = 0.4 * (LT > 1 ? 0.4 : LT ? 0.65 : 1), thin = l => l.filter((f, i) => (i * 0.6180339887) % 1 < keep);
+  const farSeat = people(dress(thin(fans), true), SEAT, true), farStand = people(dress(thin(standers), false), STAND, false);
+
+  // ---- real people up close: the nearest few dozen fans are the game's own character models (posed and baked once:
+  // standing in the idle, or sat down), each recoloured to that fan's shirt, trousers, skin and hair. The far figure
+  // of whoever's near is hidden (a zero-scale matrix) while the real one stands in for it.
+  const KINDS = (globalThis.ZA && globalThis.ZA.KINDS) || null;
+  const REAL = [];   // { pose, kind, im, attrs }
+  const realMat = (md, castShadow) => {
+    const m = new THREE.MeshStandardMaterial({ map: md.map, color: md.color, roughness: 0.8, transparent: md.transparent, alphaTest: md.alphaTest });
+    m.defines = { CPART: md.part };
+    m.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, crowdUni, { cNorm: { value: md.norm }, cMix: { value: md.part === 3 ? 0.7 : 1 } });
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
+uniform float cT, cCheer, cKeep; attribute vec3 iShirt, iLegs, iSkin, iHair; varying vec3 vTint;`).replace('#include <begin_vertex>', `#include <begin_vertex>
+      #if CPART == 1
+        vTint = iShirt;
+      #elif CPART == 2
+        vTint = iLegs;
+      #elif CPART == 3
+        vTint = iSkin;
+      #elif CPART == 4
+        vTint = iHair;
+      #else
+        vTint = vec3(1.0);
+      #endif
+      { vec3 ip = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]); float ph = fract(sin(dot(ip.xz, vec2(12.9898, 78.233))) * 43758.5453);
+        float b = max(0.0, sin(cT * (5.0 + ph * 3.0) + ph * 40.0)); transformed.y += b * b * cCheer * smoothstep(0.3, 0.9, position.y);
+        transformed.x += sin(cT * 1.3 + ph * 20.0) * 0.03 * smoothstep(0.6, 1.3, position.y);
+        transformed *= step(fract(ph * 91.7), cKeep); }`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTint; uniform float cNorm, cMix;').replace('#include <map_fragment>', `#include <map_fragment>
+      #if CPART > 0
+        { float l = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)) * cNorm; diffuseColor.rgb = mix(diffuseColor.rgb, vTint * l, cMix); }
+      #endif`);
+    };
+    m.customProgramCacheKey = () => 'sdHuman';
+    return m;
+  };
+  const NEAR = { R: LT > 1 ? 12 : LT ? 16 : 24, cap: { stand: LT > 1 ? 8 : LT ? 14 : 36, sit: LT > 1 ? 8 : LT ? 14 : 40 }, t: 0 };
+  const KIND_IDS = KINDS ? ['human', 'butler', 'coach', 'michelle'].filter(k => KINDS[k] && KINDS[k].root) : [];
+  if (KIND_IDS.length && !Q_NOREAL()) {
+    try {
+      for (const pose of ['stand', 'sit']) for (const k of KIND_IDS) {
+        const { geo, mats } = bakePerson(KINDS[k], pose), cap = NEAR.cap[pose];
+        const attrs = {}; for (const a of ['iShirt', 'iLegs', 'iSkin', 'iHair']) geo.setAttribute(a, attrs[a] = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3));
+        const im = new THREE.InstancedMesh(geo, mats.map(md => realMat(md)), cap);
+        im.count = 0; im.visible = false; im.castShadow = pose === 'stand'; im.receiveShadow = true; im.frustumCulled = true;
+        crowd.add(im); REAL.push({ pose, kind: k, im, attrs });
+      }
+    } catch (e) { console.warn('stadium crowd: real people off', e); for (const r of REAL) crowd.remove(r.im); REAL.length = 0; }
+  }
+  const nearUpdate = focus => {
+    if (!REAL.length || !focus) return;
+    const R2 = NEAR.R * NEAR.R;
+    for (const far of [farSeat, farStand]) {
+      const pose = far.seated ? 'sit' : 'stand', meshes = REAL.filter(r => r.pose === pose), cap = NEAR.cap[pose];
+      const cand = [];
+      for (let i = 0; i < far.list.length; i++) { const f = far.list[i], dx = f.x - focus.x, dz = f.z - focus.z, dy = f.y - (focus.y || 0), d2 = dx * dx + dz * dz + dy * dy; if (d2 < R2) cand.push([d2, i]); }
+      cand.sort((a, b) => a[0] - b[0]); const want = new Set(cand.slice(0, cap).map(c => c[1]));
+      let dirty = false;
+      far.list.forEach((f, i) => { const w = want.has(i); if (w === f.near) return; f.near = w; dirty = true; if (w) for (const im of far.parts) im.setMatrixAt(i, ZERO); else { place(f); for (const im of far.parts) im.setMatrixAt(i, mtx); } });
+      if (!dirty) continue;
+      for (const im of far.parts) im.instanceMatrix.needsUpdate = true;
+      for (const r of meshes) r.im.count = 0;
+      for (const i of want) {
+        const f = far.list[i], r = meshes[Math.min(meshes.length - 1, Math.floor(f.kind * meshes.length))], k = r.im.count++;
+        place(f); r.im.setMatrixAt(k, mtx);
+        r.attrs.iShirt.setXYZ(k, f.shirt.r, f.shirt.g, f.shirt.b); r.attrs.iLegs.setXYZ(k, f.legs.r, f.legs.g, f.legs.b);
+        r.attrs.iSkin.setXYZ(k, f.skin.r, f.skin.g, f.skin.b); r.attrs.iHair.setXYZ(k, f.hair.r, f.hair.g, f.hair.b);
+      }
+      for (const r of meshes) { r.im.visible = r.im.count > 0; r.im.instanceMatrix.needsUpdate = true; for (const a of Object.values(r.attrs)) a.needsUpdate = true; if (r.im.count) r.im.computeBoundingSphere(); }
+    }
+  };
 
   // ================================================================ lights: floodlights (4 spots), a floodlit fill
   const floods = [];
@@ -895,6 +982,7 @@ export function buildMap(K) {
   STADIUM.cheer = k => { crowdUni.cCheer.value = k; };
   STADIUM.update = (dt, focus) => {
     tAcc += dt; crowdUni.cT.value = tAcc; STADIUM.t = tAcc;
+    if ((NEAR.t -= dt) <= 0 && focus) { NEAR.t = 0.3; nearUpdate(focus); }   // (the real people up close)
     { const ck = crowdUni.cKeep; ck.value += ((STADIUM.crowdTarget ?? 1) - ck.value) * Math.min(1, dt * 0.3); if (Math.abs(ck.value - STADIUM.crowdTarget) < 0.002) ck.value = STADIUM.crowdTarget; }
     // the key: once the red cabinet's been searched you have it, and the switch panel can be used
     if (keyC && keyC.searched && !STADIUM.hasKey) STADIUM.hasKey = true;

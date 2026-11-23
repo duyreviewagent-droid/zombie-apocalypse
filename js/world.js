@@ -45,9 +45,19 @@ const skyFS = `
     vec2 cell = floor(sp), sf = fract(sp) - 0.5; float hs = h(mod(cell, 1024.0));
     float st = step(0.9975, hs) * smoothstep(0.42, 0.0, length(sf)) * smoothstep(0.0, 0.3, d.y) * night * (1.0 - cloud) * (0.85 + 0.15 * sin(time * 1.3 + hs * 60.0)) * (0.4 + 0.6 * fract(hs * 97.0));
     col += vec3(st) * 0.9;
+    // the moon: a big pale disc (about 4 degrees across, so you can't miss it) with dark seas and a few craters,
+    // darker toward its rim, in a soft halo; it's drawn over the clouds below, which thin it out / hide it in rain
     float m = max(dot(d, moonDir), 0.0);
-    float md = smoothstep(0.99985, 0.99992, m); vec3 mt = normalize(d - moonDir); float maria = 0.72 + 0.28 * vn(mt.xz * 900.0);
-    col += vec3(0.78, 0.8, 0.86) * md * maria * 1.6 * night + vec3(0.75, 0.8, 0.9) * (pow(m, 80.0) * 0.12 + pow(m, 8.0) * 0.03) * night;
+    vec3 mu = normalize(cross(moonDir, vec3(0.0, 1.0, 0.0))), mv = cross(mu, moonDir);
+    vec2 mq = vec2(dot(d, mu), dot(d, mv)) / 0.036; float mr = length(mq);
+    float md = smoothstep(1.0, 0.93, mr) * step(0.0, dot(d, moonDir));
+    float maria = 1.0 - 0.32 * smoothstep(0.45, 0.62, vn(mq * 2.1 + 3.7)) - 0.12 * smoothstep(0.5, 0.8, vn(mq * 6.0 + 1.3));
+    for (int i = 0; i < 4; i++) { vec2 cc0 = vec2(sin(float(i) * 2.4 + 0.6), cos(float(i) * 3.1 + 0.2)) * 0.55; float cr = length(mq - cc0); maria -= 0.12 * smoothstep(0.16, 0.1, cr) - 0.06 * smoothstep(0.2, 0.16, cr) * smoothstep(0.1, 0.16, cr); }
+    float limb = pow(max(1.0 - mr * mr, 0.0), 0.25);
+    float ma2 = length(d - moonDir), mUp = smoothstep(-0.02, 0.03, d.y);
+    vec3 mcol = (vec3(1.0, 0.98, 0.92) * md * maria * (0.55 + 0.45 * limb) * 2.4
+               + vec3(0.62, 0.7, 0.9) * (exp(-ma2 * 16.0) * 0.32 + exp(-ma2 * 4.5) * 0.07)) * night * mUp;
+    float moonHide = 0.0;
     // clouds: a layer of drifting cumulus (a few puffs on a clear day, a solid deck in rain), lit on the sun's side,
     // grey underneath, the edges bright when the sun is behind them; they thin out into the haze at the horizon
     if (d.y > -0.02) {
@@ -66,12 +76,14 @@ const skyFS = `
       vec3 top = mix(vec3(1.05), sunCol, 0.35) * mix(1.15, 0.7, cloud) * mix(1.0, 0.04, night);
       vec3 cc = mix(base, top, lit * (1.0 - cloud * 0.6));
       cc += sunCol * pow(s, 12.0) * (1.0 - cd) * 1.2 * day;                       // silver lining
-      cc += vec3(0.6, 0.65, 0.75) * pow(m, 14.0) * 0.12 * night;                   // moonlit edges
+      cc += vec3(0.6, 0.65, 0.75) * (pow(m, 14.0) * 0.22 + pow(m, 3.0) * 0.035) * night;   // moonlit edges
       cc = mix(cc, hor, (1.0 - smoothstep(0.0, 0.3, d.y)) * 0.6);                  // far ones fade into the haze
       col = mix(col, cc, cd * mix(0.9, 1.0, cloud));
+      moonHide = cd * mix(0.45, 0.97, smoothstep(0.55, 1.05, cloud));
       // under a heavy sky the whole dome greys over between the clouds too
       col = mix(col, base * 1.15, smoothstep(0.5, 1.0, cloud) * 0.55 * smoothstep(-0.02, 0.25, d.y));
     }
+    col += mcol * (1.0 - moonHide) * (1.0 - smoothstep(0.95, 1.4, cloud) * 0.85);
     gl_FragColor = vec4(min(col, vec3(6.0)), 1.0);
   }`;
 
@@ -4146,7 +4158,11 @@ export function makeWorld(scene, renderer) {
     // night follows the sun's height (not the key light): the stars, the moon and the darker sky arrive together
     const night = 1 - smooth(-0.18, 0.02, el);
     uni.night.value = night;
-    { const ma = (((h - 18.5) % 24 + 24) % 24) / 12 * Math.PI; moonDir.set(Math.cos(ma) * 0.8, Math.max(0.08, Math.sin(ma) * 0.7), -0.35).normalize(); }   // rises in the evening, high at midnight, sets at dawn
+    // the moon: opposite the sun — rises in the east (+x) as it gets dark, across the south side of the sky (the sun
+    // goes over the north), sets in the west at dawn. Kept low (≤ ~30°) so it hangs where you look, over the rooftops.
+    const mt = ((h - 18.8) % 24 + 24) % 24 / 11.8, ma = Math.min(mt, 1) * Math.PI;
+    moonDir.set(Math.cos(ma) * 0.85, Math.max(0.06, Math.sin(ma) * 0.45), 0.75).normalize();
+    const moonUp = mt > 1 ? 0 : smooth(0.04, 0.22, moonDir.y);   // low on the horizon it's dimmer (more air)
     // the cloud cover: heavy overcast after the outbreak, black in rain, nearly clear on the sunny Saturday
     uni.cloud.value = (W.preset && W.preset.cloud != null ? W.preset.cloud : 0.6) + k * 0.4;
     if (sk > 0.001) uni.cloud.value = lerp(uni.cloud.value, 0.12, sk);
@@ -4155,15 +4171,22 @@ export function makeWorld(scene, renderer) {
     // direction happens while both are near zero, so no shadow ever jumps across the street
     const sunK = smooth(-0.04, 0.03, Math.sin(ang)), moonK = night;
     const sunPart = sunI * sunK * (1 - over * 0.85);
-    if (sunPart < 0.02 && moonK > 0.02) { sun.color.setRGB(0.55, 0.65, 0.9); sun.intensity = 0.18 * moonK * (1 - over * 0.6); W.lightDir = moonDir; }
+    // moonlight: cool and soft, enough to read the streets, the buildings and anything walking at you (cloud and
+    // rain dim it); the same light and shadow map as the sun, so night costs nothing extra
+    const moonL = moonK * (0.35 + 0.65 * moonUp) * (1 - over * 0.5) * (1 - k * 0.55);
+    W.moonLight = moonL;
+    if (sunPart < 0.02 && moonK > 0.02) { sun.color.setRGB(0.6, 0.71, 1.0); sun.intensity = 0.55 * moonL; W.lightDir = moonDir; }
     else { sun.color.copy(uni.sunCol.value); sun.intensity = sunPart; W.lightDir = sunDir; }
     FOL.fSun.value.copy(W.lightDir); FOL.fSunCol.value.copy(sun.color).multiplyScalar(sun.intensity * 0.45);
     // under cloud the sky carries the light: soft fill instead of hard sun
     hemi.intensity = hemiI * (1 + cov * 0.6) * (1 - k * 0.2);
     hemi.color.copy(uni.zen.value).lerp(tc.set(0xb8c4d4), 0.5); if (W.daylight < 0.4) hemi.color.lerp(uni.hor.value, (0.4 - W.daylight) * 1.5);
     hemi.groundColor.set(0x4a4436).multiplyScalar(0.3 + W.daylight * 0.7);
+    // the moonlit sky: a cool blue fill at night so shapes read in the dark (silhouettes, roads, walls)
+    if (night > 0.01) { hemi.color.lerp(tc.set(0x7a8cb0), night * 0.75); hemi.groundColor.lerp(tc.set(0x2a2c34), night * 0.6); hemi.intensity += night * (0.07 + 0.13 * moonL); }
     sun.shadow.radius = 1 + cov * 5;
     scene.fog.color.copy(a[6]).lerp(b[6], t); scene.fog.density = lerp(a[7], b[7], t);
+    if (night > 0.01) { scene.fog.color.lerp(tc.set(0x1c2333), night * (0.25 + 0.4 * moonL)); scene.fog.density *= 1 - night * 0.18; }   // moonlit haze: far shapes stand out dark against it
     scene.environmentIntensity = lerp(a[8], b[8], t) * (1 + cov * 0.4);
     if (sk > 0.001) { scene.fog.density *= 1 - sk * 0.6; scene.fog.color.lerp(tc.set(0xc8d8e6), sk * 0.75); scene.environmentIntensity *= 1 + sk * 0.3; }
     W.night = night;

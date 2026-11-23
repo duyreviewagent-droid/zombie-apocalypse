@@ -1578,9 +1578,11 @@ function showWho(go) {
     $('whoList').innerHTML = W2.map((w, i) => `<button class="dbtn who" data-i="${i}">${faceOf(w.body) ? `<img class="face" src="${faceOf(w.body)}" alt="">` : ''}<div class="wtx"><div class="top"><b>${w.name.toUpperCase()}</b></div><small>${w.job[0].toUpperCase() + w.job.slice(1)}.<br>Lives at <b>${addressOf(w.house)}</b></small></div></button>`).join('');
     const pickCard = i => { G.whoPick = W2[i]; for (const b of $('whoList').querySelectorAll('button')) b.classList.toggle('sel', +b.dataset.i === i); };
     for (const b of $('whoList').querySelectorAll('button')) { b.onclick = () => pickCard(+b.dataset.i); b.ondblclick = () => { pickCard(+b.dataset.i); $('whoStart').click(); }; }
-    pickCard(0);
+    pickCard(0); G.whoPickCard = pickCard; G.whoN = W2.length;
   };
-  roll(); $('whoShuffle').onclick = roll; $('whoBack').onclick = () => showDiffs();
+  roll(); $('whoShuffle').onclick = roll;
+  if (!$('whoRandom')) { const rb = document.createElement('button'); rb.className = 'm'; rb.id = 'whoRandom'; rb.textContent = '🎲 Random player'; $('whoShuffle').after(rb); }
+  $('whoRandom').onclick = () => { roll(); G.whoPickCard(Math.floor(Math.random() * G.whoN)); }; $('whoBack').onclick = () => showDiffs();
   // the run's options (remembered for next time)
   $('oCkpt').checked = save.ckpt !== false; $('oHC').checked = !!save.hc; $('oBub').checked = save.bubbles !== false; $('oShake').checked = !!save.shake; $('oView').value = save.view || 'third';
   $('oMusic').value = save.music ?? 0.7; $('oSfx').value = save.sfx ?? 1; $('oTut').checked = save.tutorial ?? !save.tutorialDone;
@@ -3023,15 +3025,20 @@ function showDiffs() {
   const lvl = { easy: 1, medium: 2, hard: 3, extreme: 4, apocalypse: 5, zombiex: 6 };
   const barH = (ic, lbl, v) => `<div class="stat">${icon(ic)}<span>${lbl}</span><span class="b"><i style="width:${Math.round(Math.min(1, v) * 100)}%"></i></span></div>`;
   $('diffList').innerHTML = Object.entries(DIFFS).map(([k, d]) => `<button class="dbtn ${k} ${save.diff === k ? 'on' : ''}" data-d="${k}"><div class="top"><b>${d.name}</b><span class="sk">${Array.from({ length: 6 }, (_, i) => icon('skull', i < lvl[k] ? '' : 'off')).join('')}</span></div><small>${d.desc}</small>${barH('zombie', 'HORDE', d.count / 6)}${barH('speed', 'SPEED', (d.allRun ? 2.4 : d.speed) / 2.4)}${barH('dmg', 'DAMAGE', d.dmg / 4)}</button>`).join('');
+  $('diffList').insertAdjacentHTML('beforeend', `<button class="dbtn rnd" data-d="random" style="text-align:left"><div class="top"><b>🎲 RANDOM DIFFICULTY</b></div><small>Let fate decide how bad it is — you find out when the day starts.</small></button>`);
   // pick a map and a difficulty (just highlights them) — nothing starts until you press Continue
   let pickMap = MAP_ID, pickDiff = save.diff || 'medium';
-  const mark = () => { for (const b of $('diffList').querySelectorAll('button')) b.classList.toggle('on', b.dataset.d === pickDiff); for (const b of $('mapList').querySelectorAll('button')) b.classList.toggle('on', b.dataset.m === pickMap); $('diffGo').textContent = pickMap === MAP_ID ? 'Continue' : 'Continue — load ' + MAPS[pickMap].name; };
+  const mark = () => { for (const b of $('diffList').querySelectorAll('button')) b.classList.toggle('on', b.dataset.d === pickDiff); for (const b of $('mapList').querySelectorAll('button')) b.classList.toggle('on', b.dataset.m === pickMap); $('diffGo').textContent = pickMap === 'random' ? 'Continue — random map' : pickMap === MAP_ID ? 'Continue' : 'Continue — load ' + MAPS[pickMap].name; };
   for (const b of $('diffList').querySelectorAll('button')) b.onclick = () => { if (!SND.raw || !SND.raw()) startAudio(); pickDiff = b.dataset.d; mark(); };
   let ml = $('mapList'); if (!ml) { ml = document.createElement('div'); ml.id = 'mapList'; ml.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 auto 14px;max-width:980px'; $('diffList').parentNode.insertBefore(ml, $('diffList')); }
   if (!$('mapCss')) { const st = document.createElement('style'); st.id = 'mapCss'; st.textContent = '#mapList .dbtn.on{border-color:#d8c27a;box-shadow:inset 0 0 0 1px #d8c27a;background:rgba(216,194,122,.08)}'; document.head.appendChild(st); }
   ml.innerHTML = Object.values(MAPS).map(m => `<button class="dbtn map ${MAP_ID === m.id ? 'on' : ''}" data-m="${m.id}" style="text-align:left"><div class="top"><b>${m.name}</b></div><small>${m.blurb}</small></button>`).join('');
+  ml.insertAdjacentHTML('beforeend', `<button class="dbtn rnd" data-m="random" style="text-align:left"><div class="top"><b>🎲 RANDOM MAP</b></div><small>Any one of the five — a surprise.</small></button>`);
   for (const b of ml.querySelectorAll('button')) b.onclick = () => { pickMap = b.dataset.m; mark(); };
-  $('diffGo').onclick = () => { if (!SND.raw || !SND.raw()) startAudio(); save.diff = pickDiff; writeSave(); if (pickMap !== MAP_ID) { $('diffGo').textContent = 'Loading…'; switchMap(pickMap, true); } else showWho(() => introThen(newGame)); };
+  $('diffGo').onclick = () => { if (!SND.raw || !SND.raw()) startAudio();
+    const pick = a => a[Math.floor(Math.random() * a.length)];
+    if (pickDiff === 'random') pickDiff = pick(Object.keys(DIFFS)); if (pickMap === 'random') pickMap = pick(Object.keys(MAPS));
+    save.diff = pickDiff; writeSave(); if (pickMap !== MAP_ID) { $('diffGo').textContent = 'Loading…'; switchMap(pickMap, true); } else showWho(() => introThen(newGame)); };
   mark(); showScreen('diff'); const sc = $('diff').querySelector('.center-panel'); if (sc) sc.scrollTop = 0;
 }
 $('btnPlay').onclick = () => { startAudio(); showDiffs(); };

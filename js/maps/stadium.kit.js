@@ -4,6 +4,8 @@
 // axis-aligned building helpers on top of the map kit (js/maps/kit.js).
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { clone as skClone } from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // a deterministic random (so the stadium is the same every run)
 export function rng(seed = 1) { let s = seed >>> 0 || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
@@ -281,4 +283,88 @@ export function builder(K) {
     seg(p, L, y0, y1);
   }
   return { box, rect, wall };
+}
+
+// ---- real people for the crowd: the game's own character models (KINDS), posed once and baked into a static mesh ----
+// bakePerson(kind, 'stand' | 'sit') → { geo (position/normal/uv, a group per material), mats: [{ map, color, part, norm }] }
+// part: 0 as it is, 1 shirt, 2 trousers, 3 skin, 4 hair/hat — the crowd recolours those per person (by the texture's
+// brightness × that person's colour; norm = 1 / the texture's mean brightness where the mesh uses it).
+// Standing: one frame of the idle, feet on y = 0, centred. Sitting: the idle's arms, legs bent, hips over a seat pan
+// (0.45 m up, a little behind the origin), hands on the thighs. Faces +z like the models.
+const partOf = n => /Teeth/i.test(n) ? -1 : /Outfit_Top/i.test(n) ? 1 : /Outfit_Bottom/i.test(n) ? 2 : /Wolf3D_(Skin|Body)/i.test(n) ? 3 : /Hair|Beard|Headwear/i.test(n) ? 4 : 0;
+const lumCache = new WeakMap();
+function texLum(map, uvs) {   // the mean linear brightness of a texture over the uvs a mesh uses
+  const img = map && map.image; if (!img || !img.width) return 1;
+  let px = lumCache.get(img);
+  if (!px) { try { const S = 64, cv = document.createElement('canvas'); cv.width = cv.height = S; const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, S, S); px = g.getImageData(0, 0, S, S).data; } catch { px = null; } lumCache.set(img, px || []); }
+  if (!px || !px.length || !uvs) return 1;
+  const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  let sum = 0, n = 0;
+  for (let i = 0; i < uvs.count; i += 3) {
+    let u = uvs.getX(i) % 1, v = uvs.getY(i) % 1; if (u < 0) u += 1; if (v < 0) v += 1;
+    const k = ((Math.min(63, v * 64 | 0)) * 64 + Math.min(63, u * 64 | 0)) * 4;
+    sum += 0.2126 * lin(px[k]) + 0.7152 * lin(px[k + 1]) + 0.0722 * lin(px[k + 2]); n++;
+  }
+  return n ? sum / n : 1;
+}
+export function bakePerson(kind, pose = 'stand') {
+  const root = skClone(kind.root); root.position.set(0, 0, 0); root.rotation.set(0, 0, 0);
+  const B = {}; root.traverse(o => { if (o.isBone) B[o.name.replace(/^mixamorig:?/, '')] = o; });
+  const clip = kind.clips && (kind.clips.Idle_A || kind.clips.idle);
+  let mixer = null;
+  if (clip) { mixer = new THREE.AnimationMixer(root); const a = mixer.clipAction(clip); a.play(); mixer.setTime(Math.min(clip.duration * 0.3, 0.6)); }
+  root.updateMatrixWorld(true);
+  const va = new THREE.Vector3(), vb = new THREE.Vector3(), q = new THREE.Quaternion(), q2 = new THREE.Quaternion();
+  const aim = (bone, child, dir) => {   // swing a bone so the line to its child points along dir (world)
+    if (!bone || !child) return; root.updateMatrixWorld(true);
+    bone.getWorldPosition(va); child.getWorldPosition(vb); vb.sub(va); if (vb.lengthSq() < 1e-10) return;
+    q2.setFromUnitVectors(vb.normalize(), dir.clone().normalize()); bone.getWorldQuaternion(q).premultiply(q2);
+    bone.parent.getWorldQuaternion(q2).invert(); bone.quaternion.copy(q2.multiply(q));
+  };
+  if (pose === 'sit') {
+    for (const [s, L] of [[1, 'Left'], [-1, 'Right']]) {
+      aim(B[L + 'UpLeg'], B[L + 'Leg'], new THREE.Vector3(s * 0.1, -0.1, 1));
+      aim(B[L + 'Leg'], B[L + 'Foot'], new THREE.Vector3(0, -1, 0.15));
+      aim(B[L + 'Arm'], B[L + 'ForeArm'], new THREE.Vector3(s * 0.12, -1, 0.3));
+      aim(B[L + 'ForeArm'], B[L + 'Hand'], new THREE.Vector3(-s * 0.15, -0.35, 1));
+    }
+    root.updateMatrixWorld(true);
+  }
+  // skin every mesh on the CPU in this pose
+  const parts = [], mats = [], M = new Float32Array(16), v = new THREE.Vector3(), n = new THREE.Vector3(), m4 = new THREE.Matrix4(), w4 = new THREE.Matrix4(), nm = new THREE.Matrix3();
+  root.traverse(o => {
+    if (!o.isMesh || !o.visible) return;
+    const mat = Array.isArray(o.material) ? o.material[0] : o.material, part = partOf((mat && mat.name) || o.name);
+    if (part < 0) return;
+    const g = o.geometry, pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv, cnt = pos.count;
+    const P = new Float32Array(cnt * 3), N = new Float32Array(cnt * 3), U = new Float32Array(cnt * 2);
+    const sk = o.isSkinnedMesh ? o.skeleton : null; if (sk) sk.update();
+    const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, bm = sk && sk.boneMatrices;
+    for (let i = 0; i < cnt; i++) {
+      v.fromBufferAttribute(pos, i); if (nor) n.fromBufferAttribute(nor, i); else n.set(0, 1, 0);
+      if (sk) {
+        M.fill(0);
+        for (let j = 0; j < 4; j++) { const w = sw.getComponent(i, j); if (!w) continue; const b = si.getComponent(i, j) * 16; for (let k = 0; k < 16; k++) M[k] += w * bm[b + k]; }
+        m4.fromArray(M); w4.multiplyMatrices(o.matrixWorld, o.bindMatrixInverse).multiply(m4).multiply(o.bindMatrix);
+      } else w4.copy(o.matrixWorld);
+      v.applyMatrix4(w4); n.applyMatrix3(nm.getNormalMatrix(w4)).normalize();
+      P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z; N[i * 3] = n.x; N[i * 3 + 1] = n.y; N[i * 3 + 2] = n.z;
+      if (uv) { U[i * 2] = uv.getX(i); U[i * 2 + 1] = uv.getY(i); }
+    }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.BufferAttribute(P, 3)); out.setAttribute('normal', new THREE.BufferAttribute(N, 3)); out.setAttribute('uv', new THREE.BufferAttribute(U, 2));
+    out.setIndex(g.index ? Array.from(g.index.array) : [...Array(cnt).keys()]);
+    parts.push(out);
+    const lum = texLum(mat.map, uv) * (mat.color ? 0.2126 * mat.color.r + 0.7152 * mat.color.g + 0.0722 * mat.color.b : 1);
+    mats.push({ map: mat.map || null, color: mat.color ? mat.color.clone() : new THREE.Color(1, 1, 1), part, norm: 1 / Math.max(0.03, lum), transparent: !!mat.transparent, alphaTest: mat.alphaTest || 0 });
+  });
+  // where it stands: feet on the ground and centred over the hips (standing); hips on the seat pan (sitting)
+  const hips = B.Hips ? B.Hips.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3();
+  if (mixer) { mixer.stopAllAction(); mixer.uncacheRoot(root); }
+  const geo = mergeGeometries(parts, true); for (const p of parts) p.dispose();
+  geo.computeBoundingBox();
+  if (pose === 'sit') geo.translate(-hips.x, 0.5 - hips.y, -0.02 - hips.z);
+  else geo.translate(-hips.x, -geo.boundingBox.min.y, -hips.z);
+  geo.computeBoundingBox(); geo.computeBoundingSphere();
+  return { geo, mats };
 }
