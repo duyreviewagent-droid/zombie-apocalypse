@@ -57,8 +57,9 @@ export function rayUnits(o, d, maxT, skip = null, filter = null) {
     if (!u.alive) { if (!(u.zombie && C.t - (u.deadAt || 0) < 3)) return; if (u.sphT !== C.t) refreshHitShapes(u); }
     if (filter && !filter(u)) return;
     // quick reject against a 1.2 m sphere round the body
-    const bt = raySphere(o, d, u.bound, 1.25);
-    if (bt < 0 && tA.copy(o).sub(u.bound).lengthSq() > 1.6) return;
+    const bk = u.sizeK > 1.3 ? u.sizeK : 1;   // [boss] (a mini boss, a boss, The Zombie: the round-the-body test grows with it)
+    const bt = raySphere(o, d, u.bound, 1.25 * bk);
+    if (bt < 0 && tA.copy(o).sub(u.bound).lengthSq() > 1.6 * bk * bk) return;
     for (const S of u.sph) { if (S.r <= 0) continue; const t = raySphere(o, d, S.c, S.r); if (t > 0 && t < best) { best = t; hu = u; part = S.part; hs = S; } }
   };
   for (const u of C.units) test(u);

@@ -204,6 +204,48 @@ export const Z = { list: [], pool: [], swings: null, target: 14, hordeT: 0 };
 const HPK = { EASY: 0.75, MEDIUM: 1, HARD: 1.1, EXTREME: 1.2, APOCALYPSE: 1.35, ZombieX: 1.5 };   // tougher on the harder settings (headshots still kill)
 export const DIFF = { cur: { count: 1, speed: 1, run: 1, dmg: 1, big: 0.05, bigMul: 1, allRun: false } };
 let NEXT = 1, MADE = 0;
+// ---------------------------------------------------------------- [boss] the special ones (bosses.js does the rest)
+// Every multiplier is against that difficulty's ordinary zombie. size: how tall (the whole body scaled); speed, dmg,
+// hp: x the normal one; kd: how often a knockdown just doesn't take; vp: voice pitch (deeper); mass: how hard the
+// crowd shoves it (separate() in main.js); atkRate: the swing's playback (slower, heavier); atkR: claw reach (m).
+export const BOSS_TYPES = {
+  mini: { name: 'MINI BOSS', size: 2, speed: 2, dmg: 2, hp: 2, kd: 0.5, vp: 0.72, mass: 0.25, atkRate: 0.85, room: 0.6 },
+  boss: { name: 'BOSS', size: 2.6, speed: 0.9, dmg: 5, hp: 10, kd: 0.8, vp: 0.58, mass: 0.12, atkRate: 0.62, room: 0.9, heavy: true },
+  giant: { name: 'THE ZOMBIE', size: 10, speed: 0.6, dmg: 8, hp: 60, kd: 1, vp: 0.42, mass: 0.01, atkRate: 0.5, room: 3, heavy: true },
+};
+// filled in by bosses.js: allow() (may one roll here?), rolled(u) (a mini boss / boss just rolled), think(u, dt, P, G)
+// (The Zombie's own mind), heavyHit(u, victim) (a boss's blow lands), step(u, e) (a boss's foot comes down)
+export const BOSSH = {};
+const PLAIN = { size: 1, speed: 1, dmg: 1, hp: 1, kd: 0, vp: 1, mass: 1, atkRate: 1 };
+function roomFor(x, z, r) {
+  const W = C.world; if (!W || !W.walkable) return true;
+  for (let a = 0; a < 8; a++) if (!W.walkable(x + Math.cos(a * 0.785) * r, z + Math.sin(a * 0.785) * r)) return false;
+  return W.walkable(x, z);
+}
+// put the type's size, speed, strength and voice on a zombie that wake() has just set up (or take them off again)
+function applyBoss(u, type) {
+  const T = BOSS_TYPES[type] || PLAIN, S = u.s;
+  u.bossT = BOSS_TYPES[type] ? type : null; u.giant = type === 'giant';
+  u.dmgK = T.dmg; u.vpK = T.vp; u.massK = T.mass; u.kdK = T.kd; u.atkRate = T.atkRate; u.heavy = !!T.heavy;
+  u.atkR = type === 'giant' ? 5.5 : null; u.bossDone = false; u.bossKid = false;
+  if (S._onStep0 !== undefined) { S.onStep = S._onStep0; delete S._onStep0; }
+  if (!u.bossT) { S.strideK = 1; S.big = !!u.big; return; }
+  u.big = false; u.bigK = 1; u.base = { walk: u.walkSpeed, run: u.runSpeed, runner: u.runner };   // (tests: what an ordinary one would have been)
+  const sc = rnd(0.97, 1.03) * T.size;
+  S.root.scale.setScalar(sc); u.sizeK = sc * 1.05;
+  bulk(S, true);
+  u.maxHp = u.hp = rnd(85, 100) * (DIFF.cur.hpK ?? HPK[DIFF.cur.name] ?? 1) * T.hp;
+  if (type === 'giant') {   // it never runs: 0.6x what the one it replaced would have done, on long slow strides
+    u.walkSpeed = (u.runner ? u.runSpeed : u.walkSpeed) * T.speed; u.runner = false; u.runSpeed = u.walkSpeed;
+    S.strideK = Math.max(1, u.walkSpeed / 0.22);   // (slow shuffling half-strides: the feet don't skate)
+  } else {
+    u.walkSpeed *= T.speed; u.runSpeed = Math.min(13, u.runSpeed * T.speed);
+    S.strideK = sc;   // twice the size and twice the speed: the same stride rate as a normal one, twice as long
+  }
+  S.big = true;   // heavy footsteps (main.js onStep)
+  S._onStep0 = S.onStep;
+  S.onStep = (s, e) => { if (S._onStep0) S._onStep0(s, e); if (BOSSH.step) BOSSH.step(u, e); };
+}
 export function makeZombie(kind, scene, variant, onStep) {
   const s = new Soldier(zombieKind(kind), scene, { clone: true, onStep });
   s.animLod = true;
@@ -220,7 +262,8 @@ export function makeZombie(kind, scene, variant, onStep) {
   Z.pool.push(u); C.units.push(u);
   return u;
 }
-export function giveVest(u) { vest(u.s); u.dale = true; u.name = 'DALE'; }
+export function giveVest(u) { if (u.bossT) { applyBoss(u, null); u.s.root.scale.setScalar(1); u.sizeK = 1; bulk(u.s, false); u.maxHp = u.hp = 100; }   // [boss] Dale is just Dale
+  vest(u.s); u.dale = true; u.name = 'DALE'; }
 export function vestOn(s) { vest(s); }
 // a person who's just died and is getting back up: their own body becomes one of the dead
 // Their own clothes, hair and size stay: only the colour drains out of them (gradually if people.js started it
@@ -250,7 +293,7 @@ export function wake(u, x, z, opts = {}) {
   const sc = rnd(0.9, 1.08);
   if (u.big) { u.s.root.scale.setScalar(sc * 1.14); u.sizeK = sc * 1.14 * 1.05; }   // (bulk: a broader chest and limbs)
   else { if (!(opts.keepScale || u.turned)) u.s.root.scale.setScalar(u.s.lookL ? u.s.lookL.zs : sc); u.sizeK = u.s.root.scale.x; }
-  bulk(u.s, u.big);
+  bulk(u.s, u.big);   // ([boss] applyBoss bulks the special ones up afterwards)
   if (u.big) { u.maxHp = u.hp = (opts.hp || rnd(240, 300)) * u.bigK; }
   if (D.allRun) opts.runner = true;
   u.runner = opts.runner ?? runner;
@@ -260,7 +303,16 @@ export function wake(u, x, z, opts = {}) {
   u.legDmg = 0; u.limp = false; u.crawl = false;
   if (u.s.zTurn && u.s.zTurn.value < 1) u.z.turnFrom = u.s.zTurn.value;
   if (opts.lying) { u.s.play('Death_D', { hold: true, snap: true, from: 3 }); u.z.down = 999; u.z.lying = true; }
+  // [boss] 8% of them a mini boss, 3% a boss — outdoors, after the outbreak, never a turned neighbour, Dale, one
+  // lying in the road, or a client's copy of the host's zombie (net.js passes hp). opts.boss forces a type (or none).
+  let bt = opts.boss, rolled = false;
+  if (bt === undefined && !opts.indoor && !opts.lying && !u.turned && !u.dale && !C.calm && !('hp' in opts) && BOSSH.allow && BOSSH.allow(u)) {
+    const r = Math.random(); bt = r < 0.03 ? 'boss' : r < 0.11 ? 'mini' : null; rolled = !!bt;
+  }
+  if (bt && bt !== 'giant' && !opts.force && !roomFor(x, z, BOSS_TYPES[bt].room)) bt = null;   // no room to stand up in
+  applyBoss(u, bt);
   if (!Z.list.includes(u)) Z.list.push(u);
+  if (u.bossT && BOSSH.rolled) BOSSH.rolled(u, rolled);
   return u;
 }
 // a big one's bulk, put on through the bones (and taken off again: the pool reuses bodies)
@@ -389,6 +441,8 @@ function voice(u, ev, guess, ...a) {
 const hp = V(), hd = V();
 export function zombieThink(u, dt, P, G) {
   const Zb = u.z, S = u.s, W = C.world;
+  if (u.bossT && u.heavy && S.fly) S.fly = null;   // [boss] a blast or a car doesn't throw a boss through the air
+  if (u.giant && BOSSH.think) return BOSSH.think(u, dt, P, G);   // [boss] The Zombie has a mind of its own (bosses.js)
   const cmd = { move: null, speed: 0, face: null };
   S.noLod = !!(Zb.swing || Zb.grab || Zb.doorHit || S.pos.distanceToSquared(P.s.pos) < 9);   // never half-animate one that's on you
   // a turned body: the last of the colour goes out of them before they're up
@@ -487,13 +541,13 @@ export function zombieThink(u, dt, P, G) {
     }
     // attack
     Zb.atkT -= dt;
-    if (T.alive && !u.crawl && pd < 1.2 * u.sizeK && Zb.atkT <= 0 && !S.up && Math.abs(wrapPi(cmd.face - S.yaw)) < 0.9 && reachP(u, T)) {
-      Zb.atkT = rnd(1.6, 2.4) * (u.runner ? 0.8 : 1) * (T === P ? 1 : 0.75) / (DIFF.cur.aggro || 1);
-      if (T === P && !G.grabbedBy && Math.random() < (u.runner ? 0.38 : 0.25) * (DIFF.cur.aggro || 1) && !(G.noGrabT > C.t)) emit('zombieGrab', u);
+    if (T.alive && !u.crawl && pd < (u.atkR || 1.2 * u.sizeK) && Zb.atkT <= 0 && !S.up && Math.abs(wrapPi(cmd.face - S.yaw)) < 0.9 && reachP(u, T)) {
+      Zb.atkT = rnd(1.6, 2.4) * (u.runner ? 0.8 : 1) * (T === P ? 1 : 0.75) / (DIFF.cur.aggro || 1) / (u.atkRate || 1);
+      if (T === P && !G.grabbedBy && !u.bossT && Math.random() < (u.runner ? 0.38 : 0.25) * (DIFF.cur.aggro || 1) && !(G.noGrabT > C.t)) emit('zombieGrab', u);
       else {
         // the hit lands when the captured swing's hand gets there at this speed (plus a frame: never before it)
-        const rate = rnd(1.0, 1.25);
-        S.playUp('Zombie_Scratch', { rate, fade: 0.1, fadeAt: 1.3, fadeOut: 0.3 });
+        const rate = rnd(1.0, 1.25) * (u.atkRate || 1);
+        S.playUp('Zombie_Scratch', { rate, fade: 0.1, fadeAt: 1.3 / (u.atkRate || 1), fadeOut: 0.3 });
         Zb.swing = { t: 0, hitAt: (Z.swings?.Zombie_Scratch?.hit || 0.6) / rate + 1 / 60, done: false, on: T };
         voice(u, 'zombieGrowl', 0.7);
       }
@@ -559,7 +613,7 @@ export function zombieThink(u, dt, P, G) {
     if (H.t >= H.at) {
       Zb.doorHit = null;
       if (!D.broken && !D.box.off && S.up === 'Zombie_Scratch' && Math.hypot(D.x - S.pos.x, D.z - S.pos.z) < 1.3) {
-        emit('doorBang', D, u); D.hp -= rnd(8, 14) * (u.runner ? 1.5 : 1) * (u.big ? 2.5 * u.bigK : 1); D.bangT = 0.3;
+        emit('doorBang', D, u); D.hp -= rnd(8, 14) * (u.runner ? 1.5 : 1) * (u.big ? 2.5 * u.bigK : 1) * (u.dmgK || 1); D.bangT = 0.3;
         if (D.hp <= 0) emit('doorBreak', D, u);
       }
     }
@@ -570,12 +624,13 @@ export function zombieThink(u, dt, P, G) {
     if (!Zb.swing.done && Zb.swing.t >= Zb.swing.hitAt) {
       const V2 = Zb.swing.on || P, vd = S.pos.distanceTo(V2.s.pos);
       const a = Math.atan2(V2.s.pos.x - S.pos.x, V2.s.pos.z - S.pos.z);
-      if (!(V2.alive && vd < 1.2 * u.sizeK && Math.abs(wrapPi(a - S.yaw)) < 1.0 && reachP(u, V2))) Zb.swing.done = true;   // missed
+      if (!(V2.alive && vd < (u.atkR || 1.2 * u.sizeK) && Math.abs(wrapPi(a - S.yaw)) < 1.0 && reachP(u, V2))) Zb.swing.done = true;   // missed
       // the hand is still on its way (the pose here is last frame's): give it a few frames to arrive, then it's a miss
-      else if (handReaches(u, V2)) { Zb.swing.done = true; if (V2 === P) { if (!G.vaulting) emit('zombieClaw', u); } else emit('zombieClawNPC', u, V2); }
+      // ([boss] a big one's hands swing down from above your head: in reach and facing you is a hit)
+      else if (u.bossT || handReaches(u, V2)) { Zb.swing.done = true; if (V2 === P) { if (!G.vaulting) { emit('zombieClaw', u); if (u.heavy && BOSSH.heavyHit) BOSSH.heavyHit(u, V2); } } else { emit('zombieClawNPC', u, V2); if (u.heavy && BOSSH.heavyHit) BOSSH.heavyHit(u, V2); } }
       else if (Zb.swing.t > Zb.swing.hitAt + 0.15) Zb.swing.done = true;
     }
-    if (Zb.swing.t > 1.4) Zb.swing = null;
+    if (Zb.swing.t > 1.4 / (u.atkRate || 1)) Zb.swing = null;
   }
   // ---- stuck on something: try sideways for a moment ----
   if (cmd.move != null) {
@@ -685,12 +740,12 @@ export function zombiePose(u, P, dt) {
 export function zombieHurt(u, dmg, by, info) {
   const Zb = u.z, S = u.s;
   if (by && (by.isPlayer || by.npc) && (Zb.state !== 'chase' || Zb.tgt !== by && by.npc && !(Zb.tgt === C.player))) { if (S.act === 'Fixing_Kneeling') S.stopAct(0.2); Zb.state = 'chase'; Zb.tgt = by; Zb.seen = C.t; Zb.lastSeen.copy(by.s.pos); Zb.path = null; }
-  const knock = (info.knock || 0) * (u.big ? 0.35 / u.bigK : 1);   // the big ones barely stagger
+  const knock = (info.knock || 0) * (u.big ? 0.35 / u.bigK : 1) / (u.bossT ? u.sizeK * u.sizeK : 1);   // the big ones barely stagger ([boss] the special ones less still)
   const dir = info.dir || V(Math.sin(S.yaw + Math.PI), 0, Math.cos(S.yaw + Math.PI));
   Zb.doorHit = null;
   // shot in the legs: a limp, then it can't stand at all
-  if (info.part === 'legs' && dmg > 0) {
-    u.legDmg = (u.legDmg || 0) + dmg;
+  if (info.part === 'legs' && dmg > 0 && !u.heavy) {   // ([boss] a boss or The Zombie never goes down on its belly)
+    u.legDmg = (u.legDmg || 0) + dmg / (u.bossT ? 2 : 1);
     if (u.legDmg > 80 && !u.crawl) { u.crawl = true; u.limp = true; if (Zb.down <= 0) { knockDown(u, dir); Zb.down = rnd(1.5, 2.5); return; } }
     else if (u.legDmg > 45 && !u.limp) { u.limp = true; if (Math.random() < 0.3 && Zb.down <= 0) { knockDown(u, dir); return; } }
   }
@@ -709,6 +764,7 @@ export function zombieHurt(u, dmg, by, info) {
 // knocked off its feet: hit from the front it staggers back and goes over; from behind it twists as it falls
 export function knockDown(u, dir) {
   const Zb = u.z, S = u.s;
+  if (u.bossT && Math.random() < (u.kdK || 0)) { Zb.atkT = Math.max(Zb.atkT, 0.5); return; }   // [boss] it rocks, and stays up
   // already down (or going down): it stays down a bit longer, no snapping back upright to fall again
   if (Zb.down > 0 || S.act === 'Death_D' || S.act === 'Hit_Knockback') { Zb.down = Math.max(Zb.down, rnd(1.2, 2.2)); Zb.swing = null; Zb.doorHit = null; return; }
   if (S.act === 'LayToIdle') { Zb.getUp = false; S.play('Death_D', { hold: true, from: S.acts.Death_D.dur * 0.75, fade: 0.3 }); Zb.down = rnd(1.8, 3.4); Zb.swing = null; Zb.doorHit = null; emit('bodyDown', u, 2.5); return; }

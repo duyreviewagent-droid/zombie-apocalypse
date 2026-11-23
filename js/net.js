@@ -996,8 +996,10 @@ function css() {
   #mp .btns.sticky button.m { min-width: 0; white-space: normal; letter-spacing: .14em !important; }
   #mp .btns.sticky button.m.on { border-color: #6f9a5c !important; color: #bfe8b0 !important; background: rgba(111,154,92,.18) !important; }
   #mp .btns.sticky button.m[disabled] { opacity: .5; cursor: default; }
-  @media (max-width: 860px) { #mp.room #mpBody { grid-template-columns: minmax(0, 1fr); } #mpSide { border-left: 0; padding-left: 0; border-top: 1px solid rgba(255,255,255,.08); padding-top: 8px; margin-top: 12px; } #mp .mpchatlog { min-height: 110px; max-height: 30vh; } }
-  @media (max-width: 520px), (max-height: 520px) { #mp .mpcodebox b { font-size: 36px; } #mp .mpcode { font-size: 44px !important; } #mp .mpplayers { grid-template-columns: 1fr; } #mp .mpchars { grid-template-columns: repeat(4, minmax(0, 1fr)); } #mp .mpchar img, #mp .mpchar i { width: 40px; height: 50px; } #mp .dbtn.mpbig .top b { font-size: 24px !important; } }
+  @media (max-width: 1000px) { #mp.room #mpBody { grid-template-columns: minmax(0, 1fr) 230px; gap: 0 14px; } #mpSide { padding-left: 12px; } }
+  @media (max-height: 560px) { #mp .mpplayer.empty { display: none; } #mp .mpchars { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); } #mp .mpchar img, #mp .mpchar i { width: 34px; height: 42px; } #mp .mpchar small { display: none; } #mp .mpchatlog { min-height: 70px; max-height: 34vh; } #mp .mphead h2 { font-size: 30px !important; } #mp .mpinfo { display: none; } #mpSide .mpnote { display: none; } }
+  @media (max-width: 640px) { #mp.room #mpBody { grid-template-columns: minmax(0, 1fr); } #mpSide { border-left: 0; padding-left: 0; border-top: 1px solid rgba(255,255,255,.08); padding-top: 8px; margin-top: 12px; } #mp .mpchatlog { min-height: 110px; max-height: 30vh; } }
+  @media (max-width: 520px), (max-height: 520px) { #mp .mpcodebox b { font-size: 36px; } #mp .mpcode { font-size: 44px !important; } #mp .mpplayers { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } #mp .dbtn.mpbig .top b { font-size: 24px !important; } }
   #netTags { position: fixed; inset: 0; pointer-events: none; z-index: 8; overflow: hidden; }
   #netTags .ntag { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; text-align: center; white-space: nowrap; will-change: transform; }
   #netTags .ntag b { display: inline-flex; align-items: center; gap: 4px; font: 400 22px 'Bebas Neue', 'Oswald', sans-serif; letter-spacing: .1em; color: #ece6d8; text-shadow: 0 0 4px #000, 0 1px 2px #000; }

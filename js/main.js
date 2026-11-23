@@ -38,6 +38,7 @@ import { initTouch, touchStep, touchWords, ic as touchIcon } from './touch.js';
 import * as MP from './mp.js';   // MP: online multiplayer (mp.js + net.js + p2p.js + chat.js + voice.js); every MP.* hook is a no-op in single player
 import * as LOOKS from './looks.js';   // [looks] everyone their own look, you included
 import * as SHOP from './shop.js';   // [zLux] money + a store on every map (shop.js, money.js)
+import * as BOSS from './bosses.js';   // [boss] mini bosses, bosses and THE ZOMBIE (bosses.js; zombies.js rolls them)
 import { whoInfoHTML, WHO_INFO_CSS } from './whoinfo.js';   // [who] the file on the person you pick
 // line icons into the static markup
 for (const e of document.querySelectorAll('[data-ic]')) e.outerHTML = icon(e.dataset.ic);
@@ -586,7 +587,7 @@ C.events.zombieSpots = (u, d) => {
   return SND.zombie(u.runner ? 'scream' : 'alert', u.s.pos, zp(u));   // (how long it screams, so its mouth moves for exactly that long)
 };
 C.events.zombieSpotsNPC = (u, n) => { noise(u.s.pos, 12); return SND.zombie(u.runner ? 'scream' : 'alert', u.s.pos, zp(u)); };
-C.events.zombieClawNPC = (u, n) => { SND.meleeHit('fist', V(n.s.pos.x, 1.2, n.s.pos.z), false, 0.7); SND.impact(V(n.s.pos.x, 1.2, n.s.pos.z), 'flesh', 0.5); PEOPLE.hurtNPC(n, rnd(34, 52) * (u.big ? 1.5 * u.bigK : 1) * (G.state === 'news' ? 1.3 : 1), u); if (!n.alive) SND.zombie('bite', n.s.pos, zp(u)); };
+C.events.zombieClawNPC = (u, n) => { SND.meleeHit('fist', V(n.s.pos.x, 1.2, n.s.pos.z), false, 0.7); SND.impact(V(n.s.pos.x, 1.2, n.s.pos.z), 'flesh', 0.5); PEOPLE.hurtNPC(n, rnd(34, 52) * (u.big ? 1.5 * u.bigK : 1) * (u.dmgK || 1) * (G.state === 'news' ? 1.3 : 1), u); if (!n.alive) SND.zombie('bite', n.s.pos, zp(u)); };   // [boss] dmgK
 C.events.zombieFeed = u => SND.zombie('bite', u.s.pos, zp(u));
 C.events.zombieChew = u => SND.feed ? SND.feed(u.s.pos) : SND.zombie('bite', u.s.pos, zp(u));
 // a neighbour gets back up as one of them
@@ -610,7 +611,7 @@ C.events.zombieAlert = u => SND.zombie('groan', u.s.pos, zp(u));
 C.events.zombieGroan = (u, chasing) => SND.zombie(chasing ? (Math.random() < 0.5 ? 'growl' : 'groan') : Math.random() < 0.5 ? 'moan' : 'groan', u.s.pos, zp(u));
 C.events.zombieGrowl = u => SND.zombie('growl', u.s.pos, zp(u));
 C.events.zombieClaw = u => {
-  const dmg = rnd(6, 11) * DIFF.dmg * (u.big ? 1.7 * u.bigK : 1);
+  const dmg = rnd(6, 11) * DIFF.dmg * (u.big ? 1.7 * u.bigK : 1) * (u.dmgK || 1);   // [boss] dmgK: 2x mini boss, 5x boss, 8x The Zombie
   if (MP.clawRemote(u, dmg)) return;   // MP: the host's zombie clawed a friend
   if (!P.alive || C.godMode) return;
   damage(P, dmg, u, { claw: true });
@@ -618,7 +619,7 @@ C.events.zombieClaw = u => {
   fx.blood(P.chest || P.s.pos, V(Math.sin(u.s.yaw), 0, Math.cos(u.s.yaw)), 0.6);
 };
 // each zombie's own voice: women higher, every one a little different, the big ones deep
-function zp(u) { if (!u) return 1; return (u.big ? 0.72 : (u.s && (u.s.isFemale || (u.s.kind && u.s.kind.root && u.s.kind.root.userData.female)) ? 1.18 : 0.94)) + (((u.id || 0) * 29) % 9) * 0.012; }
+function zp(u) { if (!u) return 1; return ((u.big ? 0.72 : (u.s && (u.s.isFemale || (u.s.kind && u.s.kind.root && u.s.kind.root.userData.female)) ? 1.18 : 0.94)) + (((u.id || 0) * 29) % 9) * 0.012) * (u.vpK || 1); }   // [boss] vpK: deeper
 C.events.zombieGrab = u => {
   if (MP.clawRemote(u, rnd(12, 18) * DIFF.dmg * (u.big ? 1.5 : 1), true)) return;   // MP: grabbed a friend: a bite on their side
   if (!P.alive || G.grabbedBy || G.vaulting || C.godMode) return;
@@ -2260,7 +2261,7 @@ function zombiesStep(dt) {
     cmd.aimYaw = S.yaw; cmd.combat = 0;
     const ox = S.pos.x, oz = S.pos.z; u._ox = ox; u._oz = oz; u._mv = true;
     S.update(dt, cmd);
-    world.collide(S.pos, 0.3);
+    if (u.giant) BOSS.giantCollide(u); else world.collide(S.pos, 0.3);   // [boss] The Zombie steps over fences and cars
     if (heliDown && HELI.blocks(S.pos.x, S.pos.z, 0.3) && !HELI.blocks(ox, oz, 0.3)) { S.pos.x = ox; S.pos.z = oz; }
     if (u.alive && S.visible && d < (MOB ? (crowd ? 14 : 24) : (crowd ? 26 : 45))) zombiePose(u, u.z.tgt && u.z.tgt.alive ? u.z.tgt : P, dt);
     if (u.z.state === 'chase') { chasing++; if (d < 10) closeN++; }
@@ -2269,8 +2270,11 @@ function zombiesStep(dt) {
   separate();
   for (const u of Z.list) if (u.active && u.alive) {
     const S = u.s;
-    if (S.pos.distanceTo(F) < 30) { world.collide(S.pos, 0.3 * (u.sizeK || 1)); DRIVE.pushBodies(S.pos, 0.3 * (u.sizeK || 1)); }
+    if (u.giant) BOSS.giantCollide(u);   // [boss]
+    else {
+    if (S.pos.distanceTo(F) < 30) { world.collide(S.pos, 0.3 * Math.min(2.6, u.sizeK || 1)); DRIVE.pushBodies(S.pos, 0.3 * Math.min(2.6, u.sizeK || 1)); }   // [boss] (capped)
     world.keepSide(u.safe ||= { x: S.pos.x, z: S.pos.z, set: true }, S.pos);
+    }   // [boss]
     // pressed into a wall or the crowd: the stride follows how far the body really went (no treadmill / moonwalk)
     if (u._mv && dt > 0 && G.grabbedBy !== u && !(u.z.down > 0)) {
       const ax = (S.pos.x - u._ox) / dt, az = (S.pos.z - u._oz) / dt;
@@ -2308,7 +2312,7 @@ function separate() {
         const b = list[j].s.pos, dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz), Rr = 0.3 * ((list[i].sizeK || 1) + (list[j].sizeK || 1));
         if (d < Rr && d > 1e-4 && Math.abs((a.y || 0) - (b.y || 0)) < 1.2) {
           const p = (Rr - d) / d * 0.5;
-          const wa = list[i] === P ? 0.35 : 1, wb = list[j] === P ? 0.35 : 1;   // a crowd pushes you, you push it less
+          const wa = (list[i] === P ? 0.35 : 1) * (list[i].massK || 1), wb = (list[j] === P ? 0.35 : 1) * (list[j].massK || 1);   // [boss] massK: the big ones barely budge   // a crowd pushes you, you push it less
           a.x -= dx * p * wa; a.z -= dz * p * wa; b.x += dx * p * wb; b.z += dz * p * wb;
         }
       }
@@ -3151,6 +3155,7 @@ function step(dt) {
     updateThrows(dt);
   }
   C.noises = C.noises.filter(n => G.t - n.t < 1.5);
+  BOSS.update(dt);   // [boss] deaths that let more out, The Zombie, the boss bar (nothing to do when none are about)
   // fires and smoke
   for (const e of world.emitters) {
     if (e.off) continue;
@@ -3326,6 +3331,7 @@ function mpVehicle() {
   return i < 0 ? null : [car ? 'c' : 'b', i, r(V.g.position.x), r(V.g.position.z), r(V.g.rotation.y)];
 }
 window.ZA.MP = MP;   // (tests)
+BOSS.init({ G, getP: () => P, fx, world: () => world, camera, bigText, think, later, PEOPLE, STATS, MP, DRIVE, Q, mobile: !!MOB });   // [boss] (also adds ZA.spawnBoss, ?boss=mini|boss|giant)
 load().then(async () => {
   toTitle();
   document.body.classList.add('ready');

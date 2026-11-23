@@ -53,7 +53,7 @@ function defs(map) {
   if (map === 'prison') return { title: 'COMMISSARY', eyebrow: 'Blackwater · the dining hall', keeper: { name: 'Officer Pike', body: 'coach', at: [0, -0.85] }, x: -3.6, z: -74, yaw: -Math.PI / 2, top: 1.0, cust: 1.1, build: 'counter', hw: 1.4, hd: 0.35,
     reg: [0.7, 0], regLabel: 'Commissary till', shelf: ['store', 'Commissary stock'], vend: { kind: 'vend', at: [2.45, -0.25] } };
   if (map === 'jungle') { const T = Pf(63, 81, Math.PI - 0.3), [x, z] = T(0.4, 1.3); return { title: 'SUPPLY TENT', eyebrow: 'Rio Verde · the expedition camp', keeper: { name: 'Mateo', body: 'butler', at: [0, -0.8] }, x, z, yaw: Math.PI - 0.3, top: 0.82, cust: 1.1, build: 'table', hw: 0.95, hd: 0.32,
-    reg: [0.55, 0], regLabel: 'Cash tin', shelf: ['store', 'Supply crates'], vend: { kind: 'box', at: [-2.1, 1.0] } }; }
+    reg: [0.55, 0], regLabel: 'Cash tin', shelf: ['store', 'Supply crates'], vend: { kind: 'box', at: [-2.3, -0.1], ry: Math.PI / 2 } }; }
   if (map === 'stadium') return { title: 'zLUX KIOSK', eyebrow: 'Harbor City · the plaza', keeper: { name: 'Sal', body: 'human', at: [0, -0.8] }, x: 24, z: -87, yaw: -Math.PI / 2, top: 1.05, cust: 1.1, build: 'kiosk', hw: 1.2, hd: 0.3,
     reg: [0.6, 0], regLabel: 'Kiosk till', shelf: ['pantry', 'Kiosk stock'], vend: { kind: 'vend', at: [2.5, -0.1] } };
   return null;
@@ -133,7 +133,7 @@ function buildShop(map) {
   if (D.shelf) { const [sx, sz] = P(-0.4, -0.3); S.cons.push(W.container(D.shelf[0], sx, sz, D.top, D.shelf[1], D.yaw + Math.PI, null, { hidden: true })); }
   // the vending machine / honesty box (works before and after)
   if (D.vend) {
-    const V = D.vend, [vx, vz] = V.w || P(...V.at), vyaw = V.w ? V.yaw : D.yaw, vy = (W.groundY ? W.groundY(vx, vz, 0) : 0) || 0;
+    const V = D.vend, [vx, vz] = V.w || P(...V.at), vyaw = V.w ? V.yaw : D.yaw + (V.ry || 0), vy = (W.groundY ? W.groundY(vx, vz, 0) : 0) || 0;
     const vg = new THREE.Group(); vg.position.set(vx, vy, vz); vg.rotation.y = vyaw; E.scene.add(vg);
     if (V.kind === 'vend') {
       const t = vendTex(), front = new THREE.MeshStandardMaterial({ map: t, roughness: 0.35, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.35 }), body = new THREE.MeshStandardMaterial({ color: 0x6a1014, roughness: 0.45, metalness: 0.3 });

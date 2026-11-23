@@ -16,7 +16,8 @@ const C_NAME = { eaten: 'Eaten', turned: 'Turned', bled: 'Bled out', starved: 'S
 const C_ICON = { eaten: 'zombie', turned: 'bio', bled: 'blood', starved: 'food', thirst: 'water', burned: 'flame', fall: 'speed', crash: 'keys', other: 'skull' };
 // every per-run counter (all start at 0)
 export const COUNTERS = ['kills', 'heads', 'humansHurt', 'humansKilled', 'saved', 'items', 'searched', 'food', 'water', 'bandages', 'meds', 'ambulances',
-  'bitten', 'grabbed', 'brokeFree', 'doorsBroken', 'carsDriven', 'bikesRidden', 'texts', 'climbs', 'roofs', 'attics', 'towers', 'shots', 'molotovs'];
+  'bitten', 'grabbed', 'brokeFree', 'doorsBroken', 'carsDriven', 'bikesRidden', 'texts', 'climbs', 'roofs', 'attics', 'towers', 'shots', 'molotovs',
+  'miniBosses', 'bosses', 'theZombie'];   // [boss] (bosses.js: who put down the special ones)
 const DIST = ['walk', 'run', 'drive', 'cycle'];
 const D_DEF = { easy: 'EASY', medium: 'MEDIUM', hard: 'HARD', extreme: 'EXTREME', apocalypse: 'APOCALYPSE', zombiex: 'ZombieX' };
 const D_COL = { easy: '#6fae5a', medium: '#c9a24a', hard: '#d07a34', extreme: '#c62a1e', apocalypse: '#8e1a3c', zombiex: '#7a3cc9' };
@@ -232,6 +233,7 @@ function lifeHTML() {
       ${sec('On the move', `${distStrip(L.dist)}<div class="zst-minis">${mini('keys', c.carsDriven, 'Cars driven')}${mini('speed', c.bikesRidden, 'Bikes ridden')}${mini('stamina', c.climbs, 'Climbs')}${mini('sun', c.roofs, 'Rooftops')}${mini('box', c.attics, 'Attics')}${mini('target', c.towers, 'Towers')}</div>`, 'zst-wide')}
       ${sec('Staying alive', `<div class="zst-minis">${mini('food', c.food, 'Food eaten')}${mini('water', c.water, 'Water drunk')}${mini('cross', c.bandages, 'Bandages used')}${mini('pills', c.meds, 'Medicine taken')}${mini('medkit', c.ambulances, 'Ambulances called')}${mini('phone', c.texts, 'Texts sent')}</div>`)}
       ${sec('Close calls', `<div class="zst-minis">${mini('bio', c.bitten, 'Times bitten')}${mini('fist', c.grabbed, 'Times grabbed')}${mini('stamina', c.brokeFree, 'Broke free')}${mini('dmg', c.doorsBroken, 'Doors broken')}${mini('bag', c.searched, 'Places searched')}${mini('box', c.items, 'Things found')}</div>`)}
+      ${sec('Bosses', `<div class="zst-minis">${mini('skull', c.miniBosses, 'Mini bosses')}${mini('skull', c.bosses, 'Bosses')}${mini('dmg', c.theZombie, 'The Zombie')}</div>`)}
       ${sec(`Deaths · ${fmtN(L.deathsN)}`, deaths.length ? bars(deaths, Math.max(...deaths.map(r => r[2]))) : '<p class="zst-empty">Nobody has died yet.</p>')}
       ${sec('Played', `<div class="zst-minis">${mini('moon', L.sec, 'Real time played', 'sec')}${mini('clock', L.hours, 'In-game hours', 'hours')}${mini('check', L.truck, 'Escapes by road')}${mini('sun', L.heli, 'Escapes by air')}${mini('pause', L.quits, 'Runs abandoned')}${mini('note', L.first ? Math.max(1, Math.ceil((Date.now() - L.first) / 864e5)) : 0, 'Days since first run')}</div>`)}
     </div>`;

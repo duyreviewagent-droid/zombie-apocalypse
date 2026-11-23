@@ -361,13 +361,14 @@ export class Soldier {
     this.yaw = wrapPi(this.yaw + this.turnRate * dt);
     if (this.dead || this.act) this.turnRate = 0;
 
-    const running = smooth(k.vw, k.vr, this.speed);
+    const gk = this.strideK || 1;   // [boss] a body scaled up takes longer strides: its legs move at speed / strideK (1 for everyone else)
+    const running = smooth(k.vw, k.vr, this.speed / gk);
     this.exertion = damp(this.exertion, Math.max(running, cmd.tired || 0), running > 0.5 ? 0.5 : 0.18, dt);
     this.lean = damp(this.lean, clamp(-this.turnRate * this.speed * 0.03, -0.14, 0.14), 6, dt);
     this.pitchLean = damp(this.pitchLean, (clamp(airborne ? 0 : fwdAcc * 0.012, -0.04, 0.06) + running * 0.04 * (1 - this.combatW)) * (1 - J.w), 8, dt);
 
     // ---- locomotion blend: idle -> walk -> run (or crouch idle -> crouch walk) on one stride phase ----
-    const s = Math.max(this.speed, airborne || locked ? 0 : Math.min(Math.abs(this.turnRate) * 0.12, 0.35)), vw = k.vw, vr = k.vr;
+    const s = Math.max(this.speed / gk, airborne || locked ? 0 : Math.min(Math.abs(this.turnRate) * 0.12, 0.35)), vw = k.vw, vr = k.vr;
     const Lw = vw * k.info.walk.duration, Lr = vr * k.info.run.duration, Lc = k.vc * k.info.crouch.duration;
     let wi, ww, wr, cyc;
     if (s <= vw) { const a = smooth(0, vw * 0.6, s); wi = 1 - a; ww = a; wr = 0; cyc = Lw; }
