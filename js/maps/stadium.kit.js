@@ -1,0 +1,284 @@
+// Zombie_Apocalypse — SOCCER STADIUM: shared helpers for js/maps/stadium.js.
+// Canvas textures made here (pitch grass with mowing stripes, seats, cladding, LED ad boards with made-up
+// sponsors, the goal net, signage, the scoreboard), unit geometries for instanced props, and small
+// axis-aligned building helpers on top of the map kit (js/maps/kit.js).
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+// a deterministic random (so the stadium is the same every run)
+export function rng(seed = 1) { let s = seed >>> 0 || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+
+export function canvasTex(w, h, fn, { repeat = true, srgb = true, aniso = 8 } = {}) {
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  fn(cv.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(cv);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = aniso;
+  return t;
+}
+const noise = (g, w, h, n, a, r, dark = true) => { for (let i = 0; i < n; i++) { g.fillStyle = `rgba(${dark ? '0,0,0' : '255,255,255'},${a * r()})`; g.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2); } };
+
+// the made-up clubs and sponsors (no real brands)
+export const HOME = { name: 'HARBOR CITY FC', short: 'HARBOR', col: '#8a1c2a', col2: '#9cc8e8' };
+export const AWAY = { name: 'IRONBRIDGE ATHLETIC', short: 'IRONBRIDGE', col: '#f0c020', col2: '#1a1a1a' };
+export const SPONSORS = [
+  ['HARBOR ALES', '#0e2a4a', '#f0d070'], ['KESTREL MOTORS', '#111111', '#ff4a2a'], ['BRIGHTWAVE MOBILE', '#3a0a5a', '#7ef0ff'],
+  ['DOCKSIDE BANK', '#0a3a2a', '#e8e8e8'], ['NOVA SPORTSWEAR', '#f4f4f4', '#d01818'], ['SALT & PEPPER PIES', '#5a2a0a', '#ffe0a0'],
+  ['QUAYLINE TRAVEL', '#0a4a8a', '#ffffff'], ['ORCA ENERGY', '#002030', '#30e0a0'],
+];
+
+export function textures(seed = 11) {
+  const r = rng(seed), T = {};
+  // the pitch: two mowing stripes per texture repeat (along u), fine blade noise, a few worn patches
+  T.grass = canvasTex(512, 512, (g, w, h) => {
+    for (let i = 0; i < 2; i++) { g.fillStyle = i ? '#3f7a2c' : '#4e8c34'; g.fillRect(i * w / 2, 0, w / 2, h); }
+    for (let k = 0; k < 26000; k++) { const x = r() * w, y = r() * h, l = 70 + r() * 70; g.fillStyle = `rgba(${l * 0.45 | 0},${l | 0},${l * 0.32 | 0},${0.25 + r() * 0.3})`; g.fillRect(x, y, 1, 2 + r() * 3); }
+    noise(g, w, h, 4000, 0.12, r);
+  });
+  // the run-off round the pitch: darker, shaggier grass
+  T.apron = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#3a6428'; g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 9000; k++) { const l = 60 + r() * 60; g.fillStyle = `rgba(${l * 0.5 | 0},${l | 0},${l * 0.35 | 0},0.4)`; g.fillRect(r() * w, r() * h, 1, 2 + r() * 3); }
+  });
+  // stand concrete treads: weathered grey with gum spots and drain stains
+  T.tread = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#8c8b86'; g.fillRect(0, 0, w, h); noise(g, w, h, 9000, 0.18, r); noise(g, w, h, 3000, 0.12, r, false);
+    for (let k = 0; k < 40; k++) { g.fillStyle = `rgba(40,40,40,${0.2 + r() * 0.3})`; g.beginPath(); g.arc(r() * w, r() * h, 1 + r() * 2, 0, 7); g.fill(); }
+    g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, 0, w, 3);
+  });
+  // yellow aisle-step nosing
+  T.nosing = canvasTex(64, 16, (g, w, h) => { g.fillStyle = '#d8b020'; g.fillRect(0, 0, w, h); noise(g, w, h, 300, 0.3, r); });
+  // façade cladding panels: big pale aluminium panels with dark joints
+  T.clad = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#b9bec2'; g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 64) for (let x = 0; x < w; x += 128) { const v = r() * 8 | 0; g.fillStyle = `rgb(${184 + v},${189 + v},${194 + v})`; g.fillRect(x + 2, y + 2, 124, 60); }
+    g.fillStyle = '#4a4e52'; for (let y = 0; y < h; y += 64) g.fillRect(0, y, w, 2); for (let x = 0; x < w; x += 128) g.fillRect(x, 0, 2, h);
+    noise(g, w, h, 1500, 0.08, r);
+    for (let k = 0; k < 12; k++) { const x = r() * w; const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(60,50,40,0)'); gr.addColorStop(1, 'rgba(60,50,40,0.14)'); g.fillStyle = gr; g.fillRect(x, 0, 6, h); }
+  });
+  // club-coloured band round the top of the façade
+  T.band = canvasTex(512, 64, (g, w, h) => { g.fillStyle = HOME.col; g.fillRect(0, 0, w, h); g.fillStyle = HOME.col2; g.fillRect(0, 50, w, 8); g.fillStyle = '#ffffff'; g.fillRect(0, 6, w, 3); });
+  // painted block walls inside (concourse, corridors)
+  T.block = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#d6d2c8'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#b4b0a6'; for (let y = 0; y < h; y += 32) { g.fillRect(0, y, w, 2); for (let x = (y / 32) % 2 ? 0 : 64; x < w; x += 128) g.fillRect(x, y, 2, 32); }
+    noise(g, w, h, 2500, 0.06, r);
+    g.fillStyle = HOME.col; g.fillRect(0, h - 40, w, 22);   // a claret dado stripe
+  });
+  // rubber-crumb corridor floor, dressing-room tiles
+  T.rubberFloor = canvasTex(256, 256, (g, w, h) => { g.fillStyle = '#3a3c40'; g.fillRect(0, 0, w, h); for (let k = 0; k < 12000; k++) { const c = r(); g.fillStyle = c < 0.1 ? 'rgba(160,40,40,0.5)' : c < 0.2 ? 'rgba(120,160,200,0.4)' : 'rgba(0,0,0,0.25)'; g.fillRect(r() * w, r() * h, 1, 1); } });
+  T.tile = canvasTex(256, 256, (g, w, h) => {
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { const v = 214 + r() * 14 | 0; g.fillStyle = `rgb(${v},${v + 2},${v + 4})`; g.fillRect(x * 32, y * 32, 32, 32); }
+    g.fillStyle = '#9aa0a4'; for (let i = 0; i <= 8; i++) { g.fillRect(i * 32 - 1, 0, 2, h); g.fillRect(0, i * 32 - 1, w, 2); }
+  });
+  // dressing-room lockers: wood slats with brass number plates
+  T.locker = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#7a5434'; g.fillRect(0, 0, w, h);
+    for (let x = 0; x < w; x += 8) { g.fillStyle = `rgba(${r() < 0.5 ? '30,20,10' : '200,160,110'},${0.1 + r() * 0.15})`; g.fillRect(x, 0, 4, h); }
+    g.fillStyle = '#2a1a10'; for (let x = 0; x < w; x += 64) g.fillRect(x, 0, 3, h);
+    g.fillStyle = '#c8a860'; for (let x = 24; x < w; x += 64) g.fillRect(x, 30, 16, 10);
+  });
+  // ad boards: one sponsor per quarter of the texture (four panels), lit LED look
+  T.boards = canvasTex(2048, 128, (g, w, h) => {
+    for (let i = 0; i < 8; i++) {
+      const [name, bg, fg] = SPONSORS[i]; const x0 = i * 256;
+      g.fillStyle = bg; g.fillRect(x0, 0, 256, h);
+      g.fillStyle = fg; g.font = 'bold 34px Helvetica, Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      const words = name.split(' '); if (g.measureText(name).width > 240 && words.length > 1) { g.font = 'bold 28px Helvetica, Arial'; g.fillText(words.slice(0, Math.ceil(words.length / 2)).join(' '), x0 + 128, 44); g.fillText(words.slice(Math.ceil(words.length / 2)).join(' '), x0 + 128, 84); }
+      else g.fillText(name, x0 + 128, 64);
+    }
+    g.fillStyle = 'rgba(0,0,0,0.18)'; for (let y = 0; y < h; y += 3) g.fillRect(0, y, w, 1);   // LED rows
+    for (let x = 0; x < w; x += 3) { g.fillStyle = 'rgba(0,0,0,0.08)'; g.fillRect(x, 0, 1, h); }
+  }, { repeat: true });
+  // goal net: alpha-tested knotted mesh
+  T.net = canvasTex(64, 64, (g, w, h) => { g.clearRect(0, 0, w, h); g.strokeStyle = 'rgba(245,245,245,1)'; g.lineWidth = 2.2; for (let i = 0; i <= 64; i += 16) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, h); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(w, i); g.stroke(); } });
+  // the seat: a moulded plastic tip-up seat's colour with a faint sheen gradient
+  T.seat = canvasTex(32, 32, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#c8c8c8'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  // the big screen (match state drawn later by the map's update via T.drawScreen)
+  T.screenCanvas = document.createElement('canvas'); T.screenCanvas.width = 1024; T.screenCanvas.height = 384;
+  T.screen = new THREE.CanvasTexture(T.screenCanvas); T.screen.colorSpace = THREE.SRGBColorSpace; T.screen.anisotropy = 8;
+  T.drawScreen = (home, away, minute, msg = null, broken = 0) => {
+    const g = T.screenCanvas.getContext('2d'), w = 1024, h = 384;
+    g.fillStyle = '#05070a'; g.fillRect(0, 0, w, h);
+    if (broken > 0.5) {   // dead pixels, a stripe of static
+      for (let k = 0; k < 900; k++) { const v = Math.random() * 255 | 0; g.fillStyle = `rgba(${v},${v},${v},${Math.random() * 0.5})`; g.fillRect(Math.random() * w, Math.random() * h, 3, 3); }
+      g.fillStyle = '#b01010'; g.font = 'bold 72px Helvetica, Arial'; g.textAlign = 'center'; g.fillText(msg || 'EVACUATE', w / 2, h / 2 + 24);
+    } else {
+      g.fillStyle = HOME.col; g.fillRect(30, 40, 380, 120); g.fillStyle = '#f0c020'; g.fillRect(w - 410, 40, 380, 120);
+      g.font = 'bold 64px Helvetica, Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = '#ffffff'; g.fillText(HOME.short, 220, 100); g.fillStyle = '#111'; g.fillText(AWAY.short, w - 220, 100);
+      g.fillStyle = '#ffffff'; g.font = 'bold 120px Helvetica, Arial'; g.fillText(`${home} - ${away}`, w / 2, 110);
+      g.font = 'bold 56px Helvetica, Arial'; g.fillStyle = '#9cc8e8'; g.fillText(minute, w / 2, 230);
+      if (msg) { g.fillStyle = '#ffd040'; g.font = 'bold 50px Helvetica, Arial'; g.fillText(msg, w / 2, 320); }
+    }
+    g.fillStyle = 'rgba(0,0,0,0.22)'; for (let y = 0; y < h; y += 4) g.fillRect(0, y, w, 1);
+    T.screen.needsUpdate = true;
+  };
+  T.drawScreen(0, 0, 'KICK-OFF 19:45', 'WELCOME TO HARBOR CITY STADIUM');
+  // club crest on the main stand
+  T.crest = canvasTex(256, 256, (g, w, h) => {
+    g.clearRect(0, 0, w, h); g.fillStyle = HOME.col; g.beginPath(); g.moveTo(128, 8); g.lineTo(240, 40); g.lineTo(226, 170); g.lineTo(128, 248); g.lineTo(30, 170); g.lineTo(16, 40); g.closePath(); g.fill();
+    g.strokeStyle = HOME.col2; g.lineWidth = 10; g.stroke();
+    g.fillStyle = '#ffffff'; g.font = 'bold 40px Georgia, serif'; g.textAlign = 'center'; g.fillText('HCFC', 128, 110);
+    g.strokeStyle = '#ffffff'; g.lineWidth = 6; g.beginPath(); g.moveTo(70, 160); g.quadraticCurveTo(128, 130, 186, 160); g.stroke();   // an anchor's arm, a wave
+    g.beginPath(); g.moveTo(128, 120); g.lineTo(128, 200); g.stroke(); g.beginPath(); g.arc(128, 128, 10, 0, 7); g.stroke();
+    g.font = 'bold 20px Georgia, serif'; g.fillText('EST. 1889', 128, 228);
+  }, { repeat: false });
+  return T;
+}
+
+// a sign: one or two lines on a coloured plate (for gates, kiosks, rooms)
+export function signTex(lines, bg = '#1a2a4a', fg = '#ffffff', w = 512, h = 128) {
+  return canvasTex(w, h, (g) => {
+    g.fillStyle = bg; g.fillRect(0, 0, w, h); g.strokeStyle = 'rgba(255,255,255,0.25)'; g.lineWidth = 6; g.strokeRect(6, 6, w - 12, h - 12);
+    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const L = Array.isArray(lines) ? lines : [lines];
+    const fs = L.length > 1 ? h * 0.32 : h * 0.5; g.font = `bold ${fs | 0}px Helvetica, Arial`;
+    L.forEach((s, i) => { let f = fs; while (g.measureText(s).width > w - 30 && f > 10) { f -= 2; g.font = `bold ${f | 0}px Helvetica, Arial`; } g.fillText(s, w / 2, h / 2 + (i - (L.length - 1) / 2) * fs * 1.1); });
+  }, { repeat: false });
+}
+
+// all the signs on one canvas (one material, one draw call per chunk): atlas.add(lines, bg, fg, aspect) → uv rect
+export function signAtlas(N = 2048) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = N; const g = cv.getContext('2d');
+  g.fillStyle = '#222'; g.fillRect(0, 0, N, N);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  let x = 0, y = 0, rowH = 0;
+  function add(lines, bg = '#1a2a4a', fg = '#ffffff', aspect = 4) {
+    const w = aspect >= 2 ? 512 : 256, h = Math.max(24, Math.min(256, Math.round(w / aspect)));
+    if (x + w > N) { x = 0; y += rowH + 2; rowH = 0; }
+    if (y + h > N) return null;
+    g.save(); g.translate(x, y);
+    g.fillStyle = bg; g.fillRect(0, 0, w, h); g.strokeStyle = 'rgba(255,255,255,0.25)'; g.lineWidth = Math.max(2, h * 0.05); g.strokeRect(g.lineWidth, g.lineWidth, w - 2 * g.lineWidth, h - 2 * g.lineWidth);
+    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const L = Array.isArray(lines) ? lines : [lines], fs = L.length > 1 ? h * 0.34 : h * 0.56;
+    L.forEach((s2, i) => { let f = fs; g.font = `bold ${f | 0}px Helvetica, Arial`; while (g.measureText(s2).width > w - 24 && f > 8) { f -= 1; g.font = `bold ${f | 0}px Helvetica, Arial`; } g.fillText(s2, w / 2, h / 2 + (i - (L.length - 1) / 2) * fs * 1.12); });
+    g.restore();
+    const r = [x / N, 1 - (y + h) / N, (x + w) / N, 1 - y / N];
+    x += w + 2; rowH = Math.max(rowH, h);
+    tex.needsUpdate = true;
+    return r;
+  }
+  // a plane w × h (facing +z) mapped to the rect
+  function plane(r, w = 1, h = 1) { const gg = new THREE.PlaneGeometry(w, h), uv = gg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, r[0] + uv.getX(i) * (r[2] - r[0]), r[1] + uv.getY(i) * (r[3] - r[1])); return gg; }
+  return { tex, add, plane, canvas: cv };
+}
+// vertical bars for a steel palisade fence, as an alpha-tested texture (a fence 200 m long is then one quad)
+export function barsTexture() {
+  return canvasTex(64, 256, (g, w, h) => {
+    g.clearRect(0, 0, w, h); g.fillStyle = '#ffffff';
+    for (let x = 0; x < w; x += 16) { g.fillRect(x + 4, 6, 7, h - 6); g.beginPath(); g.moveTo(x + 2, 8); g.lineTo(x + 7.5, 0); g.lineTo(x + 13, 8); g.fill(); }
+    g.fillRect(0, 30, w, 7); g.fillRect(0, h - 40, w, 7);
+  });
+}
+
+// unit geometries for instanced props (each made once)
+let G = null;
+export function geos() {
+  if (G) return G;
+  const ni = g => { g = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); return g; };
+  const merge = (parts) => {
+    // a light-weight merge (all parts non-indexed with the same attributes)
+    const arr = parts.map(ni), out = new THREE.BufferGeometry();
+    for (const k of ['position', 'normal', 'uv']) {
+      const n = k === 'uv' ? 2 : 3, total = arr.reduce((s, g) => s + g.attributes[k].count * n, 0), a = new Float32Array(total); let o = 0;
+      for (const g of arr) { a.set(g.attributes[k].array, o); o += g.attributes[k].array.length; }
+      out.setAttribute(k, new THREE.BufferAttribute(a, n));
+    }
+    out.computeBoundingSphere(); return out;
+  };
+  G = { merge, ni };
+  // a tip-up stadium seat: seat pan, curved back, two side brackets (origin: floor under the seat's front edge... centred)
+  // (plain boxes: twelve thousand of them, so 36 triangles each)
+  G.seat = merge([
+    new THREE.BoxGeometry(0.44, 0.06, 0.36).translate(0, 0.42, 0.02),
+    new THREE.BoxGeometry(0.44, 0.38, 0.05).rotateX(-0.16).translate(0, 0.66, -0.16),
+    new THREE.BoxGeometry(0.05, 0.36, 0.05).translate(0, 0.2, -0.1),
+  ]);
+  G.seatLeg = merge([new THREE.BoxGeometry(0.03, 0.4, 0.3).translate(-0.23, 0.2, -0.02), new THREE.BoxGeometry(0.03, 0.4, 0.3).translate(0.23, 0.2, -0.02)]);
+  // a spectator, sitting (cheap: a torso, head, thighs) — instanced in thousands with a per-instance colour
+  G.fan = merge([
+    new THREE.CapsuleGeometry(0.17, 0.32, 3, 8).translate(0, 0.85, -0.08),
+    new THREE.SphereGeometry(0.11, 10, 8).translate(0, 1.25, -0.06),
+    new THREE.BoxGeometry(0.34, 0.14, 0.4).translate(0, 0.52, 0.12),
+    new THREE.BoxGeometry(0.3, 0.42, 0.12).translate(0, 0.25, 0.3),
+  ]);
+  // a standing spectator (concourse queues)
+  G.fanStand = merge([
+    new THREE.CapsuleGeometry(0.18, 0.5, 3, 8).translate(0, 1.2, 0),
+    new THREE.SphereGeometry(0.11, 10, 8).translate(0, 1.67, 0),
+    new THREE.CapsuleGeometry(0.08, 0.7, 2, 6).translate(-0.09, 0.42, 0),
+    new THREE.CapsuleGeometry(0.08, 0.7, 2, 6).translate(0.09, 0.42, 0),
+  ]);
+  G.box = new THREE.BoxGeometry(1, 1, 1);
+  G.cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 14);
+  G.cyl6 = new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
+  G.plane = new THREE.PlaneGeometry(1, 1);
+  G.lamp = merge([new THREE.BoxGeometry(0.9, 0.7, 0.35), new THREE.BoxGeometry(0.8, 0.6, 0.02).translate(0, 0, 0.18)]);
+  G.lens = new THREE.PlaneGeometry(0.8, 0.6);
+  G.goalPost = new THREE.CylinderGeometry(0.06, 0.06, 1, 12);
+  G.flag = new THREE.PlaneGeometry(0.45, 0.32).translate(0.225, 0, 0);
+  G.ball = new THREE.IcosahedronGeometry(0.11, 2);
+  G.turnstile = merge([
+    new RoundedBoxGeometry(0.5, 1.0, 0.7, 2, 0.04).translate(0, 0.5, 0),
+    new THREE.CylinderGeometry(0.03, 0.03, 0.55, 8).rotateZ(Math.PI / 2).translate(0.5, 0.92, 0),
+    new THREE.CylinderGeometry(0.03, 0.03, 0.55, 8).rotateZ(Math.PI / 2).rotateX(2.09).translate(0.5, 0.92, 0),
+    new THREE.CylinderGeometry(0.03, 0.03, 0.55, 8).rotateZ(Math.PI / 2).rotateX(-2.09).translate(0.5, 0.92, 0),
+  ]);
+  G.bus = merge([
+    new RoundedBoxGeometry(2.55, 2.9, 12, 3, 0.25).translate(0, 1.85, 0),
+  ]);
+  G.busWin = new THREE.BoxGeometry(2.6, 1.0, 10.4);
+  G.wheel = new THREE.CylinderGeometry(0.5, 0.5, 0.3, 16).rotateZ(Math.PI / 2);
+  G.bench = merge([new THREE.BoxGeometry(1, 0.05, 0.4).translate(0, 0.45, 0), new THREE.BoxGeometry(1, 0.45, 0.05).translate(0, 0.22, 0.17)]);
+  G.cup = new THREE.CylinderGeometry(0.04, 0.03, 0.12, 10).translate(0, 0.06, 0);
+  G.ring = r => new THREE.RingGeometry(r - 0.06, r + 0.06, 96, 1).rotateX(-Math.PI / 2);
+  G.arc = (r, a0, a1) => new THREE.RingGeometry(r - 0.06, r + 0.06, 48, 1, a0, a1 - a0).rotateX(-Math.PI / 2);
+  G.disc = r => new THREE.CircleGeometry(r, 24).rotateX(-Math.PI / 2);
+  G.pole = new THREE.CylinderGeometry(0.08, 0.12, 1, 10).translate(0, 0.5, 0);
+  G.toilet = merge([new THREE.CylinderGeometry(0.2, 0.14, 0.4, 14).translate(0, 0.2, 0), new THREE.BoxGeometry(0.42, 0.4, 0.18).translate(0, 0.6, -0.22)]);
+  G.urinal = merge([new RoundedBoxGeometry(0.4, 0.6, 0.3, 2, 0.08).translate(0, 0.85, 0)]);
+  G.sink = merge([new THREE.BoxGeometry(0.5, 0.14, 0.4).translate(0, 0.82, 0)]);
+  G.tap = new THREE.CylinderGeometry(0.015, 0.015, 0.15, 6).translate(0, 0.96, -0.12);
+  G.monitor = merge([new THREE.BoxGeometry(0.55, 0.34, 0.04).translate(0, 0.27, 0), new THREE.BoxGeometry(0.06, 0.12, 0.06).translate(0, 0.06, 0.02)]);
+  G.chair = merge([new THREE.BoxGeometry(0.44, 0.06, 0.44).translate(0, 0.46, 0), new THREE.BoxGeometry(0.44, 0.48, 0.05).translate(0, 0.72, -0.2), new THREE.CylinderGeometry(0.03, 0.03, 0.44, 6).translate(0, 0.22, 0)]);
+  G.barrel = new THREE.CylinderGeometry(0.3, 0.3, 0.9, 16).translate(0, 0.45, 0);
+  G.camera = merge([new THREE.BoxGeometry(0.3, 0.32, 0.6).translate(0, 1.55, 0), new THREE.CylinderGeometry(0.08, 0.1, 0.3, 10).rotateX(Math.PI / 2).translate(0, 1.55, 0.42), new THREE.CylinderGeometry(0.03, 0.03, 1.4, 6).translate(0, 0.7, 0)]);
+  return G;
+}
+
+// ---- axis-aligned building on top of the map kit ----
+// box(x0, z0, x1, z1, y0, y1, mat, opts): drawn (merged) and, unless opts.solid === false, solid.
+// mat: a material key for every face, or an object { top, side, bot } (missing → none drawn), or a face function.
+export function builder(K) {
+  const faceFn = (mat) => typeof mat === 'function' ? mat : typeof mat === 'string' ? () => mat : (f) => (f === 'top' ? mat.top : f === 'bot' ? mat.bot : (mat[f] || mat.side)) || null;
+  function box(x0, z0, x1, z1, y0, y1, mat, opts = {}) {
+    if (x1 < x0) [x0, x1] = [x1, x0]; if (z1 < z0) [z0, z1] = [z1, z0];
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, hx = (x1 - x0) / 2, hz = (z1 - z0) / 2;
+    if (mat) K.box(cx, y0, cz, hx, y1, hz, 0, faceFn(mat));
+    if (opts.solid === false) return null;
+    return K.solid(cx, cz, hx, hz, 0, y1, opts.surf || 'concrete', y0, opts.extra || {});
+  }
+  // a rect for W.decks / W.ramps / W.navBlocks
+  function rect(x0, z0, x1, z1, o = {}) {
+    if (x1 < x0) [x0, x1] = [x1, x0]; if (z1 < z0) [z0, z1] = [z1, z0];
+    const hx = (x1 - x0) / 2, hz = (z1 - z0) / 2;
+    return { x: (x0 + x1) / 2, z: (z0 + z1) / 2, hx, hz, c: 1, s: 0, r2: hx * hx + hz * hz + 0.5, ...o };
+  }
+  // a wall from (x0, z0) to (x1, z1) (along x or z), thickness t, with openings [{ at (metres from the start), w, h }]
+  // returns the wall's boxes; a header is drawn over every opening
+  function wall(x0, z0, x1, z1, y0, y1, mat, t = 0.25, openings = [], opts = {}) {
+    const alongX = Math.abs(x1 - x0) >= Math.abs(z1 - z0), L = alongX ? Math.abs(x1 - x0) : Math.abs(z1 - z0);
+    const sx = Math.sign(x1 - x0) || 1, sz = Math.sign(z1 - z0) || 1;
+    const seg = (a, b, ya, yb, solid = true) => {
+      if (b - a < 0.01 || yb - ya < 0.01) return;
+      if (alongX) box(x0 + sx * a, z0 - t / 2, x0 + sx * b, z0 + t / 2, ya, yb, mat, { ...opts, solid: solid && opts.solid !== false });
+      else box(x0 - t / 2, z0 + sz * a, x0 + t / 2, z0 + sz * b, ya, yb, mat, { ...opts, solid: solid && opts.solid !== false });
+    };
+    const ops = openings.slice().sort((a, b) => a.at - b.at); let p = 0;
+    for (const o of ops) { seg(p, o.at, y0, y1); if ((o.h ?? 2.2) + y0 < y1) seg(o.at, o.at + o.w, y0 + (o.h ?? 2.2), y1, true); p = o.at + o.w; }
+    seg(p, L, y0, y1);
+  }
+  return { box, rect, wall };
+}

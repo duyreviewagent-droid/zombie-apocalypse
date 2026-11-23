@@ -1,0 +1,616 @@
+{
+"gun_pistol": [
+"gun_pistol_0",
+"gun_pistol_1",
+"gun_pistol_2",
+"gun_pistol_3"
+],
+"gun_shotgun": [
+"gun_shotgun_0",
+"gun_shotgun_1"
+],
+"gun_rifle": [
+"gun_rifle_0",
+"gun_rifle_1"
+],
+"gun_far": [
+"gun_far_0",
+"gun_far_1",
+"gun_far_2",
+"gun_far_3",
+"gun_far_4",
+"gun_far_5"
+],
+"z_moan": [
+"z_moan_0",
+"z_moan_1",
+"z_moan_2",
+"z_moan_3",
+"z_moan_4",
+"z_moan_5",
+"z_moan_6",
+"z_moan_7",
+"z_moan_8",
+"z_moan_9",
+"z_moan_10",
+"z_moan_11",
+"z_moan_12",
+"z_moan_13",
+"z_moan_14",
+"z_moan_15"
+],
+"z_growl": [
+"z_growl_0",
+"z_growl_1",
+"z_growl_2",
+"z_growl_3",
+"z_growl_4",
+"z_growl_5",
+"z_growl_6",
+"z_growl_7",
+"z_growl_8",
+"z_growl_9",
+"z_growl_10",
+"z_growl_11",
+"z_growl_12",
+"z_growl_13",
+"z_growl_14",
+"z_growl_15",
+"z_growl_16",
+"z_growl_17",
+"z_growl_18",
+"z_growl_19",
+"z_growl_20",
+"z_growl_21",
+"z_growl_22",
+"z_growl_23"
+],
+"z_yell": [
+"z_yell_0",
+"z_yell_1",
+"z_yell_2",
+"z_yell_3",
+"z_yell_4",
+"z_yell_5",
+"z_yell_6",
+"z_yell_7",
+"z_yell_8",
+"z_yell_9",
+"z_yell_10"
+],
+"z_death": [
+"z_death_0",
+"z_death_1",
+"z_death_2",
+"z_death_3"
+],
+"z_feed": [
+"z_feed_0"
+],
+"p_hurt": [
+"p_hurt_0",
+"p_hurt_1",
+"p_hurt_2",
+"p_hurt_3",
+"p_hurt_4"
+],
+"p_death": [
+"p_death_0",
+"p_death_1"
+],
+"hit_punch": [
+"hit_punch_0",
+"hit_punch_1",
+"hit_punch_2",
+"hit_punch_3",
+"hit_punch_4",
+"hit_punch_5",
+"hit_punch_6",
+"hit_punch_7",
+"hit_punch_8",
+"hit_punch_9",
+"hit_punch_10",
+"hit_punch_11",
+"hit_punch_12",
+"hit_punch_13",
+"hit_punch_14",
+"hit_punch_15",
+"hit_punch_16",
+"hit_punch_17",
+"hit_punch_18",
+"hit_punch_19",
+"hit_punch_20",
+"hit_punch_21",
+"hit_punch_22",
+"hit_punch_23"
+],
+"hit_bone": [
+"hit_bone_0",
+"hit_bone_1",
+"hit_bone_2",
+"hit_bone_3",
+"hit_bone_4",
+"hit_bone_5",
+"hit_bone_6",
+"hit_bone_7",
+"hit_bone_8",
+"hit_bone_9"
+],
+"hit_heavy": [
+"hit_heavy_0",
+"hit_heavy_1",
+"hit_heavy_2",
+"hit_heavy_3",
+"hit_heavy_4",
+"hit_heavy_5",
+"hit_heavy_6",
+"hit_heavy_7",
+"hit_heavy_8",
+"hit_heavy_9"
+],
+"squish": [
+"squish_0",
+"squish_1",
+"squish_2",
+"squish_3",
+"squish_4",
+"squish_5"
+],
+"splat": [
+"splat_0",
+"splat_1"
+],
+"bodyfall": [
+"bodyfall_0",
+"bodyfall_1",
+"bodyfall_2",
+"bodyfall_3",
+"bodyfall_4",
+"bodyfall_5",
+"bodyfall_6",
+"bodyfall_7",
+"bodyfall_8",
+"bodyfall_9",
+"bodyfall_10",
+"bodyfall_11"
+],
+"metal_hit": [
+"metal_hit_0",
+"metal_hit_1",
+"metal_hit_2",
+"metal_hit_3",
+"metal_hit_4"
+],
+"glass": [
+"glass_0",
+"glass_1",
+"glass_2",
+"glass_3",
+"glass_4",
+"glass_5",
+"glass_6"
+],
+"door_open": [
+"door_open_0",
+"door_open_1",
+"door_open_2"
+],
+"door_close": [
+"door_close_0",
+"door_close_1",
+"door_close_2",
+"door_close_3",
+"door_close_4",
+"door_close_5"
+],
+"door_bang": [
+"door_bang_0",
+"door_bang_1",
+"door_bang_2",
+"door_bang_3",
+"door_bang_4",
+"door_bang_5",
+"door_bang_6",
+"door_bang_7",
+"door_bang_8"
+],
+"wood_break": [
+"wood_break_0",
+"wood_break_1",
+"wood_break_2",
+"wood_break_3",
+"wood_break_4",
+"wood_break_5"
+],
+"creak": [
+"creak_0"
+],
+"keys": [
+"keys_0",
+"keys_1",
+"keys_2",
+"keys_3",
+"keys_4",
+"keys_5",
+"keys_6"
+],
+"rummage": [
+"rummage_0",
+"rummage_1",
+"rummage_2",
+"rummage_3",
+"rummage_4",
+"rummage_5",
+"rummage_6",
+"rummage_7",
+"rummage_8",
+"rummage_9",
+"rummage_10",
+"rummage_11",
+"rummage_12",
+"rummage_13",
+"rummage_14",
+"rummage_15",
+"rummage_16",
+"rummage_17",
+"rummage_18",
+"rummage_19",
+"rummage_20",
+"rummage_21",
+"rummage_22",
+"rummage_23",
+"rummage_24",
+"rummage_25",
+"rummage_26",
+"rummage_27",
+"rummage_28"
+],
+"crunch": [
+"crunch_0",
+"crunch_1",
+"crunch_2",
+"crunch_3",
+"crunch_4",
+"crunch_5",
+"crunch_6"
+],
+"metal_fall": [
+"metal_fall_0",
+"metal_fall_1",
+"metal_fall_2",
+"metal_fall_3",
+"metal_fall_4"
+],
+"fire": [
+"fire_0"
+],
+"v_scream_f": [
+"v_scream_f_0",
+"v_scream_f_1",
+"v_scream_f_2",
+"v_scream_f_3",
+"v_scream_f_4",
+"v_scream_f_5",
+"v_scream_f_6",
+"v_scream_f_7"
+],
+"v_scream_m": [
+"v_scream_m_0",
+"v_scream_m_1",
+"v_scream_m_2",
+"v_scream_m_3",
+"v_scream_m_4",
+"v_scream_m_5",
+"v_scream_m_6",
+"v_scream_m_7",
+"v_scream_m_8",
+"v_scream_m_9",
+"v_scream_m_10",
+"v_scream_m_11",
+"v_scream_m_12",
+"v_scream_m_13",
+"v_scream_m_14",
+"v_scream_m_15",
+"v_scream_m_16"
+],
+"v_hurt_m": [
+"v_hurt_m_0",
+"v_hurt_m_1",
+"v_hurt_m_2",
+"v_hurt_m_3",
+"v_hurt_m_4",
+"v_hurt_m_5",
+"v_hurt_m_6",
+"v_hurt_m_7",
+"v_hurt_m_8",
+"v_hurt_m_9",
+"v_hurt_m_10",
+"v_hurt_m_11",
+"v_hurt_m_12",
+"v_hurt_m_13",
+"v_hurt_m_14",
+"v_hurt_m_15",
+"v_hurt_m_16",
+"v_hurt_m_17",
+"v_hurt_m_18",
+"v_hurt_m_19",
+"v_hurt_m_20",
+"v_hurt_m_21",
+"v_hurt_m_22",
+"v_hurt_m_23",
+"v_hurt_m_24",
+"v_hurt_m_25",
+"v_hurt_m_26",
+"v_hurt_m_27",
+"v_hurt_m_28",
+"v_hurt_m_29",
+"v_hurt_m_30",
+"v_hurt_m_31",
+"v_hurt_m_32",
+"v_hurt_m_33",
+"v_hurt_m_34",
+"v_hurt_m_35",
+"v_hurt_m_36",
+"v_hurt_m_37",
+"v_hurt_m_38",
+"v_hurt_m_39",
+"v_hurt_m_40",
+"v_hurt_m_41",
+"v_hurt_m_42",
+"v_hurt_m_43",
+"v_hurt_m_44",
+"v_hurt_m_45",
+"v_hurt_m_46",
+"v_hurt_m_47",
+"v_hurt_m_48",
+"v_hurt_m_49",
+"v_hurt_m_50"
+],
+"v_hurt_f": [
+"v_hurt_f_0",
+"v_hurt_f_1",
+"v_hurt_f_2",
+"v_hurt_f_3",
+"v_hurt_f_4",
+"v_hurt_f_5",
+"v_hurt_f_6"
+],
+"v_die_m": [
+"v_die_m_0",
+"v_die_m_1",
+"v_die_m_2",
+"v_die_m_3",
+"v_die_m_4",
+"v_die_m_5",
+"v_die_m_6",
+"v_die_m_7",
+"v_die_m_8",
+"v_die_m_9",
+"v_die_m_10",
+"v_die_m_11",
+"v_die_m_12",
+"v_die_m_13",
+"v_die_m_14",
+"v_die_m_15",
+"v_die_m_16",
+"v_die_m_17",
+"v_die_m_18"
+],
+"v_gasp_f": [
+"v_gasp_f_0",
+"v_gasp_f_1",
+"v_gasp_f_2",
+"v_gasp_f_3",
+"v_gasp_f_4",
+"v_gasp_f_5"
+],
+"v_sigh_f": [
+"v_sigh_f_0",
+"v_sigh_f_1"
+],
+"v_sigh": [
+"v_sigh_0",
+"v_sigh_1"
+],
+"v_yawn": [
+"v_yawn_0",
+"v_yawn_1",
+"v_yawn_2"
+],
+"v_pant": [
+"v_pant_0",
+"v_pant_1",
+"v_pant_2",
+"v_pant_3",
+"v_pant_4",
+"v_pant_5",
+"v_pant_6",
+"v_pant_7",
+"v_pant_8",
+"v_pant_9",
+"v_pant_10"
+],
+"v_cry_f": [
+"v_cry_f_0",
+"v_cry_f_1",
+"v_cry_f_2",
+"v_cry_f_3",
+"v_cry_f_4",
+"v_cry_f_5"
+],
+"v_cough_m": [
+"v_cough_m_0",
+"v_cough_m_1",
+"v_cough_m_2",
+"v_cough_m_3"
+],
+"v_hey_f": [
+"v_hey_f_0",
+"v_hey_f_1",
+"v_hey_f_2",
+"v_hey_f_3"
+],
+"v_hello_f": [
+"v_hello_f_0",
+"v_hello_f_1",
+"v_hello_f_2",
+"v_hello_f_3",
+"v_hello_f_4",
+"v_hello_f_5",
+"v_hello_f_6",
+"v_hello_f_7",
+"v_hello_f_8"
+],
+"v_thanks_f": [
+"v_thanks_f_0",
+"v_thanks_f_1",
+"v_thanks_f_2",
+"v_thanks_f_3",
+"v_thanks_f_4",
+"v_thanks_f_5",
+"v_thanks_f_6"
+],
+"v_ok_f": [
+"v_ok_f_0",
+"v_ok_f_1",
+"v_ok_f_2",
+"v_ok_f_3",
+"v_ok_f_4",
+"v_ok_f_5"
+],
+"v_what_f": [
+"v_what_f_0",
+"v_what_f_1",
+"v_what_f_2",
+"v_what_f_3",
+"v_what_f_4",
+"v_what_f_5"
+],
+"v_laugh_f": [
+"v_laugh_f_0",
+"v_laugh_f_1",
+"v_laugh_f_2",
+"v_laugh_f_3",
+"v_laugh_f_4"
+],
+"v_bye_f": [
+"v_bye_f_0",
+"v_bye_f_1",
+"v_bye_f_2",
+"v_bye_f_3",
+"v_bye_f_4",
+"v_bye_f_5"
+],
+"v_help_f": [
+"v_help_f_0",
+"v_help_f_1",
+"v_help_f_2"
+],
+"v_omg_f": [
+"v_omg_f_0",
+"v_omg_f_1",
+"v_omg_f_2",
+"v_omg_f_3"
+],
+"v_no_f": [
+"v_no_f_0",
+"v_no_f_1"
+],
+"v_run_f": [
+"v_run_f_0",
+"v_run_f_1",
+"v_run_f_2",
+"v_run_f_3"
+],
+"v_come_f": [
+"v_come_f_0"
+],
+"v_look_f": [
+"v_look_f_0",
+"v_look_f_1"
+],
+"v_look_m": [
+"v_look_m_0",
+"v_look_m_1",
+"v_look_m_2"
+],
+"v_run_m": [
+"v_run_m_0",
+"v_run_m_1"
+],
+"v_help_m": [
+"v_help_m_0",
+"v_help_m_1",
+"v_help_m_2"
+],
+"v_omg_m": [
+"v_omg_m_0"
+],
+"v_no_m": [
+"v_no_m_0",
+"v_no_m_1"
+],
+"v_ok_m": [
+"v_ok_m_0",
+"v_ok_m_1",
+"v_ok_m_2"
+],
+"v_hey_m": [
+"v_hey_m_0",
+"v_hey_m_1",
+"v_hey_m_2"
+],
+"v_hello_m": [
+"v_hello_m_0"
+],
+"v_laugh_m": [
+"v_laugh_m_0",
+"v_laugh_m_1",
+"v_laugh_m_2",
+"v_laugh_m_3",
+"v_laugh_m_4"
+],
+"v_crowd": [
+"v_crowd_0",
+"v_crowd_1",
+"v_crowd_2",
+"v_crowd_3",
+"v_crowd_4",
+"v_crowd_5"
+],
+"v_murmur": [
+"v_murmur_0",
+"v_murmur_1",
+"v_murmur_2",
+"v_murmur_3",
+"v_murmur_4",
+"v_murmur_5",
+"v_murmur_6",
+"v_murmur_7",
+"v_murmur_8"
+],
+"v_radio": [
+"v_radio_0",
+"v_radio_1",
+"v_radio_2",
+"v_radio_3",
+"v_radio_4",
+"v_radio_5",
+"v_radio_6",
+"v_radio_7",
+"v_radio_8",
+"v_radio_9",
+"v_radio_10",
+"v_radio_11",
+"v_radio_12"
+],
+"v_news": [
+"v_news_0",
+"v_news_1",
+"v_news_2",
+"v_news_3",
+"v_news_4",
+"v_news_5",
+"v_news_6"
+]
+}

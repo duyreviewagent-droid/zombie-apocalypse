@@ -1,0 +1,110 @@
+Recorded sound effects used in Zombie_Apocalypse — all CC0 (public domain), from OpenGameArt.org:
+- "The Free Firearm Sound Library" (Prepared SFX Library): 1911, Walther PPQ, Benelli Nova, Tikka T3 gunshots
+- "Zombies Sound Pack", "Zombie noises and moans", "Undead moans", "Zombie moans 01" (emopreben), "Zomby SFX pack",
+  "Voice Effects Zombie-Skeleton-Monster Human Male", "Hungry ghoul"
+- "37 hits/punches" and "Extreme splatter" (independent.nu ljudbank), "Fleshy bone break/snap SFX", "Deep bone crack/break SFX",
+  "Squish sounds effects", "12 wet towel hitting/falling/punching floor sounds"
+- "75 CC0 breaking/falling/hit SFX", "100 CC0 metal and wood SFX", "4 door closes", "Creaky door hinge (spooky)", "Glass break",
+  "7 eating crunches", "Fire crackling"
+Footsteps: "Impact Sounds" by Kenney (www.kenney.nl), CC0.
+
+Human voices (sounds/r/v_*.mp3) — real recorded human voices only (no text-to-speech, no AI voices), every one CC0 or public domain.
+Each source was trimmed, high-passed, loudness-matched and re-encoded as small mono MP3s. Source -> files:
+- "Female high-pitched scream SFX" by WuxiaScrub — https://opengameart.org/content/female-high-pitched-scream-sfx — CC0
+    v_scream_f_0, v_scream_f_1, v_scream_f_2, v_scream_f_3
+- "Female Scream 1" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/female-scream-1 — CC0
+    v_scream_f_4
+- "High pitch scream sounds(2)" by pauliuw — https://opengameart.org/content/high-pitch-scream-sounds2 — CC0
+    v_scream_f_5
+- "Horror scream1" by Vinrax — https://opengameart.org/content/horror-scream1 — CC0
+    v_scream_f_6
+- "Female Exasperated Yell" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/female-exasperated-yell — CC0
+    v_scream_f_7
+- "Male Grunt/Yelling sounds" by HaelDB — https://opengameart.org/content/male-gruntyelling-sounds — CC0 (dual-licensed OGA-BY 3.0 / CC0; used under CC0)
+    v_scream_m_0, v_scream_m_1, v_scream_m_2, v_scream_m_3, v_scream_m_4, v_scream_m_5, v_scream_m_6, v_scream_m_7, v_scream_m_8, v_scream_m_9, v_scream_m_10, v_scream_m_11, v_scream_m_12, v_scream_m_13, v_hurt_m_0, v_hurt_m_1, v_hurt_m_2, v_hurt_m_3, v_hurt_m_4, v_hurt_m_5
+- "Voice Clip Pack - Male Adventurer RPG" by wolfwoot — https://opengameart.org/content/voice-clip-pack-male-adventurer-rpg — CC0
+    v_scream_m_14, v_scream_m_15, v_scream_m_16, v_hurt_m_31, v_hurt_m_32, v_hurt_m_33, v_hurt_m_34, v_hurt_m_35, v_hurt_m_36, v_hurt_m_37, v_hurt_m_38, v_hurt_m_39, v_hurt_m_40, v_die_m_16, v_die_m_17, v_no_m_0, v_no_m_1, v_ok_m_0, v_ok_m_1, v_ok_m_2, v_hey_m_0
+- "Female Hurt Grunts & Groans" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/female-hurt-grunts-groans — CC0
+    v_hurt_f_0, v_hurt_f_1, v_hurt_f_2, v_hurt_f_3, v_hurt_f_4, v_hurt_f_5, v_hurt_f_6
+- "15 vocal male strain/hurt/pain/jump sounds" by qubodup — https://opengameart.org/content/15-vocal-male-strainhurtpainjump-sounds — CC0
+    v_hurt_m_6, v_hurt_m_7, v_hurt_m_8, v_hurt_m_9, v_hurt_m_10, v_hurt_m_11, v_hurt_m_12, v_hurt_m_13, v_hurt_m_14, v_hurt_m_15, v_hurt_m_16, v_hurt_m_17, v_hurt_m_18, v_hurt_m_19, v_hurt_m_20
+- "Pain sounds by EmoPreben" by EmoPreben — https://opengameart.org/content/pain-sounds-by-emopreben — CC0
+    v_hurt_m_21, v_hurt_m_22, v_hurt_m_23, v_hurt_m_24, v_hurt_m_25, v_hurt_m_26
+- "Playersounds 1" by EmoPreben — https://opengameart.org/content/playersounds-1-by-emopreben — CC0
+    v_hurt_m_27, v_hurt_m_28, v_hurt_m_29, v_hurt_m_30
+- "5 Hit Sounds + Dying" by TinyWorlds — https://opengameart.org/content/5-hit-sounds-dying — CC0
+    v_hurt_m_41, v_hurt_m_42, v_hurt_m_43, v_hurt_m_44, v_hurt_m_45, v_die_m_18
+- "Man hurt sounds" by Aharabada — https://opengameart.org/content/man-hurt-sounds — CC0
+    v_hurt_m_46, v_hurt_m_47, v_hurt_m_48, v_hurt_m_49, v_hurt_m_50
+- "grunts of male death and pain" by thebardofblasphemy — https://opengameart.org/content/grunts-male-death-and-pain — CC0
+    v_die_m_0, v_die_m_1, v_die_m_2, v_die_m_3, v_die_m_4, v_die_m_5, v_die_m_6, v_die_m_7, v_die_m_8, v_die_m_9, v_die_m_10, v_die_m_11, v_die_m_12, v_die_m_13, v_die_m_14, v_die_m_15
+- "Voice Clip Packs for Visual Novels and RPGs" by cicifyre — https://opengameart.org/content/voice-clip-packs-for-visual-novels-and-rpgs — CC0
+    v_gasp_f_0, v_gasp_f_1, v_gasp_f_2, v_gasp_f_3, v_gasp_f_4, v_sigh_f_0, v_sigh_f_1, v_hey_f_0, v_hey_f_1, v_hello_f_0, v_hello_f_1, v_hello_f_2, v_hello_f_3, v_thanks_f_0, v_thanks_f_1, v_ok_f_0, v_ok_f_1, v_what_f_0, v_what_f_1, v_laugh_f_0, v_laugh_f_1, v_bye_f_0, v_bye_f_1, v_bye_f_2, v_bye_f_3, v_thanks_f_2, v_thanks_f_3, v_hello_f_4, v_hello_f_5, v_hello_f_6, v_hello_f_7, v_bye_f_4, v_bye_f_5, v_thanks_f_4, v_thanks_f_5, v_ok_f_2, v_ok_f_3, v_ok_f_4, v_what_f_2, v_what_f_3, v_laugh_f_2, v_laugh_f_3, v_hello_f_8, v_thanks_f_6
+- "Oh you scared me!" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/oh-you-scared-me — CC0
+    v_gasp_f_5, v_omg_f_2
+- "Four_sighs.ogg" by ezwa — https://commons.wikimedia.org/wiki/File:Four_sighs.ogg — Public domain
+    v_sigh_0
+- "Three_sighs.ogg" by ezwa — https://commons.wikimedia.org/wiki/File:Three_sighs.ogg — Public domain
+    v_sigh_1
+- "Yawning_1.ogg" by ezwa — https://commons.wikimedia.org/wiki/File:Yawning_1.ogg — Public domain
+    v_yawn_0
+- "Yawning_2.ogg" by ezwa — https://commons.wikimedia.org/wiki/File:Yawning_2.ogg — Public domain
+    v_yawn_1
+- "Yawning_twice.ogg" by ezwa — https://commons.wikimedia.org/wiki/File:Yawning_twice.ogg — Public domain
+    v_yawn_2
+- "Heavy_breathing_3.ogg" by ezwa — https://commons.wikimedia.org/wiki/File:Heavy_breathing_3.ogg — Public domain
+    v_pant_0, v_pant_8, v_pant_9, v_pant_10
+- "Heavy_breathing_2.ogg" by ezwa — https://commons.wikimedia.org/wiki/File:Heavy_breathing_2.ogg — Public domain
+    v_pant_1, v_pant_2, v_pant_3, v_pant_4, v_pant_5, v_pant_6, v_pant_7
+- "Cry_of_woman.ogg" by AlucardsBride — https://commons.wikimedia.org/wiki/File:Cry_of_woman.ogg — CC0
+    v_cry_f_0, v_cry_f_1, v_cry_f_2, v_cry_f_3, v_cry_f_4, v_cry_f_5
+- "Old Man Cough" by AntumDeluge — https://opengameart.org/content/old-man-cough — CC0
+    v_cough_m_0
+- "Sick Noises" by frosty ham — https://opengameart.org/content/sick-noises — CC0
+    v_cough_m_1, v_cough_m_2, v_cough_m_3
+- "Group giggling" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/group-giggling — CC0
+    v_laugh_f_4
+- "oh alright!" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/oh-alright — CC0
+    v_ok_f_5
+- "h-Hello?" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/h-hello — CC0
+    v_hey_f_2
+- "answer me!" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/answer-me-0 — CC0
+    v_hey_f_3
+- "Please help somebody!" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/please-help-somebody — CC0
+    v_help_f_0, v_omg_f_0, v_omg_f_1
+- "Female Distressed No no no" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/female-distressed-no-no-no — CC0
+    v_no_f_0
+- "What, no no that can't happen!" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/what-no-no-that-cant-happen — CC0
+    v_no_f_1, v_omg_f_3
+- "Come on, let's run!" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/come-on-lets-run — CC0
+    v_run_f_0
+- "Let's go, I can't stand another minute here!" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/lets-go-i-cant-stand-another-minute-here — CC0
+    v_run_f_1
+- "Are you crazy?!" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/are-you-crazy — CC0
+    v_what_f_4
+- "Did you hear that?" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/did-you-hear-that — CC0
+    v_what_f_5
+- "I'm coming with you" by AuraVoice (Nocturnal_Vanguard) — https://opengameart.org/content/im-coming-with-you — CC0
+    v_come_f_0
+- "Voiceover Pack (40+ lines)" by Kenney (www.kenney.nl) — https://opengameart.org/content/voiceover-pack-40-lines — CC0
+    v_look_f_0, v_look_f_1, v_run_f_2, v_run_f_3, v_help_f_1, v_help_f_2, v_look_m_0, v_look_m_1, v_run_m_0, v_run_m_1, v_look_m_2, v_help_m_0, v_help_m_1
+- ""Oh My", "Help me" - Posh English, high pitched" by rubenwardy — https://opengameart.org/content/oh-my-help-me-posh-english-high-pitched — CC0
+    v_help_m_2, v_omg_m_0
+- "Scorcher's voice overs" by scorcher24 — https://opengameart.org/content/scorchers-voice-overs — CC0
+    v_hey_m_1
+- "Aggressive NPC sounds "Hey"" by mujtaba-io — https://opengameart.org/content/aggressive-npc-sounds-hey-i-will-kill-you — CC0
+    v_hey_m_2
+- "Greeting sounds" by EmoPreben — https://opengameart.org/content/greeting-sounds-by-emopreben — CC0
+    v_hello_m_0
+- "Do you remember laughter?" by Supergeek — https://opengameart.org/content/do-you-remember-laughter — CC0
+    v_laugh_m_0, v_laugh_m_1, v_laugh_m_2, v_laugh_m_3, v_laugh_m_4
+- "Crowd Shouting/Speaking Ambience" by StarNinjas — https://opengameart.org/content/crowd-shoutingspeaking-ambience — CC0
+    v_crowd_0, v_crowd_1, v_crowd_2, v_crowd_3, v_crowd_4, v_crowd_5
+- "442697-SBssa-Crowd_Talking_003.wav" by SoundSnap (via Freesound) — https://commons.wikimedia.org/wiki/File:442697-SBssa-Crowd_Talking_003.wav — CC0
+    v_murmur_0, v_murmur_1, v_murmur_2, v_murmur_3, v_murmur_4, v_murmur_5
+- "211146_unfa_another-crowd.flac" by unfa (via Freesound) — https://commons.wikimedia.org/wiki/File:211146_unfa_another-crowd.flac — CC0
+    v_murmur_6, v_murmur_7, v_murmur_8
+- "Apollo13-wehaveaproblem.ogg" by NASA (Apollo 13 air-to-ground) — https://commons.wikimedia.org/wiki/File:Apollo13-wehaveaproblem.ogg — Public domain (US government work)
+    v_radio_0, v_radio_1, v_radio_2, v_radio_3, v_radio_4, v_radio_5, v_radio_6, v_radio_7, v_radio_8, v_radio_9, v_radio_10, v_radio_11, v_radio_12
+- "CONELRAD, Operation Alert 1961" (WSBC Chicago, off-air recording) — https://archive.org/details/conelrad-1961 — Public Domain Mark 1.0
+    v_news_0, v_news_1, v_news_2, v_news_3, v_news_4, v_news_5, v_news_6
