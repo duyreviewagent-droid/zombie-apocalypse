@@ -57,8 +57,11 @@ export function initDrive(env) {
   const home = W.houses.find(H => H.x === -44 && H.z === 17);
   const byHouse = H => { const s = H.flip || 1; return [[s * -(H.hw - 2.4), H.hd + 2.6, Math.PI / 2 - 0.25], [s * (H.hw - 0.6), H.hd + 2.4, Math.PI / 2 + 0.3]].map(([lx, lz, ly]) => [H.x + lx * Math.cos(H.yaw) + lz * Math.sin(H.yaw), H.z - lx * Math.sin(H.yaw) + lz * Math.cos(H.yaw), H.yaw + ly]); };
   if (home) spots.push(...byHouse(home));
-  spots.push([-13.5, -10.2, Math.PI / 2 + 0.2], [-26.5, -10.4, -Math.PI / 2], [26.5, -10.8, Math.PI / 2], [14.2, 10.6, 0.3]);
-  for (const H of W.houses) if (H !== home && (Math.abs(H.x) === 68 || Math.abs(H.z) === 66 || H.x === -92)) spots.push(...byHouse(H).slice(0, 1));
+  // (these spots are Maple Hollow's streets — on another map they'd land on the pitch / in a cell block: that map lists its own, W.bikeSpots, or has none)
+  if (!W.mapId || W.mapId === 'maple') {
+    spots.push([-13.5, -10.2, Math.PI / 2 + 0.2], [-26.5, -10.4, -Math.PI / 2], [26.5, -10.8, Math.PI / 2], [14.2, 10.6, 0.3]);
+    for (const H of W.houses) if (H !== home && (Math.abs(H.x) === 68 || Math.abs(H.z) === 66 || H.x === -92)) spots.push(...byHouse(H).slice(0, 1));
+  } else if (W.bikeSpots) spots.push(...W.bikeSpots);
   for (const [x, z, yaw] of spots) {
     if (bikes.length >= 9) break;
     if (!freeSpot(x, z, 0.55) || bikes.some(B => Math.hypot(B.x - x, B.z - z) < 3)) continue;

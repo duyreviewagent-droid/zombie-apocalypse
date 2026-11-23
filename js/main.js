@@ -2669,6 +2669,16 @@ function camRay(o, d, L, maxY, skipRoofs) {
   for (const b of camOff) b.off = false;
   return h;
 }
+// the underside of the lowest slab / roof over a point, above head height (Infinity if open sky)
+function ceilOver(x, z, y) {
+  let c = Infinity;
+  for (const b of world.near(x, z, 0.6)) {
+    if (b.off || !(b.y0 > y + 1.3) || b.y0 >= c) continue;
+    const dx = x - b.x, dz = z - b.z;
+    if (Math.abs(dx * b.c - dz * b.s) < b.hx && Math.abs(dx * b.s + dz * b.c) < b.hz) c = b.y0;
+  }
+  return c;
+}
 const houseLZ = (H, x, z) => (x - H.x) * Math.sin(H.yaw) + (z - H.z) * Math.cos(H.yaw);
 const houseLX = (H, x, z) => (x - H.x) * Math.cos(H.yaw) - (z - H.z) * Math.sin(H.yaw);
 // how far along a → b (0..1) the camera can go before it'd be in the roof (mode 'roof': over the shingles; 'attic':
@@ -2716,7 +2726,7 @@ function updateCamera(dt) {
   // (one threshold with hysteresis for both: up past 2.6 m switches, back under 2.4 m switches back — no flicker at the eaves or the hatch)
   const upHigh = G.upHigh = gy0 > 2.6 ? true : gy0 < 2.4 ? false : !!G.upHigh;
   const onRoof = !!(S && !inside && upHigh && !DRIVE.active() && world.roofY(S.pos.x, S.pos.z) !== null);
-  const inAttic = !!(S && inside && inside.yUnder && upHigh);
+  const inAttic = !!(S && inside && inside.yUnder && inside.hatch && upHigh);   // (a real attic — not a prison's / stadium's upper floor)
   G.roofK = damp(G.roofK || 0, onRoof ? 1 : 0, 3, dt); G.atticK = damp(G.atticK || 0, inAttic ? 1 : 0, 3, dt);
   // the pivot at your real eye height (measured off your own head while you stand still-ish: Michelle's shorter than Ben)
   if (S && S.B && S.B.Head && S.crouchW < 0.1 && !(S.jump.y > 0.02) && P.alive && !DRIVE.active()) {
@@ -2726,7 +2736,7 @@ function updateCamera(dt) {
   const eyeH = clamp((G.eyeH || 1.62) - 0.1, 1.3, 1.75);
   const tgt = V(S ? S.pos.x : 0, (S ? eyeH - S.crouchW * 0.42 + S.jump.y * 0.6 + gy0 : 1.5), S ? S.pos.z : 0);
   // on the attic ladder your head is up through the hatch: the camera stays in the kitchen and looks at the rest of you
-  if (S && inside && !inAttic && gy0 > 0.25) tgt.y = Math.min(tgt.y, 2.3);
+  if (S && inside && inside.hatch && !inAttic && !upHigh && gy0 > 0.25) tgt.y = Math.min(tgt.y, 2.3);
   if (inAttic) tgt.y = Math.min(tgt.y, Math.max(gy0 + 1.0, inside.yUnder(houseLZ(inside, S.pos.x, S.pos.z)) - 0.45));
   const DC = DRIVE.cameraTarget(); if (DC) { tgt.copy(DC.pos); if (DC.height) tgt.y += DC.height * 0.3; if (!G.mouse.right && G.t - (G.lookT || 0) > 1.0) { G.camYaw = dampAngle(G.camYaw, DC.yaw, 2.5, dt); G.camPitch = damp(G.camPitch, -0.12, 2, dt); } }
   if (P && !P.alive) tgt.y = 0.8 + (P.s.gy || 0);
@@ -2784,7 +2794,13 @@ function updateCamera(dt) {
       if (inAttic) {
         const ceil = inside.yUnder(houseLZ(inside, tpPos.x, tpPos.z)) - 0.2;
         tpPos.y = clamp(tpPos.y, (inside.atticY || 2.94) + 0.3, Math.max((inside.atticY || 2.94) + 0.3, ceil));
-      } else if (inside) tpPos.y = Math.min(tpPos.y, world.camCeil ? world.camCeil(S.pos.x, S.pos.z, gy0) : 2.55);
+      } else if (inside) {
+        // under the ceiling of the floor you're on (big buildings with upstairs — the prison, the stadium stands — find it from the slabs over you)
+        let cc = world.camCeil ? world.camCeil(S.pos.x, S.pos.z, gy0) : 2.55;
+        if (!inside.hatch && !(inside.yUnder && gy0 > 2.5)) { const co = Math.min(ceilOver(S.pos.x, S.pos.z, gy0), ceilOver(tpPos.x, tpPos.z, gy0)); cc = isFinite(co) ? Math.max(gy0 + 1.5, co - 0.22) : gy0 > 1 ? gy0 + 2.3 : cc; }
+        tpPos.y = Math.min(tpPos.y, cc);
+        if (gy0 > 1) tpPos.y = Math.max(tpPos.y, gy0 + 0.35);   // never under the floor you're standing on
+      }
       if (onRoof) { const ry = world.roofY(tpPos.x, tpPos.z); if (ry !== null) tpPos.y = Math.max(tpPos.y, ry + 0.3); }
       // the attic switch moves the camera up/down through the hatch: glide there (in the hatch's opening), never pop through the ceiling
       const hat = inside && inside.hatch;
@@ -3168,6 +3184,14 @@ const TC = initTouch({
   G, keys, save, rdrag, look, toast,
   alive: () => !!(P && P.alive), driving: () => DRIVE.active(), bike: () => DRIVE.bike(), gun: () => !!(P && P.arms.cur), hp: () => P ? P.hp : 100,
   weaponIcon: () => ITEM_ICON[G.weapon] || 'fist', lanternOn: () => LANTERN.carrying(),
+  // thumbs aren't a mouse: on attack, turn to the nearest zombie in front (close in for a swing, a narrow cone for a gun)
+  assist: () => {
+    if (!P || !P.alive || DRIVE.active() || G.state !== 'play') return;
+    const gun = !!P.arms.cur, R = gun ? 28 : 4.2, cone = gun ? 0.22 : 1.2; let best = null, bs = 1e9;
+    for (const u of Z.list) { if (!u.active || !u.alive) continue; const dx = u.s.pos.x - P.s.pos.x, dz = u.s.pos.z - P.s.pos.z, d = Math.hypot(dx, dz); if (d > R || d < 0.2) continue;
+      let da = Math.atan2(dx, dz) - G.camYaw; da = Math.atan2(Math.sin(da), Math.cos(da)); if (Math.abs(da) > cone) continue; const sc = d + Math.abs(da) * 3; if (sc < bs) { bs = sc; best = da; } }
+    if (best !== null) G.camYaw += best * (gun ? 0.85 : 1);
+  },
   ammo: () => { const A = P && P.arms; if (!A || !A.cur) return ''; const a = A.ammo[A.cur]; return `${a.mag}/${G.inv[A.W.ammo] || 0}`; },
 });
 if (TOUCH) document.addEventListener('visibilitychange', () => { if (document.hidden && G.state === 'play') togglePause(); });   // a call, the home button: pause

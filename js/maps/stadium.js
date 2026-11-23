@@ -847,8 +847,9 @@ export function buildMap(K) {
   };
   // phones / tablets: a thinner crowd in the seats (it's ~2 M triangles at full strength); an even spread, picked
   // without touching the layout's random sequence
-  { const LT = tier(), keep = LT > 1 ? 0.4 : LT ? 0.65 : 1;
-    people(keep < 1 ? fans.filter((f, i) => (i * 0.6180339887) % 1 < keep) : fans, SEAT, true); people(standers, STAND, false); }
+  // 60% fewer fans everywhere (seats and the standing crowd), and fewer again on phones / tablets
+  { const LT = tier(), keep = 0.4 * (LT > 1 ? 0.4 : LT ? 0.65 : 1), thin = l => l.filter((f, i) => (i * 0.6180339887) % 1 < keep);
+    people(thin(fans), SEAT, true); people(thin(standers), STAND, false); }
 
   // ================================================================ lights: floodlights (4 spots), a floodlit fill
   const floods = [];

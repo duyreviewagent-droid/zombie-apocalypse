@@ -32,7 +32,7 @@ export const TOUCH_TUT = {
   view: { keys: ['View'], text: 'Tap the <b>camera</b> button at the top right to switch between first and third person.' },
   door: { keys: ['Use'], text: 'Walk up to a door and tap <b>Use</b> (the hand) — or the label in the middle of the screen. Close doors behind you later: they slow the dead down.' },
   search: { keys: ['Use'], text: 'Find a <b>cupboard, drawer or the fridge</b> and tap <b>Use</b> to search it. What you find goes into your backpack.' },
-  bag: { keys: ['Bag'], text: 'Tap the <b>backpack</b> button at the top right: you swing it round and open it.' },
+  bag: { keys: ['Bag'], text: 'Tap the <b>backpack</b> button on the right, just above the big attack button: you swing it round and open it.' },
   eat: { keys: ['Bag'], text: 'In the backpack, tap <b>Eat</b> or <b>Drink</b> on something. Food and water keep you going.' },
   phone: { keys: ['Phone'], text: 'Tap the <b>phone</b> button at the top right. Open <b>Messages</b> and text Mom or Ben.' },
   attack: { keys: ['Attack'], text: 'Tap the big <b>attack</b> button to swing at the air. The dot in the middle is your aim; <b>shove</b> pushes them off you.' },
@@ -179,18 +179,19 @@ export function initTouch(A) {
     return B[id];
   }
   // on foot
-  btn('attack', R, { big: true, icon: 'fist', em: '', s: 84, at: [0, 0], down: () => { if (G.grabbedBy) { press('Space'); return; } G.mouse.left = true; G.clickReq = true; }, up: () => { G.mouse.left = false; }, label: 'Attack' });
-  btn('aim', R, { icon: 'eye', em: 'aim', s: 56, at: [98, 180], down: () => { G.mouse.right = true; if (A.rdrag) { A.rdrag.on = true; A.rdrag.d = 0; A.rdrag.t = performance.now(); } }, up: () => { G.mouse.right = false; if (A.rdrag) A.rdrag.on = false; }, label: 'Aim / zoom (hold)' });
-  btn('use', R, { icon: 'hand', em: 'use', s: 58, at: [98, 132], tap: () => press('KeyE'), label: 'Use' });
-  btn('jump', R, { icon: 'jump', em: 'jump', s: 56, at: [98, 88], down: () => hold('Space', 'jump', true), up: () => hold('Space', 'jump', false), label: 'Jump / climb' });
-  btn('shove', R, { icon: 'shove', em: 'shove', s: 50, at: [170, 180], tap: () => { G.shoveReq = true; }, label: 'Shove' });
-  btn('crouch', R, { icon: 'crouch', em: 'crouch', s: 50, at: [172, 152], tap: () => press('KeyC'), label: 'Crouch' });
-  btn('reload', R, { icon: 'reload', em: 'reload', s: 50, at: [170, 122], tap: () => press('KeyR'), label: 'Reload' });
-  btn('heal', R, { icon: 'cross', em: 'heal', s: 50, at: [170, 96], tap: () => press('KeyQ'), label: 'Bandage' });
-  btn('bottle', R, { icon: 'bottle', em: 'throw', s: 48, at: [236, 166], tap: () => press('KeyG'), label: 'Throw a bottle' });
-  btn('molotov', R, { icon: 'flame', em: 'molotov', s: 48, at: [236, 142], tap: () => press('KeyH'), label: 'Throw a Molotov' });
-  btn('light', R, { icon: 'torch', em: 'light', s: 48, at: [236, 118], tap: () => press('KeyF'), label: 'Flashlight' });
-  btn('lantern', R, { icon: 'lantern', em: 'lantern', s: 48, at: [236, 96], tap: () => press('KeyL'), label: 'Lantern' });
+  btn('attack', R, { big: true, icon: 'fist', em: '', s: 98, at: [0, 0], down: () => { if (G.grabbedBy) { press('Space'); return; } try { A.assist && A.assist(); } catch { } G.mouse.left = true; G.clickReq = true; }, up: () => { G.mouse.left = false; }, label: 'Attack' });
+  btn('aim', R, { icon: 'eye', em: 'aim', s: 64, at: [132, 181], down: () => { G.mouse.right = true; if (A.rdrag) { A.rdrag.on = true; A.rdrag.d = 0; A.rdrag.t = performance.now(); } }, up: () => { G.mouse.right = false; if (A.rdrag) A.rdrag.on = false; }, label: 'Aim / zoom (hold)' });
+  btn('bag', R, { icon: 'backpack', em: 'bag', s: 64, at: [132, 90], tap: () => press('Tab'), label: 'Backpack' });
+  btn('use', R, { icon: 'hand', em: 'use', s: 64, at: [132, 150], tap: () => press('KeyE'), label: 'Use' });
+  btn('jump', R, { icon: 'jump', em: 'jump', s: 64, at: [132, 120], down: () => hold('Space', 'jump', true), up: () => hold('Space', 'jump', false), label: 'Jump / climb' });
+  btn('shove', R, { icon: 'shove', em: 'shove', s: 56, at: [212, 182], tap: () => { G.shoveReq = true; }, label: 'Shove' });
+  btn('crouch', R, { icon: 'crouch', em: 'crouch', s: 56, at: [212, 160], tap: () => press('KeyC'), label: 'Crouch' });
+  btn('reload', R, { icon: 'reload', em: 'reload', s: 56, at: [212, 138], tap: () => press('KeyR'), label: 'Reload' });
+  btn('heal', R, { icon: 'cross', em: 'heal', s: 56, at: [212, 116], tap: () => press('KeyQ'), label: 'Bandage' });
+  btn('bottle', R, { icon: 'bottle', em: 'throw', s: 52, at: [286, 177], tap: () => press('KeyG'), label: 'Throw a bottle' });
+  btn('molotov', R, { icon: 'flame', em: 'molotov', s: 52, at: [286, 163], tap: () => press('KeyH'), label: 'Throw a Molotov' });
+  btn('light', R, { icon: 'torch', em: 'light', s: 52, at: [286, 149], tap: () => press('KeyF'), label: 'Flashlight' });
+  btn('lantern', R, { icon: 'lantern', em: 'lantern', s: 52, at: [286, 135], tap: () => press('KeyL'), label: 'Lantern' });
   // at the wheel / on the bike
   btn('gas', R, { big: true, icon: 'gas', em: 'gas', s: 84, at: [0, 0], down: () => hold('KeyW', 'gas', true), up: () => hold('KeyW', 'gas', false), label: 'Gas' });
   btn('brake', R, { icon: 'brake', em: 'brake', s: 64, at: [104, 180], down: () => hold('KeyS', 'brake', true), up: () => hold('KeyS', 'brake', false), label: 'Brake / reverse' });
@@ -198,7 +199,6 @@ export function initTouch(A) {
   btn('exit', R, { icon: 'exit', em: 'exit', s: 52, at: [178, 150], tap: () => press('KeyE'), label: 'Get out' });
   // the top row
   btn('view', T, { icon: 'view', tap: () => press('KeyV'), label: 'First / third person' });
-  btn('bag', T, { icon: 'backpack', tap: () => press('Tab'), label: 'Backpack' });
   btn('phone', T, { icon: 'phone', tap: () => press('KeyT'), label: 'Phone' });
   btn('pause', T, { icon: 'pause', tap: () => press('Escape'), label: 'Pause' });
 
@@ -311,16 +311,16 @@ export function initTouch(A) {
 
   // ---- words on the menus and screens
   const setText = (sel, html) => { const e = document.querySelector(sel); if (e) e.innerHTML = html; };
-  setText('#title .hint', 'Left thumb: move · right thumb: look<br>Buttons on the right: attack, use, jump · top right: bag, phone, pause');
+  setText('#title .hint', 'Left thumb: move · right thumb: look<br>Buttons on the right: attack, bag, jump, use · top right: view, phone, pause');
   setText('#intro .skip', 'TAP TO CONTINUE');
   setText('#tv .skip', 'TAP TO SKIP');
   setText('#note .close', 'TAP TO PUT IT DOWN');
   setText('#struggle .s', 'TAP <b>MASH</b> TO BREAK FREE');
   { const bc = $('bagClose'); if (bc) bc.innerHTML = 'Zip it up'; }
-  setText('#pause .keys', 'Left side: move (push far to run, double-tap to keep running) · right side: drag to look<br>Attack · Aim (hold) · Use · Jump · Shove · Crouch · Reload · Heal · Throw · Light<br>Tap the weapon slots to switch · top right: view, bag, phone, pause');
+  setText('#pause .keys', 'Left side: move (push far to run, double-tap to keep running) · right side: drag to look<br>Attack · Aim (hold) · Use · Jump · Shove · Crouch · Reload · Heal · Throw · Light<br>Tap the weapon slots to switch · bag: right side, over attack · top right: view, phone, pause');
   { const l = $('vsens') && $('vsens').closest('label'); if (l && l.firstChild && l.firstChild.nodeType === 3) l.firstChild.textContent = 'Look speed '; }
   { const l = $('vinv') && $('vinv').closest('label'); if (l && l.firstChild && l.firstChild.nodeType === 3) l.firstChild.textContent = 'Invert look Y '; }
-  { const h = document.querySelector('#howto .cols'); if (h && !$('tcHow')) { const d = document.createElement('div'); d.id = 'tcHow'; d.innerHTML = '<b>ON A TOUCH SCREEN</b><br>Left thumb anywhere on the left: <b>move</b> — push it all the way to <b>run</b>, double-tap to keep running.<br>Drag on the right: <b>look</b>. The dot in the middle is your aim.<br><b>Attack</b> (big button) · <b>Aim</b> hold (zoom without a gun) · <b>Use</b> (search, doors — or tap the label) · <b>Jump</b> · <b>Shove</b> · <b>Crouch</b> · <b>Reload</b> · <b>Heal</b> · <b>Throw</b> · <b>Light</b><br>Top right: first/third person, <b>backpack</b>, <b>phone</b>, pause. Tap the weapon slots to switch weapons.<br>In a car: the stick steers, <b>GAS</b> / <b>BRAKE</b>, <b>EXIT</b>. Grabbed: hammer <b>MASH</b>.'; h.parentNode.insertBefore(d, h); } }
+  { const h = document.querySelector('#howto .cols'); if (h && !$('tcHow')) { const d = document.createElement('div'); d.id = 'tcHow'; d.innerHTML = '<b>ON A TOUCH SCREEN</b><br>Left thumb anywhere on the left: <b>move</b> — push it all the way to <b>run</b>, double-tap to keep running.<br>Drag on the right: <b>look</b>. The dot in the middle is your aim.<br><b>Attack</b> (big button) · <b>Aim</b> hold (zoom without a gun) · <b>Use</b> (search, doors — or tap the label) · <b>Jump</b> · <b>Shove</b> · <b>Crouch</b> · <b>Reload</b> · <b>Heal</b> · <b>Throw</b> · <b>Light</b><br><b>Backpack</b>: right side, over the attack button. Top right: first/third person, <b>phone</b>, pause. Tap the weapon slots to switch weapons.<br>In a car: the stick steers, <b>GAS</b> / <b>BRAKE</b>, <b>EXIT</b>. Grabbed: hammer <b>MASH</b>.'; h.parentNode.insertBefore(d, h); } }
 
   // ---- what's on screen, every frame
   let uiT = 0, lastMode = '';
@@ -376,3 +376,5 @@ export function initTouch(A) {
 }
 
 ;(() => { const st = document.createElement('style'); st.textContent = 'body.touch.phone #obj .ch, body.touch.phone .st, body.touch.phone #clock .d { font-size: 13px !important; } body.touch.phone #tut .th, body.touch.phone #tut button { font-size: 13px !important; } body.touch.phone #tut button { min-height: 40px; } #tc .tb em { font-size: 11px; }'; document.head.appendChild(st); })();
+
+;(() => { const st = document.createElement('style'); st.textContent = '#tcR .tb:not(.big) em { bottom: 5px !important; font-size: 9px !important; letter-spacing: .1em; } #tcR .tb:not(.big) svg { transform: translateY(-5px) scale(.9); }'; document.head.appendChild(st); })();
