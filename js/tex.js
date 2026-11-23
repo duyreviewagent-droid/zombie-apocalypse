@@ -1,6 +1,31 @@
 // human-WAR — every texture is painted at load time on a canvas (no image files).
 // ground, bark, rock, planks, and the war materials: brick, concrete, sandbags, steel, canvas, crates, signs.
 import * as THREE from 'three';
+import { C } from './state.js';
+
+// ---- how much the device can take: 0 desktop (nothing changes), 1 tablet (iPad), 2 phone / ?lowpower=1.
+// js/mobile.js decides (C.mobile, C.lowPower); if it hasn't run yet, the same rules are applied here.
+let TIER = null;
+export function tier() {
+  if (TIER != null) return TIER;
+  try { const q = new URLSearchParams(location.search).get('tier'); if (q != null && /^[012]$/.test(q)) return (TIER = +q); } catch { }   // test hook: ?tier=0|1|2
+  let mobile = C.mobile, low = C.lowPower;
+  if (mobile === undefined && low === undefined) {
+    try {
+      const Q = new URLSearchParams(location.search), ua = navigator.userAgent || '', mtp = navigator.maxTouchPoints || 0;
+      let coarse = false; try { coarse = matchMedia('(pointer: coarse)').matches; } catch { }
+      const iOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && mtp > 1), android = /Android/i.test(ua);
+      const touch = Q.has('touch') ? Q.get('touch') !== '0' : (iOS || android || (coarse && mtp > 0));
+      const sMin = Math.min(screen.width || innerWidth, screen.height || innerHeight);
+      const phone = touch && (/iPhone|iPod/.test(ua) || (android && /Mobile/.test(ua)) || sMin < 560);
+      const mem = navigator.deviceMemory || 0, lowMem = (mem && mem <= 4) || (/iPhone/.test(ua) && Math.max(screen.width, screen.height) <= 700);
+      low = Q.has('lowpower') || (touch && (phone || lowMem)); mobile = touch || iOS || Q.has('lowpower');
+    } catch { low = false; mobile = false; }
+  }
+  TIER = low ? 2 : mobile ? 1 : 0;
+  return TIER;
+}
+export const isLow = () => tier() > 0;   // any phone or tablet: the cheaper path
 
 export function rng(seed) {   // mulberry32
   let a = seed >>> 0;
@@ -65,10 +90,11 @@ export function normalFromHeight(h, strength = 2, W = 0, H = 0) {
   const t = tex(c, { srgb: false }); t.colorSpace = THREE.NoColorSpace; return t;
 }
 // attach a normal map to a colour texture (t.userData.normal) — world.js: { map: t, normalMap: t.userData.normal, normalScale }
-const withNormal = (t, h, strength, W, H) => { t.userData.normal = normalFromHeight(h, strength, W, H); return t; };
+// (phones and tablets: no normal maps at all — no Sobel pass at load, no extra texture to upload and sample)
+const withNormal = (t, h, strength, W, H) => { if (!isLow()) t.userData.normal = normalFromHeight(h, strength, W, H); return t; };
 // material props in one go: std({ ...TX.relief(TX.brickTexture(), 1.0), roughness: 0.9 })
 export function relief(t, scale = 1) {
-  const o = { map: t }; if (t.userData.normal) { o.normalMap = t.userData.normal; o.normalScale = new THREE.Vector2(scale, scale); } return o;
+  const o = { map: t }; if (t.userData.normal && !isLow()) { o.normalMap = t.userData.normal; o.normalScale = new THREE.Vector2(scale, scale); } return o;
 }
 
 export function groundTextures() {
@@ -223,7 +249,7 @@ export function concreteTexture(tone = 1) {
   paintNoise(g, N, [[96, 94, 90], [122, 120, 115], [140, 138, 132], [156, 154, 148]].map(a => a.map(x => x * tone)), valueNoise(N, [4, 16, 64, 256], 113), 16, r);
   for (let k = 0; k < 500; k++) { g.fillStyle = `rgba(40,40,40,${0.15 + r() * 0.3})`; g.beginPath(); g.arc(r() * N, r() * N, 0.6 + r() * 2.2, 0, 7); g.fill(); }
   for (let k = 0; k < 30; k++) { g.strokeStyle = `rgba(30,30,30,${0.25 + r() * 0.3})`; g.lineWidth = 0.8; let x = r() * N, y = r() * N; g.beginPath(); g.moveTo(x, y); for (let s = 0; s < 8; s++) { x += (r() - 0.5) * 30; y += r() * 20; g.lineTo(x, y); } g.stroke(); }
-  const hgt = normalFromHeight(c, 1.6);   // relief from the pits and cracks before the rain streaks go on (streaks are colour only)
+  const hgt = isLow() ? null : normalFromHeight(c, 1.6);   // relief from the pits and cracks before the rain streaks go on (streaks are colour only)
   for (let k = 0; k < 14; k++) { const x = r() * N; const gr = g.createLinearGradient(x, 0, x + 20, 0); gr.addColorStop(0, 'rgba(60,50,40,0)'); gr.addColorStop(0.5, 'rgba(60,50,40,0.18)'); gr.addColorStop(1, 'rgba(60,50,40,0)'); g.fillStyle = gr; g.fillRect(x, r() * N * 0.5, 20, N); }
   const t = tex(c); t.userData.normal = hgt; return t;
 }
@@ -376,7 +402,7 @@ export function asphaltTexture() {
   paintNoise(g, N, [[62, 62, 64], [78, 77, 76], [90, 89, 87], [104, 102, 99]], valueNoise(N, [8, 32, 128, 256], 213), 26, r);
   for (let k = 0; k < 14000; k++) { const v = 80 + r() * 80 | 0; g.fillStyle = `rgba(${v},${v - 2},${v - 4},${0.3 + r() * 0.4})`; g.fillRect(r() * N, r() * N, 1 + r() * 2, 1 + r() * 2); }   // exposed aggregate
   for (let k = 0; k < 5000; k++) { g.fillStyle = `rgba(30,30,32,${0.25 + r() * 0.3})`; g.fillRect(r() * N, r() * N, 1 + r() * 1.5, 1 + r() * 1.5); }   // voids between stones
-  const hgt = normalFromHeight(c, 1.4);   // aggregate relief from the stones themselves
+  const hgt = isLow() ? null : normalFromHeight(c, 1.4);   // aggregate relief from the stones themselves
   for (let k = 0; k < 12; k++) {   // hairline cracks: thin, wandering in small steps, a pale chipped lip beside the dark line
     let x = r() * N, y = r() * N, a = r() * 6.3; const pts = [[x, y]];
     for (let s = 0; s < 26; s++) { a += (r() - 0.5) * 0.9; x += Math.cos(a) * 9 * S; y += Math.sin(a) * 9 * S; pts.push([x, y]); }

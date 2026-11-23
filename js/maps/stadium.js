@@ -10,6 +10,7 @@
 //
 // Exports: buildMap(K) (see kit.js) and STADIUM — the live state the story module uses (power, floodlights, crowd).
 import * as LOOT from '../loot.js';
+import { tier } from '../tex.js';
 const ITEMS = LOOT.ITEMS || {}, LOOT_PANEL = !!(LOOT.LOOT_KINDS && LOOT.LOOT_KINDS.panel);
 import { textures, signAtlas, barsTexture, geos, builder, rng, HOME, AWAY } from './stadium.kit.js';
 
@@ -844,12 +845,17 @@ export function buildMap(K) {
     });
     for (const im of parts) { im.castShadow = !seated; im.receiveShadow = true; im.computeBoundingSphere(); crowd.add(im); }
   };
-  people(fans, SEAT, true); people(standers, STAND, false);
+  // phones / tablets: a thinner crowd in the seats (it's ~2 M triangles at full strength); an even spread, picked
+  // without touching the layout's random sequence
+  { const LT = tier(), keep = LT > 1 ? 0.4 : LT ? 0.65 : 1;
+    people(keep < 1 ? fans.filter((f, i) => (i * 0.6180339887) % 1 < keep) : fans, SEAT, true); people(standers, STAND, false); }
 
   // ================================================================ lights: floodlights (4 spots), a floodlit fill
   const floods = [];
   for (const p of pylons) {
     const l = new THREE.SpotLight(0xf4f6ff, 0, 0, 0.62, 0.45, 0); l.position.set(p.hx, p.hy, p.hz); l.target.position.set(p.x * 0.15, 0, p.z * 0.15); l.castShadow = false;
+    // (phones / tablets: two of the four, diagonally opposite, a little brighter — every light costs every pixel)
+    if (tier() && (floods.length === 1 || floods.length === 2)) { floods.push(l); continue; }
     K.level.add(l, l.target); floods.push(l);
   }
   const fill = new THREE.HemisphereLight(0xe4ecff, 0x40503a, 0); K.level.add(fill);
@@ -902,7 +908,7 @@ export function buildMap(K) {
     let warm = STADIUM.switchT != null ? Math.min(1, STADIUM.switchT / 60) : 1; warm = warm * warm * (3 - 2 * warm);
     if (STADIUM.switchT != null && STADIUM.switchT < 60) warm = Math.max(warm, 0.06 * Math.min(1, STADIUM.switchT / 1.5));   // (the strike: a dim glow at once)
     const on = STADIUM.lights ? warm : 0, night = W.night != null ? W.night : 1 - (W.daylight ?? 1);
-    for (const l of floods) { l.intensity = on * 3.2 * (0.35 + 0.65 * night); l.color.setRGB(1, 0.78 + 0.22 * warm, 0.55 + 0.45 * warm); }
+    for (const l of floods) { l.intensity = on * 3.2 * (tier() ? 1.6 : 1) * (0.35 + 0.65 * night); l.color.setRGB(1, 0.78 + 0.22 * warm, 0.55 + 0.45 * warm); }
     lens.emissiveIntensity = 0.15 + on * 7;
     // the fill: floodlit stands and pitch (fades with distance from the centre so the car park stays dark)
     const dc = focus ? Math.hypot(focus.x, focus.z) : 0;

@@ -15,6 +15,33 @@
 </style>
 <script>(function () { function f() { var s = Math.min(1, innerWidth / 1280, innerHeight / 760); document.documentElement.style.setProperty('--uis', Math.max(0.55, s).toFixed(3)); } f(); addEventListener('resize', f); addEventListener('orientationchange', function () { setTimeout(f, 300); }); })();</script>
 <title>Zombie_Apocalypse</title>
+<!-- runs full screen from the home screen on iPhone / iPad -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Zombie_Apoc">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<script>
+  // phones and tablets get html.touch (+ .phone / .tablet) before anything paints; desktop gets nothing and stays as it was.
+  // Same rules as js/mobile.js (?touch=1 forces it on a desktop browser for testing, ?touch=0 forces it off).
+  (function () { try {
+    var Q = location.search, ua = navigator.userAgent || '', mtp = navigator.maxTouchPoints || 0, coarse = false;
+    try { coarse = matchMedia('(pointer: coarse)').matches; } catch (e) {}
+    var iPadOS = /Macintosh/.test(ua) && mtp > 1, iOS = /iPhone|iPad|iPod/.test(ua) || iPadOS, android = /Android/i.test(ua);
+    var f = /[?&]touch=([^&]*)/.exec(Q), touch = f ? f[1] !== '0' : (iOS || android || (coarse && mtp > 0));
+    if (!touch) return;
+    var sMin = Math.min(screen.width || innerWidth, screen.height || innerHeight);
+    var phone = /iPhone|iPod/.test(ua) || (android && /Mobile/.test(ua)) || sMin < 560;
+    var c = document.documentElement.classList; c.add('touch', phone ? 'phone' : 'tablet'); if (iOS) c.add('ios');
+    if (navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches)) c.add('standalone');
+    // iOS ignores user-scalable=no: no pinch-zoom on the game (double-tap zoom is off via touch-action in the CSS)
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); }, { passive: false });
+  } catch (e) {} })();
+</script>
 <meta name="description" content="A normal Saturday in the suburb of Maple Hollow — until a burger at the Quick Stop goes wrong. Scavenge, fight, and get out.">
 <style>
   @font-face { font-family: 'Bebas Neue'; src: url(fonts/BebasNeue.woff2) format('woff2'); font-weight: 400; font-display: block; }
@@ -629,10 +656,244 @@
   @media (max-width: 900px), (max-height: 560px) { #slots { bottom: calc(var(--ui) * 128px) !important; } .slot { width: 40px !important; font-size: 8px !important; } }
   .toast { max-height: 60px; overflow: hidden; }
   .toast.out { opacity: 0; transform: translateX(20px); max-height: 0; padding-top: 0 !important; padding-bottom: 0 !important; margin: 0 !important; transition: opacity .5s, transform .5s, max-height .4s .35s, padding .4s .35s, margin .4s .35s; }
+/* =============================== PHONES & TABLETS ===============================
+   Everything below is scoped to html.touch (set in <head> on iPhone / iPad / Android) or to .touchOnly / .kbOnly
+   swaps, so the desktop game looks and behaves exactly as before. */
+html:not(.touch) .touchOnly { display: none !important; }
+html.touch .kbOnly { display: none !important; }
+#rotate { display: none; }
+html.touch, html.touch body { position: fixed; inset: 0; width: 100%; height: 100%; height: 100dvh; overflow: hidden; overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+html.touch * { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+html.touch canvas#gl, html.touch #overlay, html.touch .hud, html.touch #intro, html.touch #tv, html.touch #note, html.touch #fade, html.touch #scope { touch-action: none; }
+html.touch canvas#gl { cursor: default; }
+html.touch button, html.touch label, html.touch select, html.touch input, html.touch .dbtn, html.touch .mi, html.touch .slotcard { touch-action: manipulation; }
+html.touch .center-panel, html.touch #bagBody, html.touch .pchat, html.touch .pcall, html.touch #note .paper, html.touch #phoneScreen, html.touch .zst-screen * { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+html.touch .center-panel, html.touch #bagBody, html.touch .pchat, html.touch .pcall, html.touch #note .paper { touch-action: pan-y; }
+/* no hover-only effects that stick after a tap */
+html.touch .mi:hover, html.touch .dbtn:hover, html.touch .big:hover, html.touch .slotcard:hover:not([disabled]), html.touch .it:hover { transform: none; }
+html.touch .center-panel button.m:hover { padding-left: 13px !important; }
+html.touch .mi:active b { color: #fff; } html.touch .mi:active .tx::after { width: 100%; }
+html.touch .dbtn:active, html.touch .slotcard:active, html.touch .center-panel button.m:active { filter: brightness(1.35); }
+/* the panels fit the visible screen (iOS 100vh is taller than what you see under the toolbars) */
+html.touch #load, html.touch .screen, html.touch #phone { max-height: 100dvh; }
+html.touch .center-panel { max-height: calc(100vh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important; max-height: calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+  max-width: calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)) !important; }
+/* tappable: 44pt targets */
+html.touch .center-panel button.m { min-height: 44px; }
+html.touch .center-panel input[type=checkbox], html.touch .opt input[type=checkbox] { width: 24px; height: 24px; }
+html.touch .center-panel input[type=range] { height: 28px; background-size: 100% 3px !important; background-position: 0 center !important; background-repeat: no-repeat !important; }
+html.touch .center-panel input[type=range]::-webkit-slider-thumb { width: 22px; height: 26px; border-radius: 3px; }
+html.touch .center-panel select, html.touch .opt select { min-height: 36px; font-size: 16px !important; padding: 4px 8px !important; }
+html.touch .center-panel label { min-height: 40px; }
+html.touch #tut button { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+html.touch .slotrow .sdel { min-height: 48px; }
+html.touch #rotate b { font-size: 26px; }
+html.touch .center-panel label { font-size: 13px !important; }
+html.touch kbd { font-size: 12px !important; }
+/* weapon slots are buttons here: big enough for a thumb */
+html.touch #slots { zoom: .8 !important; }
+html.touch .slot { width: 54px !important; min-height: 50px; box-sizing: border-box; font-size: 10px !important; }
+html.touch .slot b { font-size: 11px !important; }
+html.touch #result .btns button.m { letter-spacing: .14em !important; line-height: 1.25; }
+/* readable small print */
+html.touch .eyebrow, html.touch .setupGrid .lbl, html.touch .rstats small { font-size: 12px; }
+html.touch .sub { font-size: 13px !important; }
+html.touch .dbtn small, html.touch .opt small, html.touch .mi small { font-size: 13px !important; }
+html.touch .dbtn .stat { font-size: 12px; }
+html.touch #title .hint { font-size: 12px; }
+html.touch #title .career { font-size: 12px !important; }
+html.touch #note .paper h3, html.touch #note .paper .close, html.touch #intro .skip, html.touch #intro .lines p.date { font-size: 12px; }
+html.touch #tv .skip { font-size: 14px; top: max(16px, env(safe-area-inset-top)); padding: 10px 18px; }
+html.touch .it .d, html.touch .pocket h4 small, html.touch #bag .bagsub .cap small { font-size: 12px !important; }
+html.touch .it button { min-height: 36px; font-size: 12px !important; }
+html.touch .phint, html.touch .papp { font-size: 12px; }
+/* the notch and the home bar */
+html.touch #title .col { left: max(7vw, calc(16px + env(safe-area-inset-left))) !important; }
+html.touch #title .hint { right: calc(20px + env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); }
+html.touch #clock { top: calc(12px + env(safe-area-inset-top)) !important; }
+html.touch #help { display: none !important; }   /* keyboard keys: nothing to press here */
+html.touch #phone { right: calc(4vw + env(safe-area-inset-right)); bottom: calc(3vh + env(safe-area-inset-bottom)); }
+html.touch .phint { display: none; }   /* 'T or Esc to put it away' — there's a button for that here */
+#phoneAway { display: block; width: 100%; margin-top: 8px; min-height: 44px; border: 0; border-radius: 22px; background: rgba(255,255,255,.14); color: #fff; font: 600 15px -apple-system, Helvetica, sans-serif; cursor: pointer; touch-action: manipulation; }
+#phoneAway:active { background: rgba(255,255,255,.28); }
+html.touch:not(.phone) #phone .pframe { padding-bottom: 60px; }
+html.touch:not(.phone) #phoneAway { position: absolute; left: 12px; right: 12px; bottom: 8px; width: auto; margin: 0; }
+
+/* ---- portrait phone while playing: turn it sideways (menus still work upright) ---- */
+#rotate { position: fixed; inset: 0; z-index: 80; background: radial-gradient(ellipse at 50% 40%, #1a0f0c, #000 75%); color: var(--bone, #ece6d8);
+  flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; box-sizing: border-box; touch-action: none; }
+#rotate b { font: 400 26px/1.05 'Bebas Neue', Oswald, sans-serif; letter-spacing: .1em; max-width: 280px; }
+#rotate small { font: 300 14px Oswald, sans-serif; letter-spacing: .08em; color: var(--muted, #9b9486); }
+#rotate .rphone { width: 54px; height: 92px; border: 3px solid var(--bone, #ece6d8); border-radius: 10px; position: relative; animation: rturn 2.4s cubic-bezier(.6,0,.3,1) infinite; margin-bottom: 10px; }
+#rotate .rphone i { position: absolute; left: 50%; bottom: 6px; width: 14px; height: 3px; margin-left: -7px; border-radius: 2px; background: var(--red, #c62a1e); }
+@keyframes rturn { 0%, 20% { transform: rotate(0); } 55%, 85% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
+@media (orientation: portrait) and (max-width: 600px) {
+  html.phone body.playing #rotate, html.phone body.tvmode #rotate { display: flex; }
+  html.phone body:has(#tcRot) #rotate { display: none !important; }
+}
+
+/* ---- phones in landscape (and any short touch screen): every menu becomes a full-screen sheet ---- */
+@media (max-height: 540px) {
+  html.touch body .screen .center-panel, html.touch body .screen:not(.show) .center-panel { left: 0 !important; top: 0 !important; transform: none !important; width: 100% !important; height: 100%; max-width: none !important; max-height: none !important;
+    border-radius: 0 !important; border-left: 0 !important; border-right: 0 !important; border-bottom: 0 !important;
+    padding: max(12px, env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) calc(18px + env(safe-area-inset-left)) !important; }
+  html.touch .screen.show .center-panel { animation: sheetIn .28s ease-out; }
+  html.touch .center-panel::before { top: 14px; height: 30px; }
+  html.touch .center-panel h2 { font-size: 32px !important; margin-bottom: 2px !important; }
+  html.touch .sub { margin-bottom: 8px !important; }
+  html.touch .eyebrow { margin-bottom: 2px; }
+  /* title */
+  html.touch #title h1 { font-size: clamp(40px, 15vh, 72px) !important; }
+  html.touch #title .mi { padding: 4px 0 !important; min-height: 44px; align-items: center; }
+  html.touch #title .mi b { font-size: clamp(24px, 8.5vh, 34px) !important; }
+  html.touch #title .menu { gap: 0; margin-top: 8px !important; }
+  html.touch #title .hint { line-height: 1.7; max-width: 44vw; }
+  /* difficulty + map */
+  html.touch #diff .center-panel { padding-top: max(10px, env(safe-area-inset-top)) !important; }
+  html.touch #mapList { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 8px; }
+  html.touch #mapList .dbtn { padding: 8px 12px !important; }
+  html.touch #mapList .dbtn .top b { font-size: 20px !important; }
+  html.touch #mapList .dbtn small { display: none; }
+  html.touch #diffList { grid-template-columns: repeat(3, 1fr) !important; gap: 6px !important; }
+  html.touch #diffList .dbtn { padding: 8px 12px !important; }
+  html.touch #diffList .dbtn .top b { font-size: 22px !important; }
+  html.touch #diffList .dbtn small { display: none; }
+  html.touch #diffList .dbtn .stat { margin-top: 1px; }
+  html.touch #diffBack { margin-top: 10px !important; }
+  /* set up your run: people on the left, options on the right, buttons always on screen */
+  html.touch #who .center-panel { display: flex; flex-direction: column; overflow: hidden !important; }
+  html.touch #who .sub { display: none; }
+  html.touch #who .setupGrid { grid-template-columns: 1.25fr 1fr !important; gap: 14px; margin-top: 6px; flex: 1; min-height: 0; }
+  html.touch #who .setupGrid > div { overflow-y: auto; min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; padding-right: 2px; }
+  html.touch #whoList { grid-template-columns: 1fr !important; gap: 6px; }
+  html.touch #whoList .dbtn { padding: 6px 10px !important; gap: 10px; }
+  html.touch #whoList .face { width: 40px !important; height: 50px !important; }
+  html.touch #whoList .dbtn .top b { font-size: 21px !important; }
+  html.touch #whoList .dbtn small { font-size: 12px !important; margin: 0 !important; line-height: 1.3; }
+  html.touch .opts { gap: 5px; }
+  html.touch .opt { padding: 4px 10px !important; min-height: 40px; box-sizing: border-box; margin: 0 !important; }
+  html.touch .opt small { display: none !important; }
+  html.touch .opt.col { min-height: 0; padding: 4px 10px 2px !important; }
+  html.touch #who .center-panel .btns { position: static !important; margin: 8px 0 0 !important; padding: 0 !important; background: none !important; flex: none; }
+  html.touch #who .btns button.m { margin: 0 !important; }
+  /* how to survive */
+  html.touch #howto .cols { font-size: 13px !important; line-height: 1.45; }
+  html.touch #howto .cols h3 { font-size: 18px !important; margin: 8px 0 2px !important; }
+  html.touch #howBack { margin-top: 10px !important; }
+  /* saves */
+  html.touch #slotList { gap: 6px; }
+  html.touch .slotcard { padding: 8px 12px; }
+  html.touch .slotcard .sname { font-size: 21px; }
+  /* pause: settings in two columns, the buttons in a row */
+  html.touch #pause .center-panel { text-align: left; }
+  html.touch #pause h2 { display: inline-block; margin-right: 14px !important; }
+  html.touch #pause .center-panel > .eyebrow { display: none; }
+  html.touch #pause .sub { display: inline-block; }
+  html.touch #pause .pset { display: grid; grid-template-columns: 1fr 1fr; column-gap: 22px; }
+  html.touch #pause .pset label { margin: 0 !important; padding: 4px 0 !important; }
+  html.touch #pause .pset input[type=range] { width: 46%; }
+  html.touch #pause .pbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  html.touch #pause .pbtns button.m, html.touch #pause #resume { margin: 6px 0 !important; padding: 8px !important; letter-spacing: .18em !important; }
+  /* results */
+  html.touch #result .center-panel h2 { font-size: 46px !important; }
+  html.touch #result .rstats { grid-template-columns: repeat(3, 1fr) !important; gap: 6px; margin: 10px 0; }
+  html.touch #result .rstats div { padding: 6px 10px; }
+  html.touch #result .rstats b { font-size: 24px; }
+  html.touch #result .btns { bottom: calc(-1 * max(10px, env(safe-area-inset-bottom))); padding: 8px 0 max(8px, env(safe-area-inset-bottom)) !important; margin-bottom: calc(-1 * max(10px, env(safe-area-inset-bottom))); }
+  html.touch #result .btns button.m { margin: 0 !important; padding: 8px 10px !important; font-size: 12px !important; }
+  /* a note you found */
+  html.touch #note .paper { width: min(560px, calc(100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right))); max-height: calc(100dvh - 24px); padding: 18px 24px 14px; font-size: 16px; line-height: 1.45; }
+  html.touch #note .paper .close { margin-top: 10px; }
+  html.touch #intro .lines { font-size: 16px; line-height: 1.5; width: min(720px, calc(100vw - 48px - env(safe-area-inset-left) - env(safe-area-inset-right))); }
+  html.touch #intro .lines p { margin-bottom: 10px; }
+  html.touch #intro .skip { bottom: max(12px, env(safe-area-inset-bottom)); }
+
+  /* ---- the HUD, smaller and out of the way ---- */
+  html.touch #clock { top: calc(4px + env(safe-area-inset-top)) !important; }
+  html.touch #caption { line-height: 1.35 !important; padding: 5px 14px !important; }
+  html.touch .toast { font-size: 12px !important; padding: 5px 10px !important; }
+  html.touch #big .t { font-size: clamp(26px, 10vh, 46px) !important; }
+  html.touch #big .s { font-size: 12px; }
+  html.touch #tut .tx p { font-size: 14px; }
+  html.touch #struggle { top: 52%; }
+  html.touch #struggle .t { font-size: 30px !important; }
+
+  /* ---- the backpack: a sheet on the right, you still visible on the left ---- */
+  html.touch #bag .bagwrap { left: auto !important; right: calc(6px + env(safe-area-inset-right)) !important; top: calc(6px + env(safe-area-inset-top)) !important; bottom: calc(6px + env(safe-area-inset-bottom)) !important;
+    height: auto !important; width: min(560px, 64vw) !important; border-radius: 16px 16px 8px 8px; }
+  html.touch #bag { background: linear-gradient(90deg, rgba(0,0,0,0) 0, rgba(0,0,0,0) 30%, rgba(0,0,0,.6) 45%) !important; }
+  html.touch #bag .bagzip { height: 10px; }
+  html.touch #bag .baghead { padding: 10px 14px 2px 34px; align-items: center; }
+  html.touch #bag .bagzip .pull { height: 24px; left: 12px; } html.touch #bag .bagzip .pull::after { top: 18px; height: 10px; }
+  html.touch #bag .baghead .eyebrow { display: none; }
+  html.touch #bag .baghead h2 { font-size: 26px !important; }
+  html.touch #bag .baghead h2 .ic { font-size: 22px; }
+  html.touch #bag .baghead button.m { min-height: 40px; padding: 6px 14px !important; }
+  html.touch #bag .bagsub { padding: 2px 14px 6px; font-size: 13px; gap: 4px 12px; }
+  html.touch #bag .capbar { width: 80px; }
+  html.touch #bagBody { grid-template-columns: 1fr !important; padding: 2px 8px 12px; gap: 8px; }
+  html.touch .pocket { padding: 10px; border-radius: 10px; }
+  html.touch .pocket h4 { margin-bottom: 6px; }
+  html.touch .pocket .bagGrid, html.touch .bagGrid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important; gap: 6px !important; }
+
+  /* ---- your phone, on your phone: it fills the screen ---- */
+  html.touch #phone { inset: 0; right: 0; bottom: 0; transform: translateY(100%); background: rgba(0,0,0,.55); display: flex; justify-content: center; }
+  html.touch #phone.show { transform: none; }
+  html.touch #phone .pframe { width: min(100vw, 620px); height: 100%; height: 100dvh; border-radius: 0; padding: 0; box-shadow: none; box-sizing: border-box; }
+  html.touch #phone .pnotch { display: none; }
+  html.touch #phoneScreen { border-radius: 0; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
+  html.touch .pbar { padding: 6px 18px 0; }
+  html.touch .phome { padding-top: 2px; }
+  html.touch .pclock { font-size: 40px; line-height: 1; } html.touch .pdate { margin-bottom: 10px; font-size: 13px; }
+  html.touch .pgrid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px 6px; padding: 0 12px; }
+  html.touch .papp i { width: 52px; height: 52px; font-size: 26px; }
+  html.touch .phint { margin-bottom: 8px; }
+  html.touch .phead { padding: 6px 14px 6px; min-height: 40px; box-sizing: border-box; }
+  html.touch .pback { min-width: 44px; min-height: 40px; }
+  html.touch .prow { padding: 8px 16px; min-height: 52px; }
+  html.touch .popts { flex-direction: row; flex-wrap: wrap; padding: 6px 10px 8px; }
+  html.touch .popt { flex: 1 1 40%; min-height: 40px; }
+  html.touch .pcall { padding: 10px 14px 10px; }
+  html.touch .pav { width: 52px; height: 52px; font-size: 30px; }
+  html.touch .pname { font-size: 20px; margin-top: 6px; }
+  html.touch .pline { margin: 8px 4px; font-size: 14px; }
+  html.touch .pend { padding: 10px 30px; min-height: 44px; }
+  html.touch #phone .pframe { display: flex; flex-direction: column; }
+  html.touch #phoneScreen { flex: 1; min-height: 0; height: auto; }
+  html.touch #phoneAway { flex: none; min-height: 44px; margin: 0; padding: 0 0 env(safe-area-inset-bottom); }
+
+  /* ---- the noon broadcast ---- */
+  html.touch #tvCap { bottom: 96px; font-size: 14px; padding: 6px 12px; width: min(700px, 76vw); }
+  html.touch .tvbar .l3 .tag { font-size: 18px; padding: 8px 10px 5px; }
+  html.touch .tvbar .l3 .hd { font-size: 14px; padding: 6px 10px; }
+  html.touch .tvbar .l3 .hd small { font-size: 10px; }
+  html.touch .tvbar .tick { font-size: 12px; line-height: 24px; }
+  html.touch #tvText { top: 40%; font-size: clamp(16px, 5vh, 24px); }
+  html.touch #tvStudio .anchor { top: 33%; }
+  html.touch #tvHead { font-size: clamp(34px, 13vh, 64px); }
+}
+/* even shorter: iPhone SE / mini landscape */
+@media (max-height: 400px) {
+  html.touch #title .tag, html.touch #title .career { display: none !important; }
+  html.touch .center-panel h2 { font-size: 28px !important; }
+  html.touch #diffList .dbtn .stat { display: none; }
+  html.touch #result .center-panel h2 { font-size: 38px !important; }
+  html.touch #vitals .mini .n { display: none; }
+}
+@keyframes sheetIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- tablets (iPad): roomier HUD, bigger touch targets, nothing hidden behind the home bar ---- */
+@media (min-height: 541px) {
+  html.touch .dbtn { min-height: 44px; }
+  html.touch #whoList .dbtn { padding: 10px 12px !important; }
+  html.touch #phone .pframe { height: min(640px, calc(100dvh - 6vh - env(safe-area-inset-bottom))); width: min(320px, 46vh); }
+}
 </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
+<div id="rotate" aria-live="polite"><div class="rphone"><i></i></div><b>TURN YOUR PHONE SIDEWAYS</b><small>Zombie_Apocalypse plays in landscape</small></div>
 <canvas id="overlay"></canvas>
 <div id="scope"></div>
 <div id="fade"></div>
@@ -650,7 +911,7 @@
   </nav>
   <div class="career" id="career"></div>
 </div>
-<div class="hint">WASD move · click attack · right-drag look · V first/third person<br>E search / open · Tab backpack · F flashlight</div></div>
+<div class="hint"><span class="kbOnly">WASD move · click attack · right-drag look · V first/third person<br>E search / open · Tab backpack · F flashlight</span><span class="touchOnly">left thumb moves · right thumb looks<br>tap the buttons to fight, search and open your backpack</span></div></div>
 
 <div class="screen" id="diff"><div class="center-panel" style="width:min(760px,94vw)">
   <div class="eyebrow">new game</div><h2>HOW BAD IS IT?</h2><div class="sub">choose your difficulty — you can't change it later</div>
@@ -741,11 +1002,11 @@
 <div class="hud" id="tut"><div class="th"><span id="tutN">TUTORIAL</span><button id="tutSkip">Skip tutorial</button></div>
   <div class="tb"><div class="tk" id="tutKeys"></div><div class="tx"><b id="tutTitle"></b><p id="tutText"></p></div><div class="tick">✓</div></div>
   <div class="tf"><div class="dots" id="tutDots"></div><button id="tutNext">skip this step ›</button></div></div>
-<div class="hud" id="struggle"><div class="t">GRABBED!</div><div class="b"><div id="strB"></div></div><div class="s">MASH <kbd>SPACE</kbd> TO BREAK FREE</div></div>
+<div class="hud" id="struggle"><div class="t">GRABBED!</div><div class="b"><div id="strB"></div></div><div class="s"><span class="kbOnly">MASH <kbd>SPACE</kbd> TO BREAK FREE</span><span class="touchOnly">TAP FAST TO BREAK FREE</span></div></div>
 
 <div class="screen" id="bag"><div class="bagwrap">
   <div class="bagzip"><i class="pull"></i></div>
-  <div class="baghead"><div><div class="eyebrow">looking inside</div><h2><i data-ic="backpack"></i>YOUR BACKPACK</h2></div><button class="m" id="bagClose">Zip it up <kbd>Tab</kbd></button></div>
+  <div class="baghead"><div><div class="eyebrow">looking inside</div><h2><i data-ic="backpack"></i>YOUR BACKPACK</h2></div><button class="m" id="bagClose">Zip it up <kbd class="kbOnly">Tab</kbd></button></div>
   <div class="bagsub" id="bagSub"></div>
   <div id="bagBody"></div>
 </div></div>
@@ -753,19 +1014,23 @@
 <div class="screen" id="pause"><div class="center-panel">
   <div class="eyebrow">maple hollow</div><h2>PAUSED</h2><div class="sub" id="pauseSub"></div>
   <button class="m" id="resume">Resume</button>
+  <div class="pset">
   <label>Music <input id="vmusic" type="range" min="0" max="1" step="0.05"></label>
   <label>Sound <input id="vsfx" type="range" min="0" max="1" step="0.05"></label>
   <label>Quality <select id="vq"><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option><option value="3">Ultra</option></select></label>
   <label>Camera <select id="vview"><option value="third">Third person</option><option value="first">First person</option></select></label>
-  <label>Mouse speed <input id="vsens" type="range" min="0.3" max="2.5" step="0.05"></label>
-  <label>Invert mouse Y <input id="vinv" type="checkbox"></label>
+  <label><span class="kbOnly">Mouse speed</span><span class="touchOnly">Look speed</span> <input id="vsens" type="range" min="0.3" max="2.5" step="0.05"></label>
+  <label><span class="kbOnly">Invert mouse Y</span><span class="touchOnly">Invert look Y</span> <input id="vinv" type="checkbox"></label>
   <label>Camera shake <input id="vshake" type="checkbox"></label>
+  </div>
+  <div class="pbtns">
   <button class="m" id="tutReplay">Replay tutorial</button>
   <button class="m" id="restart">Start over</button>
   <button class="m" id="toMenu">Quit to title</button>
-  <div class="keys">Right-drag look · V first/third person<br>WASD move · Shift sprint · C crouch · Space jump/vault<br>Click attack · Right-click shove/aim · R reload<br>E search/open · Tab backpack · Q bandage · F light<br>1–5 weapons · G bottle · H molotov · M music</div>
+  </div>
+  <div class="keys kbOnly">Right-drag look · V first/third person<br>WASD move · Shift sprint · C crouch · Space jump/vault<br>Click attack · Right-click shove/aim · R reload<br>E search/open · Tab backpack · Q bandage · F light<br>1–5 weapons · G bottle · H molotov · M music</div>
 </div></div>
-<div class="screen" id="intro"><div class="lines" id="introLines"></div><div class="skip">CLICK TO CONTINUE</div></div>
+<div class="screen" id="intro"><div class="lines" id="introLines"></div><div class="skip"><span class="kbOnly">CLICK TO CONTINUE</span><span class="touchOnly">TAP TO CONTINUE</span></div></div>
 <div class="screen" id="tv">
   <div id="tvStudio"><div class="globe"></div><div id="tvHead">BREAKING NEWS</div><div class="anchor">WMHX 7 · NEWSROOM</div><div id="tvText"></div></div>
   <div id="tvLive"><div class="live"><b>LIVE</b><span id="tvClock">12:00 PM</span></div><div id="tvCap"></div></div>
@@ -773,10 +1038,10 @@
   <div class="tvbug"><i>7</i><div>WMHX NEWS<small>MAPLE COUNTY</small></div></div>
   <div class="tvbar"><div class="l3"><div class="tag">BREAKING</div><div class="hd"><small>MAPLE HOLLOW · QUICK STOP MARKET, MAIN ST</small>Man falls ill after eating contaminated burger</div></div>
     <div class="tick"><span>HEALTH DEPT: BEEF SOLD AT QUICK STOP GRILL CONTAMINATED WITH RADIUM / CO₂ COMPOUND &nbsp;·&nbsp; DO NOT EAT GROUND BEEF PURCHASED IN MAPLE COUNTY THIS WEEK &nbsp;·&nbsp; RESIDENTS NEAR MAIN ST ADVISED TO REMAIN INDOORS &nbsp;·&nbsp; SHERIFF'S OFFICE: AVOID CONTACT WITH ANYONE SHOWING SYMPTOMS &nbsp;·&nbsp; ROUTE 9 CLOSED IN BOTH DIRECTIONS &nbsp;·&nbsp; MORE AS THIS STORY DEVELOPS</span></div></div>
-  <div class="crt"></div><div class="skip">SPACE TO SKIP</div>
+  <div class="crt"></div><div class="skip"><span class="kbOnly">SPACE TO SKIP</span><span class="touchOnly">TAP TO SKIP</span></div>
 </div>
-<div id="phone"><div class="pframe"><div class="pnotch"></div><div id="phoneScreen"></div></div></div>
-<div class="screen" id="note"><div class="paper"><h3 id="noteTitle"></h3><div id="noteText"></div><div class="close">CLICK OR PRESS E TO PUT IT DOWN</div></div></div>
+<div id="phone"><div class="pframe"><div class="pnotch"></div><div id="phoneScreen"></div><button id="phoneAway" class="touchOnly" aria-label="Put the phone away" onclick="dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyT', key: 't', bubbles: true }))">Put it away</button></div></div>
+<div class="screen" id="note"><div class="paper"><h3 id="noteTitle"></h3><div id="noteText"></div><div class="close"><span class="kbOnly">CLICK OR PRESS E TO PUT IT DOWN</span><span class="touchOnly">TAP TO PUT IT DOWN</span></div></div></div>
 <div class="screen" id="result"><div class="center-panel" id="resultPanel"></div></div>
 
 <script>

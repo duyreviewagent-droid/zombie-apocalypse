@@ -33,11 +33,15 @@ import { buildCar, makeDrivable } from './vehicles.js';
 import * as HELI from './heli.js';
 import STATS from './stats.js';
 import { MAPS, validMap, loadStory, normalizeStory } from './maps/index.js';
+import { DEV, PROFILE as MOB, capTextures, makeGovernor, guardContext } from './mobile.js';   // phones / tablets: MOB is null on desktop
+import { initTouch, touchStep, touchWords, ic as touchIcon } from './touch.js';
 // line icons into the static markup
 for (const e of document.querySelectorAll('[data-ic]')) e.outerHTML = icon(e.dataset.ic);
 
 const Q = new URLSearchParams(location.search);
 const MANUAL = Q.has('manual'), DBG = Q.has('dbg');
+const TOUCH = DEV.touch;   // touch controls (touch.js) instead of mouse + keyboard
+const ODPR = () => MOB ? Math.min(devicePixelRatio || 1, MOB.overlayDpr) : devicePixelRatio;   // the 2D overlay canvas
 const $ = id => document.getElementById(id);
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = a => a[Math.floor(Math.random() * a.length)];
@@ -57,9 +61,8 @@ function switchMap(id, toWho) { id = validMap(id); if (id === MAP_ID) return; sa
 
 // ---------------------------------------------------------------- renderer
 const canvas = $('gl');
-// iPhone / iPad: go easy on the graphics chip (it gives up if asked for too much at once)
-const TOUCH = /iPad|iPhone|iPod|Android/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && (navigator.maxTouchPoints || 0) > 1);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: MANUAL });
+if (MOB) renderer.shadowMap.autoUpdate = true;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
@@ -67,7 +70,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 1500);
 C.scene = scene; C.camera = camera; C.SND = SND;
-let composer, film;
+let composer, film, bloomPass = null;
 // the look: a cold, washed-out grade, heavy vignette, film grain; red at the edges when you're hurt, colour draining
 // as you bleed out, a sick green pulse as the infection takes hold
 const FilmShader = {
@@ -97,12 +100,13 @@ const FilmShader = {
     }`,
 };
 function buildComposer() {
-  const pr = TOUCH ? Math.min(devicePixelRatio, 1) : Math.min(devicePixelRatio, save.quality >= 2 ? 2 : save.quality >= 1 ? 1.25 : 1);
+  if (MOB) return buildComposerMobile();
+  const pr = Math.min(devicePixelRatio, save.quality >= 2 ? 2 : save.quality >= 1 ? 1.25 : 1);
   renderer.setPixelRatio(pr);
-  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: !TOUCH && save.quality >= 1 && pr < 1.5 && !Q.has('nomsaa') ? 4 : 0 });
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: save.quality >= 1 && pr < 1.5 && !Q.has('nomsaa') ? 4 : 0 });
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
-  if (!TOUCH && save.quality >= 3 && !Q.has('noao')) {
+  if (save.quality >= 3 && !Q.has('noao')) {
     const ao = new GTAOPass(scene, camera, innerWidth, innerHeight);
     ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.5, thickness: 1.2, scale: 1.1, samples: save.quality >= 3 ? 16 : 8 });
     ao.blendIntensity = 0.9; composer.addPass(ao);
@@ -113,15 +117,32 @@ function buildComposer() {
   renderer.shadowMap.type = save.quality >= 1 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   resize();
 }
+// phones / tablets: no MSAA, no AO, bloom only on tablets (and off at Low), plain PCF shadows, a lower render resolution
+// that the governor (mobile.js) nudges up or down to hold the frame rate
+function buildComposerMobile() {
+  if (composer) { try { composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); for (const p of composer.passes) p.dispose && p.dispose(); } catch { } }
+  const q = save.quality, pr = Math.max(MOB.prMin, Math.min(MOB.prCap, MOB.prStart * [0.8, 0.9, 1, 1.1][clamp(q | 0, 0, 3)]));
+  renderer.setPixelRatio(pr);
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 0 });
+  composer = new EffectComposer(renderer, rt);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = null;
+  if (MOB.bloom && q >= 1) { bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.5, 0.9); composer.addPass(bloomPass); }
+  composer.addPass(new OutputPass());
+  film = new ShaderPass(FilmShader); composer.addPass(film);
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  resize();
+}
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
   if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); film.uniforms.res.value.set(w, h); }
-  const ov = $('overlay'); ov.width = w * devicePixelRatio; ov.height = h * devicePixelRatio; ov.style.width = w + 'px'; ov.style.height = h + 'px';
+  const ov = $('overlay'), od = ODPR(); ov.width = w * od; ov.height = h * od; ov.style.width = w + 'px'; ov.style.height = h + 'px';
 }
 addEventListener('resize', resize);
 
 const world = makeWorld(scene, renderer); C.world = world;
+if (MOB && world.sun) world.sun.shadow.mapSize.set(MOB.shadow, MOB.shadow);   // (desktop: 2048-4096)
 const fx = makeFX(scene); C.fx = fx;
 const rain = makeRain(scene);
 fx.onShellLand = (p, big) => SND.shellLand(p, big);
@@ -130,7 +151,7 @@ fx.onBlood = (p, d, amt) => { if (Math.random() < 0.6 * amt) { const k = 0.4 + M
 
 // your flashlight
 const torch = new THREE.SpotLight(0xfff0dc, 0, 30, 0.42, 0.5, 1.5);
-torch.castShadow = true; torch.shadow.mapSize.set(TOUCH ? 512 : 1024, TOUCH ? 512 : 1024); torch.shadow.bias = -0.0005; torch.shadow.camera.near = 0.2;
+torch.castShadow = !(MOB && DEV.lowPower); torch.shadow.mapSize.set(MOB ? 512 : 1024, MOB ? 512 : 1024); torch.shadow.bias = -0.0005; torch.shadow.camera.near = 0.2;
 scene.add(torch, torch.target);
 // a small black flashlight on the vest (rebuilt onto each new body)
 const torchBodyM = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.45, metalness: 0.6 });
@@ -204,7 +225,7 @@ const loadGLB = (name, n = 4) => new Promise((res, rej) => loader.load(`models/$
   if (e.total) { progress[name] = e.loaded / e.total; const s = Object.values(progress).reduce((a, b) => a + b, 0) / files.length; $('loadbar').style.width = (s * 55) + '%'; }
 }, err => n > 1 ? setTimeout(() => loadGLB(name, n - 1).then(res, rej), 900) : rej(err)));
 const tick = () => new Promise(r => setTimeout(r, 0));
-const ZOMBIES = Q.has('zn') ? +Q.get('zn') : 34;
+const ZOMBIES = Q.has('zn') ? +Q.get('zn') : MOB ? Math.round(34 * MOB.poolScale) : 34;
 const TIPS = ['Only the head kills for sure.', 'Gunshots bring the whole street.', 'Close a door behind you. They\'ll have to beat it down.', 'At night they can barely see you — unless your flashlight is on.', 'Rain covers the sound of your footsteps.', 'Grabbed? Mash Space before it bites.', 'A thrown bottle draws them away.', 'Bandage a cut before you bleed out.', 'The big ones don\'t stagger. Don\'t trade blows.', 'Crouch to move quietly.'];
 let tipI = 0; const tipTimer = setInterval(() => { const e = $('loadtip'); if (!e) return; e.style.opacity = 0; setTimeout(() => { e.textContent = TIPS[tipI++ % TIPS.length]; e.style.opacity = 1; }, 600); }, 3200);
 async function load() {
@@ -224,7 +245,6 @@ async function load() {
   SWINGS = analyseSwings(KINDS.human); Z.swings = SWINGS;
   $('loadtext').textContent = 'building ' + MAPS[MAP_ID].name; await tick();
   MAPINFO = await world.buildAsync(MAP_ID); C.mapInfo = MAPINFO;
-  if (TOUCH && world.sun && world.sun.shadow) world.sun.shadow.mapSize.set(1024, 1024);
   if (world.mapId !== MAP_ID) MAP_ID = world.mapId || 'maple';
   // (Chrome sometimes cancels this dynamic import right after the heavy world build — net::ERR_ABORTED — and caches the
   // failure for that URL: try again once, on a fresh URL, rather than dying on "Could not load")
@@ -258,7 +278,8 @@ async function load() {
   PEOPLE.wire();
   // warm up every shader so nothing stutters the first time it appears
   $('loadtext').textContent = 'warming up'; await tick();
-  if (!TOUCH) {   // on a phone/tablet compiling everything at once makes the graphics chip give up
+  if (MOB) capTextures(scene);   // smaller textures, lower anisotropy, before anything's uploaded
+  if (!MOB) {   // phones/tablets: compiling everything at once makes iOS drop the graphics chip — shaders compile as things appear instead
   PEOPLE.PPL.list.forEach((u, i) => { u.s.place(-40 + (i % 6), 24 + Math.floor(i / 6), 0); u.s.setVisible(true); });
   Z.pool.slice(0, 8).forEach((u, i) => { wake(u, -44 + Math.cos(i) * 4, 22 + Math.sin(i) * 4); });
   for (const t of Object.values(P.arms.throwMeshes)) t.visible = true;
@@ -468,8 +489,8 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys.delete(e.code); });
 addEventListener('blur', () => { keys.clear(); G.mouse.left = G.mouse.right = false; });
-canvas.addEventListener('pointermove', e => { G.mouse.x = e.clientX; G.mouse.y = e.clientY; G.mouse.inside = true; });
-addEventListener('pointermove', e => { G.mouse.x = e.clientX; G.mouse.y = e.clientY; });
+canvas.addEventListener('pointermove', e => { if (TOUCH && e.pointerType === 'touch') return; G.mouse.x = e.clientX; G.mouse.y = e.clientY; G.mouse.inside = true; });
+addEventListener('pointermove', e => { if (TOUCH && e.pointerType === 'touch') return; G.mouse.x = e.clientX; G.mouse.y = e.clientY; });
 document.addEventListener('mouseleave', () => { G.mouse.inside = false; });
 document.addEventListener('mouseenter', () => { G.mouse.inside = true; });
 // ---- mouse look: click the game to grab the mouse; moving it turns your head. Esc / P gives it back.
@@ -491,6 +512,7 @@ function look(dx, dy) {
 const rdrag = { on: false, d: 0, t: 0 };
 addEventListener('pointermove', e => { if (rdrag.on && (e.buttons & 2)) { rdrag.d += Math.abs(e.movementX) + Math.abs(e.movementY); look(e.movementX, e.movementY); } });
 canvas.addEventListener('pointerdown', e => {
+  if (TOUCH && e.pointerType === 'touch') return;   // touch.js has its own stick, look and buttons
   G.mouse.inside = true; G.mouse.x = e.clientX; G.mouse.y = e.clientY;
   if (e.button === 0) { G.mouse.left = true; G.clickReq = true; }
   if (e.button === 2) { G.mouse.right = true; rdrag.on = true; rdrag.d = 0; rdrag.t = performance.now(); }
@@ -498,6 +520,7 @@ canvas.addEventListener('pointerdown', e => {
   try { canvas.setPointerCapture(e.pointerId); } catch { }
 });
 addEventListener('pointerup', e => {
+  if (TOUCH && e.pointerType === 'touch') return;
   if (e.button === 0) G.mouse.left = false;
   if (e.button === 2) { G.mouse.right = false; if (rdrag.on && rdrag.d < 10 && performance.now() - rdrag.t < 200) G.shoveReq = true; rdrag.on = false; }
 });
@@ -513,8 +536,8 @@ function startThrow(id) {
 
 // ---------------------------------------------------------------- messages
 let capT = 0;
-function think(text, dur = 4) { const c = $('caption'); c.textContent = text; c.classList.add('show'); capT = dur; }
-function toast(text, cls = '', ic = null) { const t = document.createElement('div'); t.className = 'toast ' + cls; t.innerHTML = (ic ? icon(ic) : cls === 'bad' ? icon('blood') : cls === 'good' ? icon('check') : '') + `<span>${String(text).replace(/</g, '&lt;')}</span>`; $('toasts').appendChild(t); setTimeout(() => t.classList.add('out'), 3200); setTimeout(() => t.remove(), 4000); while ($('toasts').children.length > 7) $('toasts').firstChild.remove(); }
+function think(text, dur = 4) { text = touchWords(text); const c = $('caption'); c.textContent = text; c.classList.add('show'); capT = dur; }
+function toast(text, cls = '', ic = null) { text = touchWords(text); const t = document.createElement('div'); t.className = 'toast ' + cls; t.innerHTML = (ic ? icon(ic) : cls === 'bad' ? icon('blood') : cls === 'good' ? icon('check') : '') + `<span>${String(text).replace(/</g, '&lt;')}</span>`; $('toasts').appendChild(t); setTimeout(() => t.classList.add('out'), 3200); setTimeout(() => t.remove(), 4000); while ($('toasts').children.length > 7) $('toasts').firstChild.remove(); }
 let bigT = 0;
 function bigText(t, s = '', dur = 3) { $('big').innerHTML = `<div class="t">${t}</div><div class="s">${s}</div>`; $('big').style.opacity = 1; bigT = dur; }
 
@@ -656,6 +679,7 @@ function inputMove() {
   if (G.inAmb) return null;
   let x = 0, y = 0;
   if (keys.has('KeyW')) y += 1; if (keys.has('KeyS')) y -= 1; if (keys.has('KeyA')) x -= 1; if (keys.has('KeyD')) x += 1;
+  if (!x && !y && G.stick) { x = G.stick.x; y = G.stick.y; }   // the touch stick (analog)
   if (!x && !y) return null;
   return G.camYaw + Math.atan2(-x, y);
 }
@@ -702,7 +726,8 @@ function playerStep(dt) {
   const combat = FP() || aim || trigger || G.t - G.lastShot < (gun ? 1.6 : 0.5) || !!MEL.swing || (A.reloadT >= 0 && G.t - G.lastShot < 4) ? 1 : 0;
   // how fast you can go: hurt, starving, exhausted all slow you down
   const weak = clamp(1 - Math.max(0, 40 - P.hp) / 80 - (G.food < 10 ? 0.12 : 0) - (G.water < 10 ? 0.12 : 0) - (G.winded ? 0.15 : 0), 0.55, 1);
-  const speed = (G.crouch ? S.vc * 1.05 : aim ? S.vw * 1.05 : sprint ? S.vr * 1.22 : S.vr * 0.92) * weak;
+  let speed = (G.crouch ? S.vc * 1.05 : aim ? S.vw * 1.05 : sprint ? S.vr * 1.22 : S.vr * 0.92) * weak;
+  if (G.stick && !sprint && G.stick.m < 0.6) speed = Math.min(speed, S.vw * 1.05 * weak);   // a light push on the touch stick walks
   const eye = P.head || V().set(S.pos.x, 1.6, S.pos.z);
   let dx = G.aimPoint.x - eye.x, dy = G.aimPoint.y - eye.y, dz = G.aimPoint.z - eye.z, hd = Math.hypot(dx, dz);
   if (hd < 1.2) { dx = Math.sin(G.camYaw); dz = Math.cos(G.camYaw); dy = Math.sin(G.camPitch); hd = 1; }
@@ -923,7 +948,7 @@ function startSearch(c) {
   planTouches(G.search, c);
   if (c.car && c.car.alarm && !c.car.alarmDone && Math.random() < 0.7) { c.car.alarmDone = true; later(() => { const p = V(c.car.x, 1, c.car.z); SND.carAlarm(p, 14); alarmFlash(p, 14, c.car); for (let i = 0; i < 7; i++) later(() => noise(p, 60), i * 2); think('Car alarm! Move — now!', 3); }, 0.4); }
 }
-const alarmLight = new THREE.PointLight(0xffa030, 0, 11, 1.6); scene.add(alarmLight);
+const alarmLight = new THREE.PointLight(0xffa030, 0, 11, 1.6); world.addLight(alarmLight);
 let alarmA = null;
 function alarmFlash(p, dur, car = null) { alarmA = { p: p.clone(), t: 0, dur, car }; if (car) { const L = (car.g.userData.L || 4.6) / 2; alarmLight.position.set(car.x + Math.sin(car.yaw) * L, 0.7, car.z + Math.cos(car.yaw) * L); } else alarmLight.position.set(p.x, 1.0, p.z); }
 function updateAlarm(dt) { if (!alarmA) return; alarmA.t += dt; const on = alarmA.t < alarmA.dur && Math.floor(alarmA.t / 0.4) % 2 === 0; alarmLight.intensity = on ? 9 : 0; const lamps = alarmA.car && alarmA.car.g.userData.lamps || []; for (const m of lamps) m.emissiveIntensity = on ? 2.5 : 0; if (alarmA.t > alarmA.dur) { for (const m of lamps) m.emissiveIntensity = 0; alarmA = null; } }
@@ -1464,7 +1489,7 @@ function tutStop(how) {
   TUT.gap = 1.5;
 }
 function tutShow() {
-  const S = TUTORIAL[TUT.i]; if (!S) return tutStop('done');
+  const S = touchStep(TUTORIAL[TUT.i]); if (!S) return tutStop('done');
   const el = $('tut'); el.classList.remove('tip', 'ok'); el.classList.add('show');
   $('tutN').textContent = `TUTORIAL · STEP ${TUT.i + 1} OF ${TUTORIAL.length}`; $('tutTitle').textContent = S.title; $('tutText').innerHTML = S.text;
   $('tutKeys').innerHTML = S.keys.map(k => `<kbd>${k}</kbd>`).join('');
@@ -1481,7 +1506,7 @@ function tut(id) {
 }
 function tip(id) { if (save.tips[id] || !TUT_TIPS[id] || TUT.tq.includes(id)) return; save.tips[id] = 1; writeSave(); TUT.tq.push(id); }
 function tipShow(id) {
-  const S = TUT_TIPS[id], el = $('tut'); el.classList.remove('ok'); el.classList.add('show', 'tip');
+  const S = touchStep(TUT_TIPS[id] && { id, ...TUT_TIPS[id] }, true), el = $('tut'); el.classList.remove('ok'); el.classList.add('show', 'tip');
   $('tutN').textContent = 'TIP'; $('tutTitle').textContent = S.title; $('tutText').innerHTML = S.text; $('tutKeys').innerHTML = S.keys.map(k => `<kbd>${k}</kbd>`).join('');
   $('tutDots').innerHTML = ''; $('tutSkip').textContent = 'Got it'; $('tutNext').style.display = 'none';
   el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); TUT.tipT = 8;
@@ -1772,7 +1797,7 @@ function phoneTick(dt) {
 // ambulance you've called) of being patched up. The paramedics get out to help the "sick" — and that goes how you'd think.
 const AMBS = [];
 // one shared light for the ambulance's beacons, in the scene from the start (adding a light later recompiles every shader)
-const ambLight = new THREE.PointLight(0xff2010, 0, 18, 1.6); scene.add(ambLight);
+const ambLight = new THREE.PointLight(0xff2010, 0, 18, 1.6); world.addLight(ambLight);
 const ambFwd = V(), ambO = V();
 // the road ahead of the van: a wreck, a parked car, a barricade? (the same boxes you collide with)
 function ambBlocked(A) { ambFwd.set(A.axis === 'x' ? A.dir : 0, 0, A.axis === 'z' ? A.dir : 0); ambO.set(A.pos.x, 0.8, A.pos.z).addScaledVector(ambFwd, 2.7); const h = world.ray(ambO, ambFwd, 4); return h ? h.t : null; }
@@ -2046,7 +2071,7 @@ function outbreakStep(dt) {
 function drawBubbles() {
   if (save.bubbles === false) return;
   if (G.state === 'news' && G.news && G.news.tv) return;   // in your living room: the TV has the captions, not the walls
-  const dpr = devicePixelRatio, W = ov.width, H = ov.height;
+  const dpr = ODPR(), W = ov.width, H = ov.height;
   for (const u of PEOPLE.bubbles()) {
     const d = u.s.pos.distanceTo(camera.position); if (d > (G.state === 'news' ? 40 : 22)) continue;
     const p = V(u.s.pos.x, 2.05, u.s.pos.z).project(camera); if (p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1) continue;
@@ -2196,7 +2221,7 @@ function zombiesStep(dt) {
     // far ones think and move less often
     // far ones think and move less often — much less when the streets are packed
     const crowd = Z.list.length > 40;
-    u.lod = crowd ? (d > 70 ? 5 : d > 45 ? 3 : d > 22 ? 2 : 1) : (d > 70 ? 3 : d > 45 ? 2 : 1);
+    u.lod = MOB ? (crowd ? (d > 45 ? 5 : d > 28 ? 3 : d > 14 ? 2 : 1) : (d > 45 ? 3 : d > 25 ? 2 : 1)) : crowd ? (d > 70 ? 5 : d > 45 ? 3 : d > 22 ? 2 : 1) : (d > 70 ? 3 : d > 45 ? 2 : 1);
     // only the near ones cast shadows (a shadow pass per body adds up fast)
     const sh = d < (crowd ? 18 : 30);
     if (u.shadowOn !== sh) { u.shadowOn = sh; u.s.root.traverse(o => { if (o.isMesh) o.castShadow = sh; }); }
@@ -2219,7 +2244,7 @@ function zombiesStep(dt) {
     S.update(dt, cmd);
     world.collide(S.pos, 0.3);
     if (heliDown && HELI.blocks(S.pos.x, S.pos.z, 0.3) && !HELI.blocks(ox, oz, 0.3)) { S.pos.x = ox; S.pos.z = oz; }
-    if (u.alive && S.visible && d < (crowd ? 26 : 45)) zombiePose(u, u.z.tgt && u.z.tgt.alive ? u.z.tgt : P, dt);
+    if (u.alive && S.visible && d < (MOB ? (crowd ? 14 : 24) : (crowd ? 26 : 45))) zombiePose(u, u.z.tgt && u.z.tgt.alive ? u.z.tgt : P, dt);
     if (u.z.state === 'chase') { chasing++; if (d < 10) closeN++; }
     if (d < 12) near.push(u);
   }
@@ -2458,10 +2483,12 @@ async function newGame(restore = null) {
   resetWorldState();
   const D = DIFFS[save.diff] || DIFFS.medium;
   Object.assign(DIFF, D); Object.assign(ZD.cur, D);
-  const need = POOL_CAP[save.diff] || 34, bodies = ['human', 'butler', 'coach', 'michelle'];
+  if (MOB) DIFF.count = D.count * MOB.zombieScale;   // phones / tablets: fewer of them about at once (same speed, same bite)
+  const need = MOB ? Math.max(20, Math.round((POOL_CAP[save.diff] || 34) * MOB.poolScale)) : POOL_CAP[save.diff] || 34, bodies = ['human', 'butler', 'coach', 'michelle'];
   if (Z.pool.length < need) {
     showScreen('intro'); $('introLines').innerHTML = `<p class="date on">${D.name}</p><p class="on">More of them are coming...</p>`;
     for (let i = Z.pool.length; i < need; i++) { makeZombie(KINDS[bodies[i % 4]], scene, Math.floor(i / 4) % 4, onStep); if (i % 5 === 4) await tick(); }
+    if (MOB) capTextures(scene);
     showScreen(null);
   }
   const who = G.who || { body: 'human', name: 'Sam Carter', job: 'high-school history teacher', house: homeHouse() };
@@ -2622,7 +2649,7 @@ function edgeSteer(dt) {
   const S = P.s;
   if (P.alive && !DRIVE.active() && S.speed > 0.6 && G.t - (G.lookT || 0) > 0.7 && !MEL.swing && !G.mouse.right && G.t - G.lastShot > 1.5) {
     const off = wrapPi(S.moveA - G.camYaw);
-    if (keys.has('KeyW') && Math.abs(off) < 1.0 && !rdrag.on) G.camYaw += off * (1 - Math.exp(-dt * 1.8 * Math.min(1, S.speed / 3)));
+    if ((keys.has('KeyW') || (G.stick && G.stick.y > 0.5)) && Math.abs(off) < 1.0 && !rdrag.on) G.camYaw += off * (1 - Math.exp(-dt * 1.8 * Math.min(1, S.speed / 3)));
     if (!FP()) G.camPitch = damp(G.camPitch, -0.14, 1.2, dt);
   }
   G.camPitch = FP() ? clamp(G.camPitch, -1.35, 1.25) : clamp(G.camPitch, -0.85, 0.55);
@@ -2837,7 +2864,7 @@ function updateCamera(dt) {
 // ---------------------------------------------------------------- HUD
 const ov = $('overlay'), octx = ov.getContext('2d');
 function drawOverlay(dt) {
-  const dpr = devicePixelRatio, W = ov.width, H = ov.height;
+  const dpr = ODPR(), W = ov.width, H = ov.height;
   octx.clearRect(0, 0, W, H);
   if (G.state === 'play' || G.state === 'news' || G.state === 'dead') drawBubbles();
   if (G.state !== 'play' && G.state !== 'dead') return;
@@ -2924,7 +2951,7 @@ function hud(dt) {
   $('clNote').textContent = G.hour >= 19.5 && G.hour < 21 ? 'NIGHT IS COMING' : G.hour >= 21 || G.hour < 5 ? 'NIGHT' : world.rain > 0.5 ? 'RAIN' : '';
   { const nt = G.hour >= 20 || G.hour < 6, ci = nt ? 'moon' : 'sun'; if ($('clIc')._h !== ci) { $('clIc').innerHTML = icon(ci); $('clIc')._h = ci; $('clIc').classList.toggle('night', nt); } }
   // objectives
-  const CHL = CHS(), st2 = Math.min(Math.floor(G.stage), CHL.length - 1), CH = CHL[st2], MP = MAPLE(), lastCh = st2 >= CHL.length - 1;
+  const CHL = CHS(), st2 = Math.max(0, Math.min(Math.floor(G.stage) || 0, CHL.length - 1)), CH = CHL[st2] || CHL[0] || {}, MP = MAPLE(), lastCh = st2 >= CHL.length - 1;
   const calm = G.phase === 'calm' || G.phase === 'news';
   const hs = HELI.state(), nf = HELI.nextFlight(), nowH = (G.day - 1) * 24 + G.hour, hm = h => `${Math.floor(h)}h ${String(Math.floor((h % 1) * 60)).padStart(2, '0')}m`;
   const left = nf ? (nf.day - 1) * 24 + nf.hour - nowH : -1;
@@ -2941,6 +2968,7 @@ function hud(dt) {
     else oh += `<div class="dl">${icon('clock')}NO MORE ${RD}S</div>`;
   }
   $('objCh').textContent = calm && !MP ? 'PROLOGUE · ' + String(STORY.subtitle || mapName()).toUpperCase() : calm ? 'PROLOGUE · SATURDAY' : `CHAPTER ${st2 + 1} · ${CH.title}`;
+  if (TOUCH) oh = touchWords(oh);
   if ($('objList')._h !== oh) { $('objList').innerHTML = oh; $('objList')._h = oh; }
   // compass with where you're going on it
   let ch = '';
@@ -2969,7 +2997,8 @@ function hud(dt) {
   const sl = slots.map(([id, n, nm]) => { const have = id === 'fists' || (id && (MELEE[id] ? G.melee[id] != null : A.guns[id])); const on = id && G.weapon === id; return `<div class="slot ${on ? 'on' : ''} ${have ? '' : 'none'}"><b>${n}</b>${icon(ITEM_ICON[id || ''] || (n === 2 ? 'bat' : 'fist'))}${id && MELEE[id] && id !== 'fists' ? MELEE[id].name.split(' ').slice(-1)[0] : nm}</div>`; }).join('');
   if ($('slots')._h !== sl) { $('slots').innerHTML = sl; $('slots')._h = sl; }
   const ctx = G.state === 'play' && P.alive && !G.grabbedBy ? context() : null;
-  $('prompt').innerHTML = ctx ? `<kbd>E</kbd> ${ctx.label}${ctx.sub ? `<span class="sm">${ctx.sub}</span>` : ''}` : '';
+  G.ctx = ctx;
+  { const ph = ctx ? `${TOUCH ? touchIcon('hand') : '<kbd>E</kbd>'} ${ctx.label}${ctx.sub ? `<span class="sm">${TOUCH ? touchWords(ctx.sub) : ctx.sub}</span>` : ''}` : ''; if ($('prompt')._h !== ph) { $('prompt').innerHTML = ph; $('prompt')._h = ph; } }
 }
 
 // ---------------------------------------------------------------- menus
@@ -3028,6 +3057,7 @@ function step(dt) {
   if (G.locked && !LOOK_STATES.includes(G.state)) unlockMouse();
   const bagOpen = G.state === 'bag' || G.state === 'note' || G.state === 'phone';
   const rdt = dt;
+  if (TC) TC.tick(rdt);
   if (bagOpen) dt *= 0.25;   // the world slows (not stops) while you rummage in your bag
   G.t += dt; C.t = G.t;
   runTimers();
@@ -3081,6 +3111,10 @@ function step(dt) {
   }
   updateAlarm(dt);
   updateCamera(dt);
+  if (MOB && scene.fog && scene.fog.density > 0) {   // draw distance: only as far as the fog lets you see
+    const far = clamp(MOB.farK / scene.fog.density, MOB.farMin, 1500);
+    if (Math.abs(far - camera.far) > camera.far * 0.08) { camera.far = far; camera.updateProjectionMatrix(); }
+  }
   fx.update(dt, camera);
   // fear: how close and how many
   const fear = clamp(G.closeN * 0.22 + (G.grabbedBy ? 0.6 : 0), 0, 1);
@@ -3103,8 +3137,10 @@ function step(dt) {
 function render() { if (window.__hitBoxes && C.t - (window.__hitT || 0) > 0.5) { window.__hitT = C.t; window.__hitBoxes(); } if (window.__hitDbg) window.__hitDbg(); composer.render(); }
 let perfT = 0, perfN = 0, perfSum = 0;
 let perfGood = 0, perfLvl = 0;
-const PR_CAP = TOUCH ? 1 : Math.min(2, devicePixelRatio || 1);
+const PR_CAP = Math.min(2, devicePixelRatio || 1);
+let GOV = null;
 function perf(dt) {
+  if (MOB) { if (!GOV) GOV = makeGovernor({ renderer, resize, world, getBloom: () => bloomPass }); GOV.tick(dt, !['pause', 'loading', 'title', 'result', 'intro'].includes(G.state) && !Q.has('noadapt')); return; }
   if (G.state === 'pause' || G.state === 'loading' || Q.has('noadapt')) return;
   dt = Math.min(dt, 0.1);   // a really slow frame still counts (just clamped)
   perfSum += dt; perfN++; perfT += dt;
@@ -3127,7 +3163,26 @@ function frame(now) {
   dtS = lerp(dtS, dt, 0.2);
   if (G.state !== 'loading' && !MANUAL) { step(Math.min(dtS, 1 / 30)); render(); perf(dt); }
 }
-window.ZA = { HELI, STATS, setStage, supplies, LZ, G, C, Z, keys, save, step, render, get composer() { return composer; }, camera, renderer, scene, get P() { return P; }, get MEL() { return MEL; }, get PACK() { return PACK; }, get HANDS() { return HANDS; }, openBag, closeBag, tutStart, TUT, world, fx, SND, newGame, toTitle, damage, kill, KINDS, cursorAim, addItem, useItem, context, startSearch, wake, meleeLand, equipMelee, equipGun, startEscape, knockDown, saveRun, continueRun, readRun, PEOPLE, startNews, endNews, talkTo, focusPos, runData, checkpoint, later, playMapRadio, startMapNews, endMapNews, get STORY() { return STORY; }, get MAPINFO() { return MAPINFO; }, get MAP_ID() { return MAP_ID; }, throws, AMBS: () => AMBS, updateAmbulances, dispatchAmbulance, throwIt, useDoor };
+// ---- touch screens: the stick, look and buttons (touch.js); on desktop TC stays null
+const TC = initTouch({
+  G, keys, save, rdrag, look, toast,
+  alive: () => !!(P && P.alive), driving: () => DRIVE.active(), bike: () => DRIVE.bike(), gun: () => !!(P && P.arms.cur), hp: () => P ? P.hp : 100,
+  weaponIcon: () => ITEM_ICON[G.weapon] || 'fist', lanternOn: () => LANTERN.carrying(),
+  ammo: () => { const A = P && P.arms; if (!A || !A.cur) return ''; const a = A.ammo[A.cur]; return `${a.mag}/${G.inv[A.W.ammo] || 0}`; },
+});
+if (TOUCH) document.addEventListener('visibilitychange', () => { if (document.hidden && G.state === 'play') togglePause(); });   // a call, the home button: pause
+// ---- iOS drops the WebGL context when memory runs short or the tab's been in the background: wait for it to come
+// back (pausing the game), rebuild the post-processing; if it doesn't come back, save the run where it is and reload
+guardContext(canvas, {
+  onLost: () => { if (G.state === 'play') togglePause(); },
+  onRestored: () => { if (world.sun && world.sun.shadow.map) { world.sun.shadow.map.dispose(); world.sun.shadow.map = null; } buildComposer(); },
+  onGiveUp: () => {
+    const q = new URLSearchParams(location.search); q.delete('play');
+    try { if (RUN_ON && P && P.alive && G.phase && G.phase !== 'title' && ['play', 'pause', 'bag', 'phone', 'note'].includes(G.state)) { if (G.slot == null) G.slot = 0; const d = runData(); if (d) { G.ckpt = d; writeSlot(); q.set('slot', G.slot); } } } catch (e) { console.error(e); }
+    location.search = q.toString();
+  },
+});
+window.ZA = { HELI, STATS, setStage, supplies, LZ, G, C, Z, keys, save, step, render, get composer() { return composer; }, camera, renderer, scene, get P() { return P; }, get MEL() { return MEL; }, get PACK() { return PACK; }, get HANDS() { return HANDS; }, openBag, closeBag, tutStart, TUT, world, fx, SND, newGame, toTitle, damage, kill, KINDS, cursorAim, addItem, useItem, context, startSearch, wake, meleeLand, equipMelee, equipGun, startEscape, knockDown, saveRun, continueRun, readRun, PEOPLE, startNews, endNews, talkTo, focusPos, runData, checkpoint, later, playMapRadio, startMapNews, endMapNews, get STORY() { return STORY; }, get MAPINFO() { return MAPINFO; }, get MAP_ID() { return MAP_ID; }, throws, AMBS: () => AMBS, updateAmbulances, dispatchAmbulance, throwIt, useDoor, DEV, MOB, get GOV() { return GOV; }, TC, DRIVE };
 
 buildComposer(); syncSettings();
 STATS.init({
@@ -3168,6 +3223,3 @@ load().then(async () => {
   if (Q.has('at')) { const [x, z] = Q.get('at').split(',').map(Number); P.s.place(x, z, 0); }
   requestAnimationFrame(t => { last = t; frame(t); });
 }).catch(e => { console.error(e); $('loadtext').innerHTML = 'Could not load: ' + String(e.message || e).replace(/</g, '&lt;') + ' <button onclick="location.reload()" style="margin-left:10px;background:none;border:1px solid #c62a1e;color:#ece6da;padding:4px 10px;cursor:pointer;font:inherit">RETRY</button>'; });
-
-// if iOS takes the graphics chip away (memory), say so and offer a reload instead of a frozen screen
-canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); if (document.getElementById('ctxlost')) return; const b = document.createElement('div'); b.id = 'ctxlost'; b.style.cssText = 'position:fixed;inset:0;z-index:99;display:grid;place-items:center;background:rgba(0,0,0,.85);color:#eee;font:16px -apple-system,Helvetica;text-align:center;padding:24px'; b.innerHTML = '<div>The graphics stopped (the device ran low on memory).<br><br><button style="font:inherit;padding:10px 22px;border-radius:8px;border:0" onclick="location.reload()">Reload the game</button><br><br><small>Your saved checkpoints are kept.</small></div>'; document.body.appendChild(b); });

@@ -3,6 +3,7 @@
 // wind; drops splash on the ground (a little crown + a ripple ring) and never fall inside the house you're in or under
 // a porch / canopy (world.rainRoofs). Desert maps also get a sandstorm about once a day and a heat-haze shimmer at noon.
 import * as THREE from 'three';
+import { tier } from './tex.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 // how soaked people out in the rain are, 0..1 (people.js / zombies.js: lower skin & cloth roughness by 0.3 * wetK.value)
@@ -186,7 +187,10 @@ const quadGeo = (inst, attrName, arr, extraKind = false) => {
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export function makeRain(scene, N = 9000) {
-  const box = 34, height = 16, NS = 600, ND = 2600, CYCLE = 0.6;
+  // phones and tablets: fewer drops (a smaller box round the camera keeps it just as dense near you), no heat haze pass
+  const LOW = tier();
+  if (LOW) N = Math.round(N * (LOW > 1 ? 0.4 : 0.6));
+  const box = LOW > 1 ? 24 : LOW ? 28 : 34, height = LOW > 1 ? 12 : LOW ? 14 : 16, NS = LOW > 1 ? 260 : LOW ? 400 : 600, ND = LOW > 1 ? 1100 : LOW ? 1700 : 2600, CYCLE = 0.6;
   // ---- the drops
   const drop = new Float32Array(N * 4);
   for (let i = 0; i < N; i++) { drop[i * 4] = Math.random() * box; drop[i * 4 + 1] = Math.random() * height; drop[i * 4 + 2] = Math.random() * box; drop[i * 4 + 3] = Math.random(); }
@@ -314,7 +318,7 @@ export function makeRain(scene, N = 9000) {
       }
       // heat haze
       const comp = za && za.composer;
-      if (comp && (hk > 0.01 || haze)) {
+      if (comp && !LOW && (hk > 0.01 || haze)) {
         if (!haze || hazeComposer !== comp) {
           hazeComposer = comp; haze = null;
           try {

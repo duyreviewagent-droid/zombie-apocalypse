@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import * as TX from './tex.js';
+import { C } from './state.js';
 import { buildCar, CAR_SIZE } from './vehicles.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { breakKit } from './breakgeo.js';
@@ -76,7 +77,7 @@ const skyFS = `
 
 // ---------------------------------------------------------------- static geometry builder
 // quads straight into per-material, per-chunk arrays; textures are mapped in world metres (no stretching)
-const CH = 55;
+let CH = 55;   // (phones and tablets: bigger chunks, fewer draw calls — set in makeWorld)
 class Builder {
   constructor() { this.g = new Map(); }
   arr(key, cx, cz) {
@@ -148,6 +149,37 @@ export function makeWorld(scene, renderer) {
     roofs: [], hazards: [], anims: [],   // roofs you can walk on; places that hurt ({ x, z, r, kind, dps, off }); things that move
     bounds: { x0: -112, x1: 112, z0: -112, z1: 112 }, kind: 'town', time: 8, daylight: 1,
   };
+  // phones (2) and tablets (1) get the light build: see 'light build' below. Desktop (0): nothing changes.
+  const LOW = TX.tier(); W.low = LOW;
+  CH = LOW > 1 ? 110 : LOW ? 80 : 55;
+  // ---- point lights. Desktop: each one is a real light in the scene, as always. Phones / tablets: every point light
+  // costs every pixel of every lit surface, lit or not — so the world's point lights (rooms, attic, fires, the police
+  // car, the store tubes, the maps' lamps) are 'virtual': the game sets them as usual, and each frame the few that
+  // matter most where you are are copied onto a small fixed pool of real ones (fixed: no shader ever recompiles).
+  const VL = [], VP = [];
+  function addLight(l, parent = null) { if (LOW) { VL.push(l); return l; } (parent || level).add(l); return l; }
+  if (LOW) for (let i = 0; i < (LOW > 1 ? 2 : 3); i++) { const l = new THREE.PointLight(0xffffff, 0, 10, 1.7); scene.add(l); VP.push(l); }
+  const vpick = [];
+  function poolLights(p) {
+    vpick.length = 0;
+    for (const l of VL) {
+      if (!(l.intensity > 0) || l.visible === false) continue;
+      const d = Math.hypot(l.position.x - p.x, l.position.y - p.y, l.position.z - p.z), reach = l.distance || 30;
+      if (d > reach + 25) continue;
+      l.userData._vs = d / Math.max(4, reach) - Math.min(1, l.intensity / 20) * 0.2;   // close, and within its reach, first
+      vpick.push(l);
+    }
+    vpick.sort((a, b) => a.userData._vs - b.userData._vs);
+    for (let i = 0; i < VP.length; i++) {
+      const R = VP[i], l = vpick[i];
+      if (!l) { if (R.intensity) R.intensity = 0; continue; }
+      R.position.copy(l.position); R.color.copy(l.color); R.intensity = l.intensity; R.distance = l.distance; R.decay = l.decay;
+    }
+  }
+  W.vlights = VL;
+  // for the other modules: world.addLight(pointLight, parent = scene) — desktop: parent.add(l); phones / tablets: virtual
+  // (pooled as above). Only for POINT lights whose position is in world space (parent at the origin, unrotated).
+  W.addLight = (l, parent = scene) => { if (LOW && l.isPointLight) { VL.push(l); return l; } parent.add(l); return l; };
   // ---- sky and light ----
   const sunDir = new THREE.Vector3(-0.55, 0.42, -0.72).normalize(), moonDir = new THREE.Vector3(0.4, 0.5, 0.6).normalize();
   const uni = { sunDir: { value: sunDir }, moonDir: { value: moonDir }, zen: { value: new THREE.Color(0x5b6a7a) }, hor: { value: new THREE.Color(0xb9b4a8) }, sunCol: { value: new THREE.Color(0xffd9a8) }, night: { value: 0 }, cloud: { value: 0.6 }, time: { value: 0 } };
@@ -168,9 +200,9 @@ export function makeWorld(scene, renderer) {
   }
   const sun = new THREE.DirectionalLight(0xffe2bc, 2.6);
   const BIGSH = renderer && renderer.capabilities && renderer.capabilities.maxTextureSize >= 8192;
-  sun.castShadow = true; sun.shadow.mapSize.set(BIGSH ? 4096 : 2048, BIGSH ? 4096 : 2048);
-  const SS = BIGSH ? 55 : 40;   /* the shadows reach further out (roofs, towers, down the street) */ Object.assign(sun.shadow.camera, { left: -SS, right: SS, top: SS, bottom: -SS, near: 1, far: 260 });
-  sun.shadow.bias = -0.0002; sun.shadow.normalBias = 0.015;
+  sun.castShadow = true; sun.shadow.mapSize.set(LOW ? 1024 : BIGSH ? 4096 : 2048, LOW ? 1024 : BIGSH ? 4096 : 2048);
+  const SS = LOW ? (LOW > 1 ? 26 : 32) : BIGSH ? 55 : 40;   /* the shadows reach further out (roofs, towers, down the street) */ Object.assign(sun.shadow.camera, { left: -SS, right: SS, top: SS, bottom: -SS, near: 1, far: 260 });
+  sun.shadow.bias = -0.0002; sun.shadow.normalBias = LOW ? 0.03 : 0.015;
   scene.add(sun, sun.target);
   const hemi = new THREE.HemisphereLight(0xb8c4d4, 0x4a4436, 0.6); scene.add(hemi);
   scene.fog = new THREE.FogExp2(0xa8a69e, 0.011);
@@ -422,7 +454,7 @@ export function makeWorld(scene, renderer) {
   }
   // grass blades round the player (none on paving, in houses or on roads)
   const paved = [];   // [x0, z0, x1, z1]
-  const grass = buildGrass(scene, (x, z) => density(x, z));
+  const grass = LOW ? buildGrass(scene, (x, z) => density(x, z), LOW > 1 ? 26000 : 42000, LOW > 1 ? 26 : 32) : buildGrass(scene, (x, z) => density(x, z));
   function density(x, z) {
     for (const r of paved) if (x > r[0] && x < r[2] && z > r[1] && z < r[3]) return 0;
     if (W.grassFn) { const v = W.grassFn(x, z); if (v != null) return v; }
@@ -3194,7 +3226,7 @@ export function makeWorld(scene, renderer) {
       const fm = pm.clone(), S = W.storeLights = { flickMat: fm, lights: [], ph: 0, dead: null, chaos: null };
       for (const lx2 of [-5, 0, 5]) for (const lz2 of [-3, 0.5, 3.8]) { const [px2, pz2] = P(lx2, lz2); const pn = new THREE.Mesh(pg, lx2 === -5 && lz2 === -3 ? fm : pm); pn.position.set(px2, WH - 0.135, pz2); pn.rotation.y = yaw; level.add(pn); sbox(lx2 - 0.62, WH - 0.125, lz2 - 0.32, lx2 + 0.62, WH - 0.118, lz2 + 0.32, MAT.white, false); }
       { const [px2, pz2] = P(5, 3.8); const dd = new THREE.Mesh(pg, MAT.white); dd.position.set(px2, WH - 0.137, pz2); dd.rotation.y = yaw; dd.scale.set(1.01, 1.1, 1.01); dd.visible = false; level.add(dd); S.dead = dd; }
-      for (const lx2 of [-4, 4]) { const L2 = new THREE.PointLight(0xfff2e0, 5, 13, 1.4); L2.userData.base = 5; const [px2, pz2] = P(lx2, 0); L2.position.set(px2, WH - 0.4, pz2); level.add(L2); S.lights.push(L2); }
+      for (const lx2 of [-4, 4]) { const L2 = new THREE.PointLight(0xfff2e0, 5, 13, 1.4); L2.userData.base = 5; const [px2, pz2] = P(lx2, 0); L2.position.set(px2, WH - 0.4, pz2); addLight(L2); S.lights.push(L2); }
       [S.cx, S.cz] = P(0, 0); }
     // aisle signs hanging over the shelves, a convex mirror in the back corner, a clock, a mat at the door, the rules
     { const SIGNS = ['SNACKS & CHIPS', 'CANNED GOODS', 'CEREAL · PASTA'];
@@ -3710,6 +3742,7 @@ export function makeWorld(scene, renderer) {
     maskTex.needsUpdate = true;
     maskData = maskG.getImageData(0, 0, MASK_N, MASK_N).data;
     grass.refresh();
+    if (LOW) lightBuild();
     // boxes nobody can ever reach (the bounds clamp every body) don't go in the grid or the nav grid
     { const Bd = W.bounds, m = 1; if (Bd) { let n = 0; for (const b of W.boxes) { const out = !b.brk && !b.door && !b.noWalk && (b.x + b.r < Bd.x0 - m || b.x - b.r > Bd.x1 + m || b.z + b.r < Bd.z0 - m || b.z - b.r > Bd.z1 + m); if (!out) W.boxes[n++] = b; } W.boxes.length = n; } }
     buildGrid();
@@ -4159,9 +4192,72 @@ export function makeWorld(scene, renderer) {
   const WET = ['road', 'walk', 'drive', 'concrete', 'curb', 'shingle0', 'shingle1', 'shingle2', 'brick', 'plank', 'fence', 'roadLine', 'roadWhite'].map(k => MAT[k]).filter(Boolean).map(m => [m, m.roughness, m.color.clone()]);
   W.setTime(8);
 
+  // ================================================================ light build (phones and tablets only)
+  // Nothing here runs on desktop. Collisions, nav, searching are untouched: only what gets drawn changes.
+  // - small things far away aren't drawn (and so cast no shadow): hidden by layer mask (the game's own .visible
+  //   switches stay its own), checked a few times a second against where they are now (cars drive, doors swing)
+  // - tiny things never cast a shadow; clearcoat / sheen / transmission off (the costly physical shader paths)
+  const CULL = [];   // [object, local centre x,y,z, slack (distance measured from the sphere's edge), hide distance², hidden]
+  const tune = new WeakSet();
+  function cheapMat(m) {
+    if (!m || tune.has(m)) return; tune.add(m);
+    if (m.isMeshPhysicalMaterial) { if (m.clearcoat) m.clearcoat = 0; if (m.sheen) m.sheen = 0; if (m.transmission) m.transmission = 0; if (m.iridescence) m.iridescence = 0; if (m.anisotropy) m.anisotropy = 0; }
+    if (m.normalMap && LOW > 1 && !(m.userData && m.userData.keepNormal)) { m.normalMap = null; m.needsUpdate = true; }
+  }
+  W.cheapMat = cheapMat;
+  function lightBuild() {
+    const base = LOW > 1 ? 16 : 26, per = LOW > 1 ? 16 : 20, bigR = LOW > 1 ? 7 : 9, far = LOW > 1 ? 130 : 180, seen = new Set(CULL.map(c => c[0]));
+    level.traverse(o => {
+      if (o.material) for (const m of [].concat(o.material)) cheapMat(m);
+      if (!o.isMesh || o.isSkinnedMesh || seen.has(o) || o.frustumCulled === false || o.layers.mask !== 1) return;
+      let sp;
+      if (o.isInstancedMesh) { if (!o.boundingSphere) o.computeBoundingSphere(); sp = o.boundingSphere; }
+      else { const g = o.geometry; if (!g) return; if (!g.boundingSphere) g.computeBoundingSphere(); sp = g.boundingSphere; }
+      if (!sp || !(sp.radius >= 0)) return;
+      o.updateWorldMatrix(true, false);
+      const sc = o.matrixWorld.getMaxScaleOnAxis(), r = sp.radius * sc;
+      // an instanced bucket spreads its copies over a 40 m cell: how big ONE of them is decides how far it's drawn,
+      // measured from the edge of the cell
+      let item = r, slack = 0;
+      if (o.isInstancedMesh) {   // (each copy has its own scale: a unit box stretched into a lamp post)
+        const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere();
+        let ms = 0; const a = o.instanceMatrix.array;
+        for (let i = 0; i < o.count; i++) { const k = i * 16; ms = Math.max(ms, a[k] * a[k] + a[k + 1] * a[k + 1] + a[k + 2] * a[k + 2], a[k + 4] * a[k + 4] + a[k + 5] * a[k + 5] + a[k + 6] * a[k + 6], a[k + 8] * a[k + 8] + a[k + 9] * a[k + 9] + a[k + 10] * a[k + 10]); }
+        item = (g.boundingSphere.radius + g.boundingSphere.center.length()) * Math.sqrt(ms) * sc; slack = r;
+      }
+      if (item < (LOW > 1 ? 0.35 : 0.2) && o.castShadow && !o.isInstancedMesh) o.castShadow = false;   // smaller than a shadow texel at this map size
+      if (o.isInstancedMesh && item < (LOW > 1 ? 0.2 : 0.12) && o.castShadow) o.castShadow = false;
+      // big merged chunks (whole blocks of street) only go once they're deep in the fog
+      const D = item >= bigR ? far : base + item * per;
+      if (item >= bigR) slack = r;
+      CULL.push([o, sp.center.x, sp.center.y, sp.center.z, slack, D * D, false]);
+    });
+    W.cullCount = CULL.length;
+  }
+  W.lightBuild = () => { if (LOW) lightBuild(); };   // maps / later additions can call it again (already-known objects are skipped)
+  let cullI = 0, cullT = 0;
+  const cv = new THREE.Vector3();
+  function cullFar(dt, focus) {
+    if (!CULL.length) return;
+    const cam = C.camera, p = cam ? cam.getWorldPosition(cv) : focus;
+    const zoom = cam && cam.fov ? Math.max(1, 55 / cam.fov) : 1, z2 = zoom * zoom;   // zoomed in / scoped: see further
+    // a slice per frame: the whole list about 4 times a second
+    cullT += dt; const n = Math.min(CULL.length, Math.ceil(CULL.length * Math.min(1, cullT * 4))); if (n < 64 && n < CULL.length) return; cullT = 0;
+    for (let k = 0; k < n; k++) {
+      if (cullI >= CULL.length) cullI = 0;
+      const c = CULL[cullI++], o = c[0], e = o.matrixWorld.elements;
+      const x = e[0] * c[1] + e[4] * c[2] + e[8] * c[3] + e[12] - p.x, y = e[1] * c[1] + e[5] * c[2] + e[9] * c[3] + e[13] - p.y, zz = e[2] * c[1] + e[6] * c[2] + e[10] * c[3] + e[14] - p.z;
+      let d2 = x * x + y * y + zz * zz; const lim = c[5] * z2;
+      if (c[4] > 0) { const d = Math.max(0, Math.sqrt(d2) - c[4]); d2 = d * d; }
+      const hide = c[6] ? d2 > lim * 0.9 : d2 > lim * 1.1;   // a little hysteresis: no flicker at the edge
+      if (hide !== c[6]) { c[6] = hide; o.layers.mask = hide ? 0 : 1; }
+    }
+  }
+
   // ================================================================ per frame
   const texel = (SS * 2) / sun.shadow.mapSize.x;
   let lampT = 0, houseT = 0;
+  const HOUSE_D = LOW > 1 ? 22 : LOW ? 32 : 48;   // a house's cupboards and drawers are drawn this close (phones: only next door)
   W.update = (dt, t, focus, inside) => {
     sun.target.position.set(Math.round(focus.x / texel) * texel, 0, Math.round(focus.z / texel) * texel);
     sun.position.copy(sun.target.position).addScaledVector(W.lightDir || sunDir, 140);
@@ -4171,6 +4267,7 @@ export function makeWorld(scene, renderer) {
     uni.time.value = t; FOL.fTime.value = t;
     grass.update(t, focus);
     updateProps(dt); updateBreakables(dt);
+    if (LOW) cullFar(dt, focus);
     for (const c of W.shutCargo) { const v = (c.openK || 0) > 0.3; for (const it of c.items) if (it.mesh.visible !== (v && !it.taken)) it.mesh.visible = v && !it.taken; }   // a closed trunk lid hides what's inside
     for (let i = W.opening.length - 1; i >= 0; i--) {
       const c = W.opening[i], up = c.openTarget === 1;
@@ -4199,7 +4296,7 @@ export function makeWorld(scene, renderer) {
     }
     // the cupboards and drawers (their doors, fronts, insides) of houses far away aren't drawn
     // (and an attic's insides only near it; its pull-down ladder a bit further, seen through the kitchen window)
-    if ((houseT -= dt) <= 0) { houseT = 0.4; for (const H of W.houses) { const d = Math.hypot(H.x - focus.x, H.z - focus.z); if (H.HG) { const v = H === inside || d < 48; if (H.HG.visible !== v) H.HG.visible = v; } if (H.atticG) { const v = H === inside || d < 14; if (H.atticG.visible !== v) H.atticG.visible = v; } if (H.ladderG) { const v = H === inside || d < 26; if (H.ladderG.visible !== v) H.ladderG.visible = v; } } }
+    if ((houseT -= dt) <= 0) { houseT = 0.4; for (const H of W.houses) { const d = Math.hypot(H.x - focus.x, H.z - focus.z); if (H.HG) { const v = H === inside || d < HOUSE_D; if (H.HG.visible !== v) H.HG.visible = v; } if (H.atticG) { const v = H === inside || d < 14; if (H.atticG.visible !== v) H.atticG.visible = v; } if (H.ladderG) { const v = H === inside || d < 26; if (H.ladderG.visible !== v) H.ladderG.visible = v; } } }
     // up in an attic (or on a roof): what's downstairs can't be searched from there, and the attic's own things can
     const fy = focus.gy || 0, up = fy > 2.2;
     if (W._up !== up) { W._up = up; for (const c of W.containers) if (c.house) c.hidden = up ? !c.attic : !!c.attic; }
@@ -4256,16 +4353,17 @@ export function makeWorld(scene, renderer) {
     // the police lights still turning
     if (W.police && W.police.hidden) policeLight.intensity = 0;
     else if (W.police) { const k = Math.floor(t * 3) % 2; W.police.bar.red.emissiveIntensity = k ? 3 : 0.2; W.police.bar.blue.emissiveIntensity = k ? 0.2 : 3; policeLight.color.setHex(k ? 0xff2010 : 0x1030ff); policeLight.intensity = W.night > 0.3 ? 10 : 3; }
+    if (LOW) poolLights(C.camera ? C.camera.position : focus);
   };
   // the nearest lamps' light: spots pointing straight down (so it falls on the road, not up into the trees)
   const lampLights = [];
-  for (let i = 0; i < 4; i++) { const l = new THREE.SpotLight(0xffc890, 0, 24, 1.05, 0.65, 1.6); scene.add(l, l.target); lampLights.push(l); }
+  for (let i = 0; i < (LOW ? 2 : 4); i++) { const l = new THREE.SpotLight(0xffc890, 0, 24, 1.05, 0.65, 1.6); scene.add(l, l.target); lampLights.push(l); }
   const canopyLight = new THREE.SpotLight(0xfff2d8, 0, 20, 1.2, 0.7, 1.5); scene.add(canopyLight, canopyLight.target);
   W.placeCanopyLight = (x, z) => { canopyLight.position.set(x, 4.4, z); canopyLight.target.position.set(x, 0, z); canopyLight.target.updateMatrixWorld(); };
-  const atticLight = new THREE.PointLight(0xffd6a0, 0, 9, 1.6); scene.add(atticLight);
-  const roomLight = new THREE.PointLight(0xffd8a8, 0, 8, 1.5); scene.add(roomLight);
-  const fireLight = new THREE.PointLight(0xff7a2a, 0, 16, 1.7); scene.add(fireLight);   // the glow of the nearest fire (one light, moved about)
-  const policeLight = new THREE.PointLight(0xff2010, 0, 16, 1.8); policeLight.position.set(1.5, 2.2, -100); scene.add(policeLight);
+  const atticLight = new THREE.PointLight(0xffd6a0, 0, 9, 1.6); addLight(atticLight, scene);
+  const roomLight = new THREE.PointLight(0xffd8a8, 0, 8, 1.5); addLight(roomLight, scene);
+  const fireLight = new THREE.PointLight(0xff7a2a, 0, 16, 1.7); addLight(fireLight, scene);   // the glow of the nearest fire (one light, moved about)
+  const policeLight = new THREE.PointLight(0xff2010, 0, 16, 1.8); policeLight.position.set(1.5, 2.2, -100); addLight(policeLight, scene);
   W.grass = grass;
   // ================================================================ the map system
   // W.build(mapId, mod): 'maple' is the hand-built town above (unchanged). Any other map is a module
@@ -4471,7 +4569,7 @@ export function makeWorld(scene, renderer) {
     return ra;
   }
   // a light that really lights (a PointLight; keep a map to ~6 of these — use emissive materials for the rest)
-  function light(x, y, z, color = 0xffd8a0, intensity = 8, dist = 14) { const l = new THREE.PointLight(color, intensity, dist, 1.7); l.position.set(x, y, z); level.add(l); return l; }
+  function light(x, y, z, color = 0xffd8a0, intensity = 8, dist = 14) { const l = new THREE.PointLight(color, intensity, dist, 1.7); l.position.set(x, y, z); addLight(l); return l; }
   function spawn(x, z) { W.spawns.push({ x, z }); }
   function hazardK(x, z, r, kind = 'fire', dps = 12) { const h = { x, z, r, kind, dps, off: false }; W.hazards.push(h); if (CI) CI.hazards.push(h); return h; }
   function bounds(x0, z0, x1, z1) { W.bounds = { x0: Math.max(-160, x0), z0: Math.max(-160, z0), x1: Math.min(160, x1), z1: Math.min(160, z1) }; }
@@ -4532,8 +4630,8 @@ export function makeWorld(scene, renderer) {
 }
 
 // ---------------------------------------------------------------- grass blades (wrapping round the player)
-function buildGrass(scene, densityFn, count = 110000) {
-  const PATCH = 44, RESN = 512, HALF = 160;
+function buildGrass(scene, densityFn, count = 110000, PATCH = 44) {
+  const RESN = 512, HALF = 160;
   const data = new Float32Array(RESN * RESN * 4);
   const map = new THREE.DataTexture(data, RESN, RESN, THREE.RGBAFormat, THREE.FloatType);
   map.magFilter = map.minFilter = THREE.NearestFilter;

@@ -4,6 +4,7 @@
 // buttress roots and vines, ferns, palms, stalactites, glowing mineral crystals, bats, a river boat).
 // Everything is made once and shared: the map instances / merges it through the world kit K (see kit.js).
 import * as THREE from 'three';
+import { tier } from '../tex.js';   // (phones / tablets: no normal maps)
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -70,7 +71,7 @@ function stoneTex(seed, moss = 1) {
     for (let k = 0; k < 40; k++) { const x = r() * W, y = r() * H; const gr = g.createLinearGradient(0, y, 0, y + 80); gr.addColorStop(0, 'rgba(30,34,22,0.35)'); gr.addColorStop(1, 'rgba(30,34,22,0)'); g.fillStyle = gr; g.fillRect(x, y, 2 + r() * 5, 80); }
   });
   for (let k = 0; k < 4000; k++) { hg.fillStyle = `rgba(${r() < 0.5 ? 0 : 255},0,0,0.1)`; hg.fillRect(r() * W, r() * H, 2, 2); }
-  return { map, normalMap: normalFrom(hc, 3), normalScale: new THREE.Vector2(1.2, 1.2) };
+  return { map, ...(tier() ? {} : { normalMap: normalFrom(hc, 3), normalScale: new THREE.Vector2(1.2, 1.2) }) };
 }
 // cave rock: dark, wet, layered strata, mineral streaks
 function caveRockTex(seed) {
@@ -85,7 +86,7 @@ function caveRockTex(seed) {
     for (let k = 0; k < 30; k++) { const x = r() * W, y = r() * H; const gr = g.createLinearGradient(0, y, 0, y + 120); gr.addColorStop(0, 'rgba(160,150,120,0.3)'); gr.addColorStop(1, 'rgba(160,150,120,0)'); g.fillStyle = gr; g.fillRect(x, y, 3 + r() * 6, 120); }
     for (let k = 0; k < 5000; k++) { g.fillStyle = r() < 0.5 ? 'rgba(10,10,8,0.25)' : 'rgba(150,140,120,0.15)'; g.fillRect(r() * W, r() * H, 1.5, 1.5); }
   });
-  return { map, normalMap: normalFrom(hc, 4), normalScale: new THREE.Vector2(1.5, 1.5) };
+  return { map, ...(tier() ? {} : { normalMap: normalFrom(hc, 4), normalScale: new THREE.Vector2(1.5, 1.5) }) };
 }
 // tent canvas: woven khaki, stains, seams
 function tentTex(col, seed) {

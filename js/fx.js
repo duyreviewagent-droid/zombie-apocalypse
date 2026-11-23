@@ -3,6 +3,7 @@
 // smoke and fire that keep burning on wrecks. Particles are soft round points in two pools: light (additive)
 // and matter (smoke, dust, dirt).
 import * as THREE from 'three';
+import { tier } from './tex.js';
 
 const VS = `
   attribute float size; attribute vec4 col; attribute float rot; varying vec4 vCol; varying float vRot; uniform float pscale;
@@ -29,7 +30,7 @@ function puffTex() {
 }
 class Pool {
   constructor(scene, n, additive, soft = true, puff = false) {
-    this.n = n; this.i = 0; this.live = 0;
+    this.n = n; this.i = 0; this.live = 0; this.dirty = true; this.keep = 1;
     this.P = new Float32Array(n * 3); this.V = new Float32Array(n * 3); this.L = new Float32Array(n * 4);
     this.C = new Float32Array(n * 4); this.C0 = new Float32Array(n * 4); this.S = new Float32Array(n); this.G = new Float32Array(n * 2); this.R = new Float32Array(n); this.RV = new Float32Array(n);
     const g = new THREE.BufferGeometry();
@@ -42,6 +43,8 @@ class Pool {
     scene.add(this.pts); this.g = g;
   }
   emit(x, y, z, vx, vy, vz, life, s0, s1, r, gr, b, a, grav = 0, drag = 0) {
+    if (this.keep < 1 && Math.random() > this.keep) return;   // phones: a share of the puffs (less overdraw)
+    this.dirty = true;
     const i = this.i; this.i = (this.i + 1) % this.n;
     const k = i * 3, o = i * 4;
     this.P[k] = x; this.P[k + 1] = y; this.P[k + 2] = z; this.V[k] = vx; this.V[k + 1] = vy; this.V[k + 2] = vz;
@@ -50,11 +53,15 @@ class Pool {
     this.R[i] = Math.random() * 6.28; this.RV[i] = (Math.random() - 0.5) * 1.2;
   }
   update(dt) {
+    // nothing alive and nothing new since the last upload: no work, no upload, no draw
+    if (!this.dirty && this.live === 0) return;
+    this.dirty = false;
     const { P, V, L, C, C0, S, G, R, RV } = this;
+    let live = 0;
     for (let i = 0; i < this.n; i++) {
       const o = i * 4;
       if (L[o] <= 0) { if (S[i] !== 0) { S[i] = 0; C[o + 3] = 0; } continue; }
-      L[o] -= dt;
+      L[o] -= dt; live++;
       const t = 1 - L[o] / L[o + 1], k = i * 3;
       V[k + 1] -= G[i * 2] * dt;
       const dr = Math.exp(-G[i * 2 + 1] * dt); V[k] *= dr; V[k + 1] *= dr; V[k + 2] *= dr;
@@ -66,20 +73,24 @@ class Pool {
       C[o] = C0[o]; C[o + 1] = C0[o + 1]; C[o + 2] = C0[o + 2]; C[o + 3] = C0[o + 3] * fade;
     }
     this.g.attributes.position.needsUpdate = true; this.g.attributes.col.needsUpdate = true; this.g.attributes.size.needsUpdate = true; this.g.attributes.rot.needsUpdate = true;
+    this.live = live; this.pts.visible = live > 0;
   }
 }
 
 export function makeFX(scene) {
-  const glow = new Pool(scene, 2500, true), smoke = new Pool(scene, 2200, false, true, true), bits = new Pool(scene, 1500, false, false);
+  // phones and tablets: smaller pools, a share of the smoke, fewer flash lights (every light costs every pixel)
+  const LOW = tier(), PK = LOW > 1 ? 0.4 : LOW ? 0.6 : 1;
+  const glow = new Pool(scene, Math.round(2500 * PK), true), smoke = new Pool(scene, Math.round(2200 * PK), false, true, true), bits = new Pool(scene, Math.round(1500 * PK), false, false);
+  if (LOW) { smoke.keep = LOW > 1 ? 0.55 : 0.75; bits.keep = LOW > 1 ? 0.6 : 0.8; }
   const rnd = (a = 1) => (Math.random() - 0.5) * 2 * a;
   // a few real lights for flashes (always in the scene so shaders never recompile)
   const lights = [];
-  for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xffb060, 0, 14, 2); scene.add(l); lights.push({ l, t: 0, dur: 0.05, peak: 0 }); }
+  for (let i = 0; i < (LOW ? 2 : 4); i++) { const l = new THREE.PointLight(0xffb060, 0, 14, 2); scene.add(l); lights.push({ l, t: 0, dur: 0.05, peak: 0 }); }
   let li = 0;
   // three steady lights for things that keep burning (a pool of fuel, a lit Molotov rag): held by whoever calls holdLight
   // each frame, flickering like a flame, fading out a moment after the last call
   const held = [];
-  for (let i = 0; i < 3; i++) { const l = new THREE.PointLight(0xff7a2a, 0, 8, 2); scene.add(l); held.push({ l, key: null, hold: 0, peak: 0, cur: 0 }); }
+  for (let i = 0; i < (LOW > 1 ? 1 : LOW ? 2 : 3); i++) { const l = new THREE.PointLight(0xff7a2a, 0, 8, 2); scene.add(l); held.push({ l, key: null, hold: 0, peak: 0, cur: 0 }); }
   const holdLight = (key, p, peak, dist = 8, col = 0xff7a2a) => {
     let H = held.find(h => h.key === key);
     if (!H) H = held.find(h => h.hold <= 0 && h.cur < 0.05) || held.reduce((a, b) => (b.peak < a.peak ? b : a));
@@ -403,7 +414,7 @@ export function makeFX(scene) {
     holdLight,
     dropLight,
     sparks(p, n = 10) { for (let i = 0; i < n; i++) glow.emit(p.x, p.y, p.z, rnd(3), Math.random() * 3, rnd(3), 0.3, 0.03, 0.01, 1, 0.8, 0.4, 1, 9.8, 0.5); },
-    clear() { debClear(); for (const P of [glow, smoke, bits]) { P.L.fill(0); } for (const s of shells) { s.life = 0; s.m.visible = false; } for (const c of chunks) { c.life = 0; c.m.visible = false; } for (const T of tracers) T.m.visible = false; for (const H of held) { H.hold = 0; H.cur = 0; H.key = null; H.l.intensity = 0; } },
+    clear() { debClear(); for (const P of [glow, smoke, bits]) { P.L.fill(0); P.dirty = true; } for (const s of shells) { s.life = 0; s.m.visible = false; } for (const c of chunks) { c.life = 0; c.m.visible = false; } for (const T of tracers) T.m.visible = false; for (const H of held) { H.hold = 0; H.cur = 0; H.key = null; H.l.intensity = 0; } },
   };
   return F;
 }

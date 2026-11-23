@@ -9,6 +9,7 @@
 //  - a car you leave somewhere new stays solid: pushBodies() keeps people and zombies out of it (and of the bikes).
 // Sound is its own small Web Audio graph (an engine whose note follows the revs, road and tyre noise, the chain).
 import * as THREE from 'three';
+import { tier } from './tex.js';
 import { buildBike, bikeParked, makeDrivable, carSpec, setDoor } from './vehicles.js';
 import { aimBone, addTurn, clamp, lerp, damp, wrapPi, smooth, dampAngle } from './soldier.js';
 import { knockDown } from './zombies.js';
@@ -27,6 +28,9 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 // ---------------------------------------------------------------- setup
 export function initDrive(env) {
   E = env;
+  // phones and tablets: the headlight exists (dark) from the start — adding a light the first time you drive would
+  // recompile every shader in the scene at once (seconds of freeze on a phone)
+  if (tier() && !spot.L && E.scene) { spot.L = new THREE.SpotLight(0xfff0d8, 0, 48, 0.62, 0.5, 1.3); spot.L.castShadow = false; E.scene.add(spot.L, spot.L.target); }
   const W = E.world;
   // the world breaks things (fences, hedges, bins...) and needs the effects, the sounds and the dead's ears for it
   if (!W.fx) W.fx = E.fx; if (!W.SND) W.SND = E.SND; if (!W.onNoise && E.noise) W.onNoise = E.noise;

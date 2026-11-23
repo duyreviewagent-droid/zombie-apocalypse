@@ -6,6 +6,7 @@
 // have to, run when they can't. They can die out there too.
 import * as THREE from 'three';
 import { C } from './state.js';
+import { tier } from './tex.js';
 import { Soldier, clamp, lerp, wrapPi, damp, addTurn } from './soldier.js';
 import { slotOf, adoptZombie, wake, Z, vestOn, dressZombie, startTurning, turnAmount, DIFF as ZD } from './zombies.js';
 import { Melee, MELEE } from './melee.js';
@@ -1590,10 +1591,12 @@ export function peopleStep(dt, focus) {
     }
     // far away and out of sight: think less often, don't draw
     const tx = S.pos.x - cam.position.x, tz = S.pos.z - cam.position.z, tl = Math.hypot(tx, tz) || 1;
-    const show = PPL.noCull || d < 6 || ((tx * camF.x + tz * camF.z) / tl > -0.35 && d < 100);
+    // (phones and tablets: drawn to 75 m, and they think less often sooner)
+    const LT = tier(), far1 = LT > 1 ? 22 : LT ? 30 : 40, far2 = LT > 1 ? 45 : LT ? 55 : 70;
+    const show = PPL.noCull || d < 6 || ((tx * camF.x + tz * camF.z) / tl > -0.35 && d < (LT ? 75 : 100));
     if (S.visible !== show) S.setVisible(show);
     u.hidden = false;
-    u.lod = d > 70 ? 4 : d > 40 ? 2 : 1;
+    u.lod = d > far2 ? 4 : d > far1 ? 2 : 1;
     u.lodN = ((u.lodN || 0) + 1) % u.lod;
     if (u.lodN !== 0) continue;
     const ddt = dt * u.lod;

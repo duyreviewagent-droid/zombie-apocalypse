@@ -9,6 +9,7 @@
 //    for sure. Runners (more of them at night) sprint.
 import * as THREE from 'three';
 import { C, emit } from './state.js';
+import { tier } from './tex.js';
 import { Soldier, zombieKind, clamp, lerp, wrapPi, damp, dampAngle, aimBone, addTurn } from './soldier.js';
 import { refreshHitShapes } from './combat.js';
 import { styleFemale, hairDead } from './hair.js';
@@ -26,6 +27,7 @@ export const ZLOOKS = 12;
 const SLOTN = { skin: 0, cloth: 1, eye: 2, teeth: 3, hair: 4, mixed: 5 };
 // amt: a {value} uniform 0..1 for a body still turning (the colour drains out of them as they lie there)
 function zombify(src, slot, variant, mouthY = 1.57, amt = null) {
+  if (tier() > 1) variant %= 4;   // phones: 4 looks per body, not 12 (a third of the materials to keep and switch between)
   const key = src.uuid + ':' + variant + ':' + slot;
   if (!amt && ZMATS.has(key)) return ZMATS.get(key);
   const m = src.clone();

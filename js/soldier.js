@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { clone as skClone } from 'three/addons/utils/SkeletonUtils.js';
 import { retarget, analyse, boneMap } from './rig.js';
 import { C } from './state.js';
+import { tier } from './tex.js';
 
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export const lerp = (a, b, t) => a + (b - a) * t;
@@ -144,6 +145,9 @@ export function zombieKind(k) {
   k.zk = { ...k, clips: { ...k.clips, walk: k.clips.Zombie_Walk, idle: k.clips.Zombie_Idle }, info, vw: k.info.zwalk.speed, offW: k.info.zwalk.strike / k.info.zwalk.duration, zombie: true };
   return k.zk;
 }
+// animation LOD (desktop: far = 32 m, posed every 3rd frame; off-screen every 6th). Phones / tablets: sooner, rarer.
+let LOD_FAR2 = 32 * 32, LOD_FARN = 3, LOD_OFF = 6, lodSet = false;
+function setLod() { lodSet = true; const t = tier(); if (t) { const f = t > 1 ? 18 : 24; LOD_FAR2 = f * f; LOD_FARN = t > 1 ? 4 : 3; LOD_OFF = t > 1 ? 10 : 8; } }
 const BODY_R = [['Hips', 0.12], ['Spine1', 0.12], ['Spine2', 0.125], ['Neck', 0.07], ['Head', 0.1], ['LeftArm', 0.06], ['RightArm', 0.06], ['LeftForeArm', 0.045], ['RightForeArm', 0.045], ['LeftHand', 0.03], ['RightHand', 0.03], ['LeftUpLeg', 0.085], ['RightUpLeg', 0.085], ['LeftLeg', 0.055], ['RightLeg', 0.055], ['LeftFoot', 0.045], ['RightFoot', 0.045]];
 const vLift = new THREE.Vector3();
 const STEP_H = [[0.02, -1], [0.52, 1]], STEP_Z = [[0.99, -1], [0.64, 1]];
@@ -400,11 +404,12 @@ export class Soldier {
     }
     this.upW = upMax * (1 - actTotal);
     // far away the pose is only worked out every 3rd frame (nobody can see the difference at that distance)
-    const cam = C.camera;
-    const far = this.animLod && !this.fly && cam && (this.pivot.position.x - cam.position.x) ** 2 + (this.pivot.position.z - cam.position.z) ** 2 > 32 * 32;
+    const cam = C.camera; if (!lodSet) setLod();
+    // (phones and tablets: 'far' starts sooner, and far / off-screen ones are posed even less often)
+    const far = this.animLod && !this.fly && cam && (this.pivot.position.x - cam.position.x) ** 2 + (this.pivot.position.z - cam.position.z) ** 2 > LOD_FAR2;
     // off-screen ones still move (and their shadows), just every 6th frame
     const off = this.animLod && !this.fly && !this.noLod && cam && !inView(this.pivot.position);
-    this.lodN = off ? (this.lodN + 1) % 6 : far ? (this.lodN + 1) % 3 : 0;
+    this.lodN = off ? (this.lodN + 1) % LOD_OFF : far ? (this.lodN + 1) % LOD_FARN : 0;
     // far ones cast no shadow: their skinned vertices aren't processed a second time for a shadow too small to see
     const cs = !far; if (this._cs !== cs) { this._cs = cs; this.pivot.traverse(o => { if (o.isMesh && !o.userData.noShadow) o.castShadow = cs; }); }
     this.frozen = this.lodN !== 0;
