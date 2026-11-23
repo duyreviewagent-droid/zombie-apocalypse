@@ -287,11 +287,11 @@ export function builder(K) {
 
 // ---- real people for the crowd: the game's own character models (KINDS), posed once and baked into a static mesh ----
 // bakePerson(kind, 'stand' | 'sit') → { geo (position/normal/uv, a group per material), mats: [{ map, color, part, norm }] }
-// part: 0 as it is, 1 shirt, 2 trousers, 3 skin, 4 hair/hat — the crowd recolours those per person (by the texture's
+// part: 0 as it is, 1 shirt, 2 trousers, 3 skin, 4 hair/hat, 5 Michelle's one-piece atlas (yellow trousers, black top) — the crowd recolours those per person (by the texture's
 // brightness × that person's colour; norm = 1 / the texture's mean brightness where the mesh uses it).
 // Standing: one frame of the idle, feet on y = 0, centred. Sitting: the idle's arms, legs bent, hips over a seat pan
 // (0.45 m up, a little behind the origin), hands on the thighs. Faces +z like the models.
-const partOf = n => /Teeth/i.test(n) ? -1 : /Outfit_Top/i.test(n) ? 1 : /Outfit_Bottom/i.test(n) ? 2 : /Wolf3D_(Skin|Body)/i.test(n) ? 3 : /Hair|Beard|Headwear/i.test(n) ? 4 : 0;
+const partOf = n => /Teeth/i.test(n) ? -1 : /Ch03/i.test(n) ? 5 : /Outfit_Top/i.test(n) ? 1 : /Outfit_Bottom/i.test(n) ? 2 : /Wolf3D_(Skin|Body)/i.test(n) ? 3 : /Hair|Beard|Headwear/i.test(n) ? 4 : 0;
 const lumCache = new WeakMap();
 function texLum(map, uvs) {   // the mean linear brightness of a texture over the uvs a mesh uses
   const img = map && map.image; if (!img || !img.width) return 1;
@@ -307,6 +307,9 @@ function texLum(map, uvs) {   // the mean linear brightness of a texture over th
   }
   return n ? sum / n : 1;
 }
+// a body to bake from later, copied now (the player wears KINDS.human's own root once the game starts: its pose,
+// its look and what's in its hands are not a fan's)
+export const personSource = kind => ({ root: skClone(kind.root), clips: kind.clips });
 export function bakePerson(kind, pose = 'stand') {
   const root = skClone(kind.root); root.position.set(0, 0, 0); root.rotation.set(0, 0, 0);
   const B = {}; root.traverse(o => { if (o.isBone) B[o.name.replace(/^mixamorig:?/, '')] = o; });
@@ -331,7 +334,7 @@ export function bakePerson(kind, pose = 'stand') {
     root.updateMatrixWorld(true);
   }
   // skin every mesh on the CPU in this pose
-  const parts = [], mats = [], M = new Float32Array(16), v = new THREE.Vector3(), n = new THREE.Vector3(), m4 = new THREE.Matrix4(), w4 = new THREE.Matrix4(), nm = new THREE.Matrix3();
+  const parts = [], mats = [], M = new Float32Array(16), m4 = new THREE.Matrix4();
   root.traverse(o => {
     if (!o.isMesh || !o.visible) return;
     const mat = Array.isArray(o.material) ? o.material[0] : o.material, part = partOf((mat && mat.name) || o.name);
@@ -340,15 +343,20 @@ export function bakePerson(kind, pose = 'stand') {
     const P = new Float32Array(cnt * 3), N = new Float32Array(cnt * 3), U = new Float32Array(cnt * 2);
     const sk = o.isSkinnedMesh ? o.skeleton : null; if (sk) sk.update();
     const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, bm = sk && sk.boneMatrices;
+    // (plain arithmetic, no Matrix4 per vertex: world = pre · Σ w·bone · post · v, normals the same without translation)
+    const pre = sk ? m4.multiplyMatrices(o.matrixWorld, o.bindMatrixInverse).elements.slice() : o.matrixWorld.elements.slice(), post = sk ? o.bindMatrix.elements : null;
+    const ap = (A, x, y, z, w, out) => { out[0] = A[0] * x + A[4] * y + A[8] * z + A[12] * w; out[1] = A[1] * x + A[5] * y + A[9] * z + A[13] * w; out[2] = A[2] * x + A[6] * y + A[10] * z + A[14] * w; };
+    const t1 = [0, 0, 0], t2 = [0, 0, 0], n1 = [0, 0, 0], n2 = [0, 0, 0];
     for (let i = 0; i < cnt; i++) {
-      v.fromBufferAttribute(pos, i); if (nor) n.fromBufferAttribute(nor, i); else n.set(0, 1, 0);
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), nx = nor ? nor.getX(i) : 0, ny = nor ? nor.getY(i) : 1, nz = nor ? nor.getZ(i) : 0;
       if (sk) {
         M.fill(0);
         for (let j = 0; j < 4; j++) { const w = sw.getComponent(i, j); if (!w) continue; const b = si.getComponent(i, j) * 16; for (let k = 0; k < 16; k++) M[k] += w * bm[b + k]; }
-        m4.fromArray(M); w4.multiplyMatrices(o.matrixWorld, o.bindMatrixInverse).multiply(m4).multiply(o.bindMatrix);
-      } else w4.copy(o.matrixWorld);
-      v.applyMatrix4(w4); n.applyMatrix3(nm.getNormalMatrix(w4)).normalize();
-      P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z; N[i * 3] = n.x; N[i * 3 + 1] = n.y; N[i * 3 + 2] = n.z;
+        ap(post, x, y, z, 1, t1); ap(M, t1[0], t1[1], t1[2], 1, t2); ap(pre, t2[0], t2[1], t2[2], 1, t1);
+        ap(post, nx, ny, nz, 0, n1); ap(M, n1[0], n1[1], n1[2], 0, n2); ap(pre, n2[0], n2[1], n2[2], 0, n1);
+      } else { ap(pre, x, y, z, 1, t1); ap(pre, nx, ny, nz, 0, n1); }
+      const nl = Math.hypot(n1[0], n1[1], n1[2]) || 1;
+      P[i * 3] = t1[0]; P[i * 3 + 1] = t1[1]; P[i * 3 + 2] = t1[2]; N[i * 3] = n1[0] / nl; N[i * 3 + 1] = n1[1] / nl; N[i * 3 + 2] = n1[2] / nl;
       if (uv) { U[i * 2] = uv.getX(i); U[i * 2 + 1] = uv.getY(i); }
     }
     const out = new THREE.BufferGeometry();

@@ -18,6 +18,8 @@
 //   toast(text)          show a short message in the game's toast area
 //   iceServers           RTCPeerConnection ICE servers (default: a public STUN server)
 //   bottom               CSS length for the mic button's bottom edge
+//   askMic(yes)          the mic is never switched on by itself: ask the player first, call yes() if they agree
+//   touch                true on touch screens: the mic button is a talk on/off toggle (no B key to hold)
 
 const LS = 'zapoc.voice';
 const NEAR = 3, FAR = 40;            // metres: full volume within NEAR, silent beyond FAR
@@ -33,7 +35,7 @@ export const keyLabel = code => !code ? '—' : code.startsWith('Key') ? code.sl
 
 // ---------------------------------------------------------------- state
 let C = {};
-const S = { mode: 'open', pttKey: 'KeyB', radioKey: 'KeyN', muted: false, vol: 1, device: '', peerVol: {}, peerMute: {}, auto: false };
+const S = { mode: 'ptt', pttKey: 'KeyB', radioKey: 'KeyN', muted: false, vol: 1, device: '', peerVol: {}, peerMute: {}, auto: false };
 try { Object.assign(S, JSON.parse(localStorage.getItem(LS) || '{}')); } catch { }
 const saveS = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch { } };
 
@@ -125,10 +127,14 @@ export function initVoice(ctx) {
   <button class="close" data-a="close">Done</button></div>`;
   document.body.appendChild(pan);
   ui = { hud, pan, list: hud.querySelector('.list'), ic: hud.querySelector('.ic'), lbl: hud.querySelector('.lbl'), lv: hud.querySelector('.lv i'), meter: pan.querySelector('.meter i'), err: pan.querySelector('.err'), players: pan.querySelector('.players'), q: a => pan.querySelector(`[data-a="${a}"]`) };
-  hud.querySelector('.mic').onclick = () => openSettings();
+  hud.querySelector('.mic').onclick = () => {
+    if (!mic) return askThenEnable(() => { if (C.touch) { S.mode = 'open'; S.muted = false; saveS(); syncUI(); } });
+    if (C.touch) { S.mode = 'open'; setMuted(!S.muted); C.toast && C.toast(S.muted ? 'Mic off' : 'Mic on — friends near you can hear you'); return; }
+    openSettings();
+  };
   pan.addEventListener('click', e => { if (e.target === pan) closeSettings(); });
   pan.addEventListener('keydown', e => { e.stopPropagation(); if (e.code === 'Escape' && !binding) closeSettings(); });
-  ui.q('mic').onclick = () => mic ? disableMic() : enableMic();
+  ui.q('mic').onclick = () => mic ? disableMic() : askThenEnable();
   ui.q('mute').onclick = () => setMuted(!S.muted);
   ui.q('open').onclick = () => { S.mode = 'open'; saveS(); syncUI(); };
   ui.q('ptt').onclick = () => { S.mode = 'ptt'; saveS(); syncUI(); };
@@ -152,7 +158,7 @@ function onKey(e) {
   }
   if (e.metaKey || e.repeat || (C.canKey && !C.canKey())) return;
   // Caps Lock on a Mac only reports a toggle (down when it locks, up when it unlocks), so it acts as a latch
-  if (e.code === S.pttKey) { pttDown = e.code === 'CapsLock' ? e.getModifierState('CapsLock') : true; }
+  if (e.code === S.pttKey) { pttDown = e.code === 'CapsLock' ? e.getModifierState('CapsLock') : true; if (!mic && !micErr && !asking) { pttDown = false; askThenEnable(() => { S.mode = 'ptt'; saveS(); syncUI(); C.toast && C.toast(`Hold ${keyLabel(S.pttKey)} to talk`); }); } }
   if (e.code === S.radioKey) { radioDown = e.code === 'CapsLock' ? e.getModifierState('CapsLock') : true; if (!mic && !micErr) note('Turn on your microphone in voice settings to use the radio'); }
 }
 function onKeyUp(e) {
@@ -204,6 +210,13 @@ async function listDevices() {
 const nameOf = id => (C.nameOf && C.nameOf(id)) || 'Player ' + id;
 
 // ---------------------------------------------------------------- microphone
+// never on by itself: the game asks first (ctx.askMic); then the browser asks for permission too
+let asking = false;
+export function askThenEnable(after) {
+  if (mic || asking) return;
+  const go = async () => { asking = false; if (await enableMic()) { after && after(); } else if (micErr) { C.toast && C.toast(micErr); } };
+  if (C.askMic) { asking = true; C.askMic(go, () => { asking = false; }); } else go();
+}
 export async function enableMic() {
   micErr = '';
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { micErr = window.isSecureContext === false ? 'The microphone needs a secure (https) page.' : 'This browser / app can\'t use a microphone. You can still hear the others.'; syncUI(); return false; }

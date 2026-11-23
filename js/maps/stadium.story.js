@@ -69,12 +69,14 @@ export const news = {
   ],
 };
 
+// the calm evening's goal (main.js shows STORY.calmGoal before the outbreak); the chapters are the outbreak's, from
+// stage 0, each with what finishes it (main.js doneKey: reach:<spot> · time:<h> · board); the key is a beat (below)
+export const calmGoal = 'Find <b>Ben</b> at the burger van, get a <b>programme</b>, go through <b>Gate A</b> and take your seat: <b>Main Stand, row 12</b>. Kick-off <b>19:45</b>.';
 export const chapters = [
-  { title: 'KICK-OFF', goal: 'Find <b>Ben</b> at the burger van, get a <b>programme</b>, go through <b>Gate A</b> and take your seat: <b>Main Stand, row 12</b>.' },
-  { title: 'PITCH INVASION', goal: 'The lights are out and the gates are chained. Get <b>down from the stand</b> into the <b>concourse</b>. Find a <b>weapon</b>.' },
-  { title: 'THE TUNNEL', goal: 'Through the <b>players\' tunnel</b> and the <b>dressing rooms</b>: the <b>floodlight key</b> is in the red cabinet in the <b>groundsman\'s store</b>.' },
-  { title: 'LIGHTS ON', goal: 'Up the <b>back stairs</b> of the Main Stand to the <b>switch room</b>. Turn the <b>floodlights</b> on. Hold out until <b>02:00</b>.' },
-  { title: 'THE HELICOPTER', goal: 'The air ambulance lands on the <b>centre circle</b>. It waits <b>one minute</b>. Get in — <b>E</b>.' },
+  { id: 'down', title: 'PITCH INVASION', goal: 'The lights are out and the gates are chained. Get <b>down from the stand</b> into the <b>concourse</b>. Find a <b>weapon</b>.', done: 'reach:concourseN' },
+  { id: 'tunnel', title: 'THE TUNNEL', goal: 'Through the <b>players\' tunnel</b> and the <b>dressing rooms</b>: the <b>floodlight key</b> is in the red cabinet in the <b>groundsman\'s store</b>.' },
+  { id: 'lights', title: 'LIGHTS ON', goal: 'Up the <b>back stairs</b> of the Main Stand to the <b>switch room</b>. Turn the <b>floodlights</b> on. Hold out until <b>02:00</b>.', done: 'time:1.5' },
+  { id: 'heli', title: 'THE HELICOPTER', goal: 'The air ambulance lands on the <b>centre circle</b>. It waits <b>one minute</b>. Get in — <b>E</b>.', done: 'board' },
 ];
 
 export const tips = {
@@ -100,7 +102,7 @@ export const ending = {
 };
 
 // chapter objectives and where notes lie (spot keys in stadium.js SPOTS)
-export const objectives = ['burgerVan', 'concourseN', 'groundsShed', 'switchRoom', 'centreSpot'].map(k => ({ ...SPOTS[k] }));
+export const objectives = ['concourseN', 'groundsShed', 'switchRoom', 'centreSpot'].map(k => ({ ...SPOTS[k] }));
 
 // per-frame beats: the match clock and the crowd on the calm evening; the blackout at the outbreak; the lights
 // coming back on; the story's own little moments (main.js passes { think, toast, bigText, setStage, later, world, ... })
@@ -110,22 +112,32 @@ export function beats(G, api = {}) {
   const W = (api && api.world) || S.W, h = G && G.hour != null ? G.hour : W ? W.time : 0;
   const say = (k, txt, d = 3.2) => { if (B.said[k]) return; B.said[k] = true; if (api.think) api.think(txt, d); else if (api.toast) api.toast(txt); };
   const phase = G ? G.phase : 'calm';
+  // what the match and the stewards (stadium.match.js) go by: the phase, where you are, the game's hooks
+  S.phase = phase; S.api = api; S.kickoffHour = kickoffHour;
+  { const pp = api.playerPos ? api.playerPos() : (G && G.player && G.player.s ? G.player.s.pos : null); S.you = pp ? { x: pp.x, z: pp.z, y: pp.y } : null; }
   // real time from the stadium's own clock (frame-rate independent; main.js doesn't pass dt)
   const now = S.t || 0, dt = B.last == null ? 0 : Math.max(0, Math.min(0.25, now - B.last)); B.last = now;
   if (phase === 'calm' || (phase === 'news' && !B.cut)) {
     // the match: kick-off at 19:45, the score, a roar for each goal, singing in between
     if (h >= kickoffHour) { S.minute = Math.min(45, Math.floor((h - kickoffHour) * 60)); S.screenMsg = null; } else { S.minute = 0; S.screenMsg = 'WELCOME TO HARBOR CITY STADIUM'; }
-    if (S.minute >= 17 && S.score[0] === 0) { S.score[0] = 1; S.goalT = 4; S.goalBig = 0.32; }
-    if (S.minute >= 26 && S.score[1] === 0) { S.score[1] = 1; S.goalT = 2.5; S.goalBig = 0.18; }   // (the away end's equaliser)
+    // the goals: Harbor score (Okafor) and the away end's equaliser. With the match on the pitch (stadium.match.js) the
+    // story only says which side's turn it is and the players score it; without it, the screen just changes
+    if (S.match) {
+      if (S.minute >= 10 && S.score[0] === 0) S.wantGoal = 0;
+      else if (S.minute >= 21 && S.score[0] > 0 && S.score[1] === 0) S.wantGoal = 1;
+    } else {
+      if (S.minute >= 17 && S.score[0] === 0) { S.score[0] = 1; S.goalT = 4; S.goalBig = 0.32; }
+      if (S.minute >= 26 && S.score[1] === 0) { S.score[1] = 1; S.goalT = 2.5; S.goalBig = 0.18; }   // (the away end's equaliser)
+    }
     S.goalT = Math.max(0, (S.goalT || 0) - dt);
     S.cheer(S.goalT > 0 ? (S.goalBig || 0.32) : S.minute > 0 ? 0.08 : 0.04);
     if (!S.crowd) S.setCrowd(true);
     // the match plays on under the announcements; the power goes just after "...oh my God" (18.2 s)
-    if (phase === 'news') { B.newsT += dt; if (B.newsT > 19) blackout(S); }
+    if (phase === 'news') { B.newsT += dt; S.halted = B.newsT > 4.6; if (B.newsT > 19) blackout(S); }   // ("the match has been temporarily suspended")
   } else if (!B.cut) blackout(S);
   // the panic: 10 s of frantic movement in the thinning crowd after the blackout
   if (B.cut && B.panicT > 0) { B.panicT = Math.max(0, B.panicT - dt); S.cheer(B.panicT > 0 ? 0.6 * Math.min(1, B.panicT / 3) : 0); }
-  if (S.hasKey) say('key', 'The floodlight key. Now the switch room — up the back stairs, outside the Main Stand.');
+  if (S.hasKey) { say('key', 'The floodlight key. Now the switch room — up the back stairs, outside the Main Stand.'); if (phase === 'outbreak' && api.setStage) api.setStage(2, 1.2); }   // (THE TUNNEL is done: LIGHTS ON)
   if (S.lockedTry && S.lockedTry !== B.lockedSeen) { B.lockedSeen = S.lockedTry; if (api.think && !S.hasKey) api.think('Locked. It needs the floodlight key — Gus keeps it in the red cabinet in his store.', 3); }
   if (S.switchedOn && (S.switchT || 0) > 8) say('lights', 'The lamps hum, glow orange... then white. The whole ground lit up like match night. They\'ll see that for miles.', 4);
   if (G && G.player && G.player.pos) {
@@ -138,10 +150,11 @@ function blackout(S) { B.cut = true; B.panicT = 10; S.setPower(false); S.setLigh
 // a fresh run (main.js may call this on restart)
 export function reset() {
   Object.assign(B, { cut: false, said: {}, last: null, newsT: 0, panicT: 0, lockedSeen: 0 });
-  Object.assign(STADIUM, { power: true, lights: true, crowd: true, hasKey: false, switchedOn: false, switchT: null, score: [0, 0], minute: 0, broken: false, screenMsg: null, goalT: 0, goalBig: 0, lockedTry: 0 });
+  Object.assign(STADIUM, { power: true, lights: true, crowd: true, hasKey: false, switchedOn: false, switchT: null, score: [0, 0], minute: 0, broken: false, screenMsg: null, goalT: 0, goalBig: 0, lockedTry: 0, halted: false, wantGoal: null });
+  if (STADIUM.match && STADIUM.match.reset) STADIUM.match.reset();
   if (STADIUM.keyC) STADIUM.keyC.searched = false;
   if (STADIUM.switchC) STADIUM.switchC.searched = false;
   if (STADIUM.setCrowd) STADIUM.setCrowd(true, true);
 }
 
-export default { title, subtitle, intro, startHour, kickoffHour, outbreakHour, cast, chapters, notes, radio, news, tips, ending, objectives, beats, reset };
+export default { title, subtitle, intro, startHour, kickoffHour, outbreakHour, calmGoal, cast, chapters, notes, radio, news, tips, ending, objectives, beats, reset };

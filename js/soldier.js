@@ -62,8 +62,10 @@ const ACTS = ['Idle_A', 'Jump_Start', 'Jump_air', 'Jump_Land', 'Crouch_Idle', 'C
   'Sword_Regular_A', 'Sword_Regular_B', 'Sword_Regular_C', 'Sword_Attack', 'Punch_Jab', 'Punch_Cross', 'Push', 'PickUp_Table', 'Chest_Open', 'Consume', 'Fixing_Kneeling', 'ClimbUp_1m_RM'];
 const UPPER_ACTS = ['OverhandThrow', 'Hit_Chest', 'Hit_Head', 'Interact', 'Zombie_Scratch', 'Sword_Regular_A', 'Sword_Regular_B', 'Sword_Regular_C', 'Sword_Attack', 'Punch_Jab', 'Punch_Cross', 'Push', 'Consume'];
 const UPPER = /Spine|Neck|Head|Shoulder|Arm|Hand/;
+// every body prepared (in load order: human, butler, coach, michelle) — looks.js borrows hair, beards and hats between them
+export const KIND_ROOTS = [];
 export function prepareKind(gltf, motion, moves) {
-  const root = gltf.scene;
+  const root = gltf.scene; KIND_ROOTS.push(root);
   const rest = []; root.traverse(o => rest.push([o, o.position.clone(), o.quaternion.clone(), o.scale.clone()]));
   root.updateMatrixWorld(true);
   const B = boneMap(root);

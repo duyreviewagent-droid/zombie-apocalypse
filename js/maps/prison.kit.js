@@ -163,6 +163,13 @@ export function prisonMats(K) {
   add('pIron', std({ color: 0x2a2a2c, roughness: 0.4, metalness: 0.8 }), 1);
   add('pScreen', std({ map: cctvTex(), emissive: 0xffffff, emissiveMap: cctvTex(), emissiveIntensity: 0.55, roughness: 0.2 }), 1);
   add('pLight', std({ color: 0xf4f4f0, emissive: 0xf8f4e8, emissiveIntensity: 1.1, roughness: 0.3 }), 1);
+  add('pLightF', std({ color: 0xf4f4f0, emissive: 0xf8f4e8, emissiveIntensity: 1.1, roughness: 0.3 }), 1);   // the tubes that go bad after the alarm
+  // night lighting (prison.js drives these: dark by day, on at dusk, stuttering once the power goes bad)
+  add('pFlood', std({ color: 0xd8dce0, emissive: 0xeef2ff, emissiveIntensity: 0.05, roughness: 0.3 }), 1);       // floodlight / searchlight lenses
+  add('pSodium', std({ color: 0xc8b898, emissive: 0xffb060, emissiveIntensity: 0.05, roughness: 0.3 }), 1);      // wall packs, wall-top lamps
+  add('pSodiumF', std({ color: 0xc8b898, emissive: 0xffb060, emissiveIntensity: 0.05, roughness: 0.3 }), 1);     // ...the ones that flicker
+  add('pPoolW', poolMat(0xb8c8ff, false), 1); add('pPoolS', poolMat(0xffb868, false), 1);
+  add('pPoolH', poolMat(0xffb868, true), 1); add('pPoolHF', poolMat(0xffb868, true), 1);
   add('pRed', std({ color: 0x601010, emissive: 0xff2010, emissiveIntensity: 1.4, roughness: 0.3 }), 1);
   add('pGreen', std({ color: 0x106010, emissive: 0x20ff40, emissiveIntensity: 1.2, roughness: 0.3 }), 1);
   add('pHeli', std({ map: helipadTex(), roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), 1);
@@ -191,6 +198,14 @@ export function prisonMats(K) {
   S('sCount', ['COUNT TIME', 'STAND BY YOUR DOOR'], '#e8e4d8', '#1a1a1a');
   S('sMenu', ['TUESDAY', 'OATMEAL · BURGERS · CHILI'], '#1a2a1a', '#e8e4d8');
   return M;
+}
+
+// a pool of lamplight on the ground: additive, unlit, merged with the others (one draw call); half: the lamp is on a
+// wall at the decal's −z edge (local), so the light spreads out from the wall and never shows through it indoors
+function poolMat(col, half) {
+  const t = cv(128, 128, (g, w, h) => { const cy = half ? 0 : 64, R = half ? 128 : 64; const gr = g.createRadialGradient(64, cy, 0, 64, cy, R); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.4, 'rgba(255,255,255,0.42)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping; t.repeat.set(1, 1);
+  return new THREE.MeshBasicMaterial({ map: t, color: col, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: true, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, visible: false });
 }
 
 // ---------------------------------------------------------------- shared geometry
@@ -301,6 +316,7 @@ export function weightBench(K, x, z, yaw) {
   const [bx, bz] = P(-0.45, 0); K.xadd(g.pipe, K.MAT.chrome, K.mat4(bx, 1.02, bz, yaw, 0.015, 2.0, 0.015, Math.PI / 2, 0));
   for (const lz of [-0.82, 0.82]) for (const k of [0, 1]) { const [px, pz] = P(-0.45, lz + Math.sign(lz) * k * 0.05); K.xadd(g.disc, K.MAT.pIron, K.mat4(px, 1.02, pz, yaw + Math.PI / 2, 0.025, 0.22 - k * 0.04, 0.22 - k * 0.04)); }
   K.solid(x, z, 0.6, 0.45, yaw, 1.05, 'metal', 0, { vault: true });
+  { const [rx, rz] = P(-0.45, 0); K.solid(rx, rz, 0.08, 1.0, yaw, 1.25, 'metal', 0.78); }   // the loaded bar sticks out past the bench
 }
 // an office desk with a monitor, keyboard, paper stack and a chair
 export function desk(K, x, z, yaw, mat = 'pWoodDesk') {
@@ -313,6 +329,7 @@ export function desk(K, x, z, yaw, mat = 'pWoodDesk') {
   const [cx, cz] = P(0, 0.75); K.box(cx, 0.42, cz, 0.24, 0.5, 0.24, yaw, 'black'); K.box(cx, 0, cz, 0.03, 0.42, 0.03, yaw, 'chrome');
   const [bx, bz] = P(0, 0.98); K.box(bx, 0.5, bz, 0.22, 1.05, 0.03, yaw, 'black');
   K.solid(x, z, 0.8, 0.4, yaw, 0.76, 'wood', 0, { vault: true });
+  { const [sx, sz] = P(0, 0.76); K.solid(sx, sz, 0.25, 0.25, yaw, 1.05, 'wood', 0); }   // the chair (you don't walk through it)
 }
 // a row of grey steel lockers along local x (n doors)
 export function lockers(K, x, z, yaw, n = 6) {
@@ -329,4 +346,6 @@ export function sign(K, x, y, z, yaw, mat, w, h) {
 // a flat decal on the ground (or a floor at y): uv 0..1, any yaw
 export function decal(K, x, y, z, w, d, yaw, mat) { K.xadd(geos().plane, K.MAT[mat], K.mat4(x, y, z, yaw, w, d, 1, -Math.PI / 2, 0), false); }
 // a ceiling strip light (emissive, no PointLight)
-export function strip(K, x, y, z, yaw, len = 1.2) { K.box(x, y - 0.06, z, len / 2, y, 0.09, yaw, f => f === 'bot' ? 'pLight' : 'white'); }
+// (every fifth one is on the bad circuit: it flickers once the power starts failing — prison.js drives 'pLightF')
+let stripN = 0;
+export function strip(K, x, y, z, yaw, len = 1.2) { const m = stripN++ % 5 === 2 ? 'pLightF' : 'pLight'; K.box(x, y - 0.06, z, len / 2, y, 0.09, yaw, f => f === 'bot' ? m : 'white'); }

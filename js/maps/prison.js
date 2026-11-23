@@ -49,6 +49,10 @@ export function buildMap(K) {
   const G = geos(), R = rng(1931), W = K.W;
   const notes = [];
   W.spots = SPOTS; W.gates = [];
+  // the few real point lights (cell blocks, laundry, sewer, infirmary, Control): kept so the failing power can dim them
+  const plights = [], towerLamps = [];
+  const lt = (...a) => { const l = K.light(...a); if (l) { l.userData.base = l.intensity; plights.push(l); } return l; };
+  let outbreakIt = null;   // the infirmary's outbreak layer: once it's showing, the power is going bad
   // ---- tiny helpers (axis-aligned extents) ----
   const bx = (x0, y0, z0, x1, y1, z1, mat) => K.box((x0 + x1) / 2, y0, (z0 + z1) / 2, Math.abs(x1 - x0) / 2, y1, Math.abs(z1 - z0) / 2, 0, mat);
   const so = (x0, z0, x1, z1, y1, surf = 'concrete', y0 = 0, extra = {}) => K.solid((x0 + x1) / 2, (z0 + z1) / 2, Math.abs(x1 - x0) / 2, Math.abs(z1 - z0) / 2, 0, y1, surf, y0, extra);
@@ -164,7 +168,10 @@ export function buildMap(K) {
     for (const [lx, lz] of [[-2.62, -2.62], [2.62, -2.62], [-2.62, 2.62], [2.62, 2.62], [-0.6, 2.62], [0.6, 2.62]]) { const [px, pz] = P(lx, lz); K.box(px, Y, pz, 0.07, Y + 2.3, 0.07, yaw, 'pBars'); }
     K.box(tx, Y + 2.3, tz, 3.1, Y + 2.5, 3.1, yaw, f => f === 'bot' ? 'ceilTile' : 'concrete');
     K.solid(tx, tz, 3.0, 3.0, yaw, Y + 2.5, 'concrete', Y + 2.3);
-    { const [px, pz] = P(1.6, -1.6); K.xadd(G.pipe, MAT.darkMetal, K.mat4(px, Y + 2.5, pz, 0, 0.06, 0.5, 0.06)); K.xadd(G.disc, MAT.pLight, K.mat4(px, Y + 3.15, pz, yaw + 0.6, 0.4, 0.32, 0.32)); }
+    { const [px, pz] = P(1.6, -1.6); K.xadd(G.pipe, MAT.darkMetal, K.mat4(px, Y + 2.5, pz, 0, 0.06, 0.5, 0.06)); K.xadd(G.disc, MAT.pFlood, K.mat4(px, Y + 3.15, pz, yaw + 0.6, 0.4, 0.32, 0.32)); }
+    // its lamp at night: the searchlight thrown down into the compound in front of the tower, a lamp in the cab
+    { const [lx, lz] = P(1.6, -1.6), [tx2, tz2] = P(0, 15); towerLamps.push(K.lamp(lx, Y + 3.15, lz, { pow: 3.2, dist: 38, angle: 0.55, tx: tx2, tz: tz2, col: 0xe0e8ff, halo: 1.8, reach: 10 })); decal(K, tx2, 0.06, tz2, 15, 15, 0, 'pPoolW');
+      K.box(tx, Y + 2.24, tz, 0.5, Y + 2.3, 0.5, yaw, f => f === 'bot' ? 'pSodium' : 'darkMetal'); }
     // inside: a console, a stool, the gun locker (searchable)
     { const [px, pz] = P(0, -2.1); K.box(px, Y, pz, 1.6, Y + 0.95, 0.35, yaw, 'darkMetal'); K.box(px, Y + 0.95, pz, 1.6, Y + 1.0, 0.36, yaw, 'black'); K.solid(px, pz, 1.6, 0.35, yaw, Y + 1.0, 'metal', Y); }
     { const [px, pz] = P(-2.1, 0.6); K.box(px, Y, pz, 0.35, Y + 1.8, 0.5, yaw, 'pCopper'); K.solid(px, pz, 0.35, 0.5, yaw, Y + 1.8, 'metal', Y);
@@ -255,7 +262,7 @@ export function buildMap(K) {
     for (let i = 0; i < 3; i++) { const px = cx - 6 + i * 1.1; bx(px - 0.25, 1.1, cz + 39.65, px + 0.25, 1.75, cz + 39.85, 'pSteel'); bx(px - 0.06, 1.25, cz + 39.55, px + 0.06, 1.5, cz + 39.65, 'black'); }
     loot('bin', cx + 5.5, cz + 39.2, 0.5, 'Trash can', Math.PI, H);
     loot('shelf', cx - 13.4, cz + 38, 1.2, 'Mop closet shelf', Math.PI / 2, H);
-    K.light(cx, 6.8, cz, 0xe8f0ff, 10, 26);
+    lt(cx, 6.8, cz, 0xe8f0ff, 10, 26);
     return H;
   };
   const HA = cellBlock(BLD.blockA, 'A', 1);
@@ -364,7 +371,7 @@ export function buildMap(K) {
     bx(x - 14.6, 0.02, z - 3.3, x - 12.2, 0.045, z - 0.7, 'pTread');
     sign(K, x - 14.7, 1.6, z - 4.8, Math.PI / 2, 'sOut', 1.4, 0.55);
     loot('garage', x - 9, z + 9, 1.0, 'Maintenance cabinet', Math.PI, H); bs(x - 10, 0, z + 9.3, x - 8, 2.0, z + 11.6, 'darkMetal', 'metal');
-    K.light(x - 11, 4.2, z - 2, 0xffd8a0, 4, 12);
+    lt(x - 11, 4.2, z - 2, 0xffd8a0, 4, 12);
   }
   // ---- THE STORM SEWER: a box culvert from the pump room, under the wall, out to the river ----
   {
@@ -376,7 +383,7 @@ export function buildMap(K) {
     K.wbeam([x0 + 0.5, 2.2, z + 1.5], [x1 - 0.5, 2.2, z + 1.5], 0.25, 0.25, MAT.rust);
     K.wbeam([x0 + 0.5, 2.35, z - 1.5], [x1 - 0.5, 2.35, z - 1.5], 0.12, 0.12, MAT.pCopper);
     for (let xx = x0 + 6, i = 0; xx < x1; xx += 12, i++) K.box(xx, 2.5, z, 0.08, 2.68, 0.08, 0, i % 3 === 1 ? 'pLight' : 'darkMetal');   // most bulbs are dead
-    K.light(-96, 2.4, z, 0xffc080, 1.2, 6);   // one weak caged lamp at the grate
+    lt(-96, 2.4, z, 0xffc080, 1.2, 6);   // one weak caged lamp at the grate
     // the old grate across the tunnel just inside the wall: rusted, padlocked (a keycard-style gate: needs the key)
     gate(-96, z, Math.PI / 2, 3.0, 2.6, 'sewerKey', 'storm sewer grate');
     // the earth berm piled over the outside run, so it reads as underground
@@ -389,6 +396,9 @@ export function buildMap(K) {
     // inside the wall too: earth over the run to the pump room, and the patrol road ramps up and over it
     for (const sd of [-1, 1]) K.quad('dirt', [-100.6, 2.92, z + sd * 1.95], [-82.3, 2.92, z + sd * 1.95], [-82.3, 0, z + sd * 6], [-100.6, 0, z + sd * 6], [0, 4.05 / Math.hypot(4.05, 2.92), sd * 2.92 / Math.hypot(4.05, 2.92)], [[0, 0], [4.6, 0], [4.6, 1.3], [0, 1.3]], -91, z);
     bx(-100.6, 2.9, z - 1.95, -82.3, 2.96, z + 1.95, 'dirt');
+    // the earth banks are solid (you used to walk straight into the slope): from the tunnel wall out to where the
+    // bank is knee-high, inside the wall (beside the patrol-road stairs) and outside it
+    for (const sd of [-1, 1]) { so(-93, z + sd * 1.95, -82.3, z + sd * 4.6, 2.9, 'grass'); so(x0, z + sd * 1.95, -100.6, z + sd * 4.6, 2.9, 'grass'); }
     K.stairs(-96.3, z - 5.025, 0, 6.6, 6.15, 0, 2.96, 'concrete', { rails: false }); K.stairs(-96.3, z + 5.025, Math.PI, 6.6, 6.15, 0, 2.96, 'concrete', { rails: false });
     bx(-99.6, 2.96, z - 1.95, -93, 3.0, z + 1.95, 'concrete'); K.deck(-96.3, z, 3.3, 1.95, 0, 3.0, { draw: false });
     K.region(x0, z - 7, -100.6, z + 7, 'dirt', 'gravel', 0.9);
@@ -448,7 +458,7 @@ export function buildMap(K) {
     for (let i = 0; i < 8; i++) {
       const bxx = x - 13 + i * 3.6; hospitalBed(K, bxx, z - d / 2 + 1.5, Math.PI / 2, i === 0);
       bx(bxx + 1.7, 2.55, z - d / 2 + 0.3, bxx + 1.74, 2.6, z - d / 2 + 2.9, 'chrome');
-      if (i % 3 === 1) bx(bxx + 1.69, 0.3, z - d / 2 + 0.3, bxx + 1.75, 2.55, z - d / 2 + 1.6, 'pWool');
+      if (i % 3 === 1) bs(bxx + 1.69, 0.3, z - d / 2 + 0.3, bxx + 1.75, 2.55, z - d / 2 + 1.6, 'pWool', 'cloth');
       if (i % 2) loot('medicine', bxx + 1.2, z - d / 2 + 0.5, 0.75, 'Bedside cabinet', 0, H);
     }
     // patient zero's bed: the cuffs are still locked to the rail
@@ -471,7 +481,7 @@ export function buildMap(K) {
     bs(x - 1.2, 0, z + 5, x + 1.2, 0.85, z + 5.8, 'pSteel', 'metal', { vault: true }); bx(x - 1.15, 0.85, z + 5.05, x + 1.15, 0.95, z + 5.75, 'pMat');
     loot('medicine', x + 3.5, z + 10.8, 1.0, 'Exam room cupboard', Math.PI, H);
     for (let i = 0; i < 4; i++) strip(K, x - 12 + i * 8, 3.58, z - 6, 0, 1.4);
-    K.light(x - 6, 3.3, z - 7, 0xd8f0ff, 5, 14);
+    lt(x - 6, 3.3, z - 7, 0xd8f0ff, 5, 14);
   }
   // ---- VOCATIONAL SHOP ----
   {
@@ -537,7 +547,7 @@ export function buildMap(K) {
     for (const bz of [z - 2, z]) { bs(x - 5, 0, bz - 0.25, x - 3, 0.45, bz + 0.25, 'pWoodDesk', 'wood', { vault: true }); }
     // ---- visiting room: a glass partition with booths (stools, phones) and a few contact tables ----
     const vx = x - 14;
-    for (let i = 0; i < 6; i++) { const bz = iz0 + 1.6 + i * 2.8; for (const sd of [-1, 1]) bx(vx + sd * 0.3, 0.95, bz - 1.38, vx + sd * 1.1, 2.3, bz - 1.32, 'paint3'); }
+    for (let i = 0; i < 6; i++) { const bz = iz0 + 1.6 + i * 2.8; for (const sd of [-1, 1]) bs(vx + sd * 0.3, 0.95, bz - 1.38, vx + sd * 1.1, 2.3, bz - 1.32, 'paint3', 'wood'); }
     const vz0 = iz0, vz1 = iz1 - 2.4, vzc = (vz0 + vz1) / 2, vh = (vz1 - vz0) / 2;   // (open at the north end: the inmates' side door)
     K.box(vx, 0, vzc, 0.3, 0.9, vh, 0, 'cabinet'); K.box(vx, 0.9, vzc, 0.32, 0.95, vh, 0, 'counter');
     K.box(vx, 0.95, vzc, 0.012, 2.3, vh, 0, f => f === 'px' || f === 'nx' ? 'glass' : null);
@@ -557,7 +567,7 @@ export function buildMap(K) {
     lockers(K, x + 9, z + d / 2 - 0.6, Math.PI, 5); loot('closet', x + 9, z + d / 2 - 1.0, 1.0, 'Staff lockers', Math.PI, HAd);
     bs(x + 15, 0, z + d / 2 - 0.9, x + 17, 2.0, z + d / 2 - 0.2, 'pCopper', 'metal');
     loot('police', x + 16, z + d / 2 - 1.2, 1.0, 'Control gun locker', Math.PI, HAd, { fixed: [['shotgun', 1], ['shells', 6]] });
-    K.light(x + 16, 3.4, z, 0xe8f0ff, 5, 14);
+    lt(x + 16, 3.4, z, 0xe8f0ff, 5, 14);
     // ---- upstairs: the warden's office (east), records (west) ----
     const ox = x + 14, oz = z;
     bx(ox - 3, UY, oz - 2, ox + 3, UY + 0.01, oz + 3, 'rug0');
@@ -565,6 +575,7 @@ export function buildMap(K) {
     bx(ox + 0.4, UY + 0.82, oz + 1.6, ox + 0.85, UY + 0.98, oz + 1.95, 'darkMetal');   // the radio set
     bx(ox - 0.6, UY + 0.82, oz + 1.5, ox - 0.1, UY + 0.84, oz + 1.9, 'white');
     bx(ox - 0.35, UY, oz + 2.8, ox + 0.35, UY + 0.55, oz + 3.4, 'black'); bx(ox - 0.35, UY + 0.55, oz + 3.3, ox + 0.35, UY + 1.3, oz + 3.45, 'black');   // the big chair
+    so(ox - 0.35, oz + 2.8, ox + 0.35, oz + 3.45, UY + 1.3, 'wood', UY);
     loot('nightstand', ox, oz + 1.6, 0.75, 'The warden\'s desk', Math.PI, HAd, { floorY: UY, fixed: fixed(['keycardGold', 1], ['pistol', 1], ['ammo9', 12]) });
     note('pruitt', ox - 0.4, oz + 1.7, UY + 0.84);
     bs(ox + 6.6, UY, oz + 7.2, ox + 7.6, UY + 1.2, oz + 8.2, 'darkMetal', 'metal');   // the safe
@@ -634,11 +645,86 @@ export function buildMap(K) {
     K.chainFence(tx - 8, tz - 8, tx + 8, tz - 8); K.chainFence(tx + 8, tz - 8, tx + 8, tz + 8); K.chainFence(tx + 8, tz + 8, tx - 8, tz + 8);
   }
 
+  // ================================================================ NIGHT LIGHTING
+  // A prison is never dark: floodlight masts over the yard, the tower searchlights, a sodium wall pack over every
+  // door, lamps along the top of the wall. All of it is emissive material + merged pools of light on the ground (a
+  // few draw calls in all); the real light comes from world.js's small fixed pool of lamp spot lights, handed to
+  // whichever of these fixtures is nearest you (K.lamp) — so it costs the same on a phone as Maple's street lamps.
+  const myLamps = [...towerLamps];
+  {
+    // ---- the yard floodlight masts: a 15 m steel pole at each corner, a bank of four lamps aimed into the yard
+    const yc = [(YARD.x0 + YARD.x1) / 2, (YARD.z0 + YARD.z1) / 2];
+    for (const [mx, mz] of [[-43, 2.5], [43, 2.5], [-43, 60.5], [43, 60.5]]) {
+      const HY = 15, a = Math.atan2(yc[0] - mx, yc[1] - mz), P = frame(mx, mz, a);
+      K.xadd(G.pipe, MAT.pBars, K.mat4(mx, 0, mz, 0, 0.17, HY + 0.6, 0.17)); K.solid(mx, mz, 0.24, 0.24, 0, HY, 'metal');
+      K.box(mx, 0, mz, 0.4, 0.5, 0.4, 0, 'concrete'); K.solid(mx, mz, 0.4, 0.4, 0, 0.5, 'concrete');
+      { const [cx2, cz2] = P(0, 0.25); K.box(cx2, HY, cz2, 1.3, HY + 0.12, 0.08, a, 'pBars'); }
+      for (const lx of [-0.95, -0.32, 0.32, 0.95]) { const [hx2, hz2] = P(lx, 0.45); K.box(hx2, HY - 0.35, hz2, 0.26, HY + 0.05, 0.2, a, f => f === 'pz' || f === 'bot' ? 'pFlood' : 'darkMetal'); }
+      const [hx, hz] = P(0, 0.6), [tx2, tz2] = P(0, 24);
+      myLamps.push(K.lamp(hx, HY - 0.2, hz, { pow: 12, dist: 75, angle: 0.7, tx: tx2, tz: tz2, col: 0xe8eeff, halo: 3.0, reach: 24 }));
+      decal(K, tx2, 0.05, tz2, 44, 44, a, 'pPoolW');
+    }
+    // ---- wall packs over the doors (x, y, z, the way the wall faces); the ones marked F are on the bad circuit
+    const packs = [
+      [-55.85, 4.3, 14.5, Math.PI / 2], [-70, 4.3, 35.15, 0], [-70, 4.3, -45.15, Math.PI, 'F'],                 // A Block: yard door, ends
+      [55.85, 4.3, 14.5, -Math.PI / 2], [70, 4.3, 35.15, 0, 'F'], [70, 4.3, -45.15, Math.PI],                   // B Block
+      [-67, 4.3, -65.85, 0], [-31, 3.1, -65.85, 0], [-13, 3.1, -65.85, 0, 'F'], [-37, 3.1, -90.15, Math.PI],     // laundry, dining (+ the kitchen's back door)
+      [26.6, 3.0, -65.85, 0, 'F'], [67, 4.8, -65.85, 0], [2.4, 3.0, -37.85, 0],                                  // infirmary, shop, segregation
+      [0, 4.4, 94.15, 0], [0, 3.2, 73.85, Math.PI], [-3.2, 2.9, 104.35, Math.PI], [3.2, 2.9, 111.65, 0],          // admin (both faces), gatehouse
+      [52.5, 2.55, 95.35, Math.PI], [8, 2.6, 68.85, 0, 'F'],                                                            // sally-port booth, yard picket
+    ];
+    for (const [px, py, pz, yaw, f] of packs) {
+      const F = f === 'F', P = frame(px, pz, yaw), [cx2, cz2] = P(0, 0.1);
+      K.box(cx2, py - 0.16, cz2, 0.17, py + 0.08, 0.1, yaw, ff => ff === 'bot' || ff === 'pz' ? (F ? 'pSodiumF' : 'pSodium') : 'darkMetal');
+      const [tx2, tz2] = P(0, 2.6), [dx2, dz2] = P(0, 2.35);
+      const L = K.lamp(cx2, py - 0.2, cz2, { pow: 0.9, dist: 15, angle: 1.0, tx: tx2, tz: tz2, col: 0xffb868 }); L.bad = F; myLamps.push(L);
+      decal(K, dx2, 0.05, dz2, 7.5, 4.7, yaw, F ? 'pPoolHF' : 'pPoolH');
+    }
+    // ---- lamps along the top of the perimeter wall, shining down onto the patrol road inside
+    let n = 0;
+    for (const [x0, z0, x1, z1, yaw] of [[-88, -99.6, 88, -99.6, 0], [-88, 99.6, 88, 99.6, Math.PI], [-99.6, -76, -99.6, 88, Math.PI / 2], [99.6, -88, 99.6, 88, -Math.PI / 2]]) {
+      const L = Math.hypot(x1 - x0, z1 - z0), k = Math.round(L / 22);
+      for (let i = 0; i <= k; i++) {
+        const t = i / k, px = x0 + (x1 - x0) * t, pz = z0 + (z1 - z0) * t;
+        if (Math.abs(px - 44) < 8 && pz > 90) continue;   // (not over the sally port's gates)
+        const F = n++ % 4 === 1, P = frame(px, pz, yaw), [cx2, cz2] = P(0, 0.12);
+        K.box(cx2, 5.5, cz2, 0.15, 5.72, 0.14, yaw, ff => ff === 'bot' ? (F ? 'pSodiumF' : 'pSodium') : 'darkMetal');
+        const [tx2, tz2] = P(0, 3.2), [dx2, dz2] = P(0, 3.4);
+        const LL = K.lamp(cx2, 5.45, cz2, { pow: 1.6, dist: 20, angle: 0.95, tx: tx2, tz: tz2, col: 0xffb868 }); LL.bad = F; myLamps.push(LL);
+        decal(K, dx2, 0.05, dz2, 10, 6.8, yaw, F ? 'pPoolHF' : 'pPoolH');
+      }
+    }
+  }
+  // dusk to dawn they're on (the street lamps' own photocell rule: world.daylight < 0.45). After the alarm the
+  // power goes bad: every so often the whole grid browns out for a moment (the generator catching), and the fixtures
+  // on the bad circuit stutter like a dying tube — the cell-block lights too.
+  {
+    let ph = 0, phF = 0, tOut = -1;
+    const flick = p => (Math.sin(p) > -0.3 || Math.sin(p * 0.37) > 0.8) ? 1 : 0.06;
+    W.anims.push((dt, t) => {
+      const night = W.daylight < 0.45, out = !!(outbreakIt && outbreakIt.shown);
+      if (out && tOut < 0) tOut = t;
+      let f = 1, fb = 1;
+      if (out) {
+        const c = (t - tOut) % 26;
+        f = c < 0.7 ? (Math.sin(t * 41) > 0.2 ? 0.12 : 0.65) : c > 13 && c < 13.18 ? 0.08 : 0.94 + 0.06 * Math.sin(t * 7.3);
+        ph += dt * 13; phF += dt * 9.7; fb = f * flick(ph) * (Math.sin(phF * 0.21) > -0.6 ? 1 : 0.06);
+      }
+      MAT.pFlood.emissiveIntensity = night ? 3.2 * f : 0.05;
+      MAT.pSodium.emissiveIntensity = night ? 2.4 * f : 0.05;
+      MAT.pSodiumF.emissiveIntensity = night ? 2.4 * fb : 0.05;
+      for (const [k, op, ff] of [['pPoolW', 0.26, f], ['pPoolS', 0.3, f], ['pPoolH', 0.34, f], ['pPoolHF', 0.34, fb]]) { const m = MAT[k], v = night ? op * ff * (1 + (W.rain || 0) * 0.5) : 0; m.opacity = v; m.visible = v > 0.005; }
+      MAT.pLight.emissiveIntensity = 1.1 * f; MAT.pLightF.emissiveIntensity = 1.1 * (out ? fb : 1);
+      for (const L of myLamps) L.power = L.bad ? fb : f;
+      for (const l of plights) l.intensity = l.userData.base * f;
+    });
+  }
+
   // ================================================================ THE OUTBREAK (chaos: hidden on the calm morning)
   {
     const blood = (x, z, s = 1, y = 0.035) => decal(K, x, y + 0.002, z, 1.8 * s, 1.8 * s * (0.6 + R() * 0.5), R() * 6, 'pBlood');
     // the infirmary: blood everywhere, beds shoved over, a gurney in the doorway
-    K.chaos(24, -78, () => {
+    outbreakIt = K.chaos(24, -78, () => {
       for (let i = 0; i < 14; i++) blood(10 + R() * 28, -89 + R() * 20, 0.6 + R() * 0.8);
       bx(23, 0.52, -65.7, 25.2, 0.6, -64.9, 'pSteel'); bx(23.05, 0.6, -65.65, 25.15, 0.72, -64.95, 'white'); for (const [lx, lz] of [[23.1, -65.6], [25.1, -65.6], [23.1, -65.0], [25.1, -65.0]]) { K.xadd(G.pipe, MAT.chrome, K.mat4(lx, 0.08, lz, 0, 0.025, 0.45, 0.025)); K.xadd(G.disc, MAT.rubber, K.mat4(lx, 0.04, lz, 0, 0.04, 0.04, 0.04)); }
       K.solid(24.1, -65.3, 1.1, 0.4, 0, 0.72, 'metal', 0, { vault: true });   // the gurney: legs, castors, a stained mattress

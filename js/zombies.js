@@ -12,7 +12,8 @@ import { C, emit } from './state.js';
 import { tier } from './tex.js';
 import { Soldier, zombieKind, clamp, lerp, wrapPi, damp, dampAngle, aimBone, addTurn } from './soldier.js';
 import { refreshHitShapes } from './combat.js';
-import { styleFemale, hairDead } from './hair.js';
+import { hairDead } from './hair.js';
+import { applyLook, lookFor, lkOf, kindName } from './looks.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -31,6 +32,7 @@ function zombify(src, slot, variant, mouthY = 1.57, amt = null) {
   const key = src.uuid + ':' + variant + ':' + slot;
   if (!amt && ZMATS.has(key)) return ZMATS.get(key);
   const m = src.clone();
+  const LK = lkOf(src);   // a look's dye (looks.js): the dead wear the same clothes and skin, dyed the same way first
   m.metalness = 0; m.metalnessMap = null;
   const v = variant;
   m.roughness = slot === 'skin' ? 0.62 : slot === 'eye' ? 0.15 : slot === 'mixed' ? 0.8 : 0.95;
@@ -42,11 +44,12 @@ function zombify(src, slot, variant, mouthY = 1.57, amt = null) {
   };
   m.userData.zU = U;
   m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, U);
+    Object.assign(sh.uniforms, U); if (LK) Object.assign(sh.uniforms, LK.U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vBind;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBind = position;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
+${LK ? LK.decl : ''}
         uniform float zSlot, zSeed, zHue, zDirt, zBlood, zPale, zDry, zMouthY, zAmt; uniform vec3 zTint; varying vec3 vBind;
         float zh(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
         float zn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -60,7 +63,7 @@ function zombify(src, slot, variant, mouthY = 1.57, amt = null) {
       .replace('#include <map_fragment>', `
         #ifdef USE_MAP
           vec4 texel = texture2D(map, vMapUv);
-          vec3 c = texel.rgb;
+          vec3 c = ${LK ? 'lkDye(texel.rgb, vMapUv)' : 'texel.rgb'};
         #else
           vec3 c = diffuseColor.rgb;
           vec4 texel = vec4(1.0);
@@ -123,7 +126,7 @@ function zombify(src, slot, variant, mouthY = 1.57, amt = null) {
         roughnessFactor = mix(roughnessFactor, 0.32, blood * 0.8 * (1.0 - zDry * 0.7) * zAmt);   // fresh blood is wet
         roughnessFactor = mix(roughnessFactor, 0.9, hairW * zAmt);`);
   };
-  m.customProgramCacheKey = () => 'zombie-v3';
+  m.customProgramCacheKey = () => 'zombie-v3' + (LK ? LK.key : '');
   m.needsUpdate = true;
   if (!amt) ZMATS.set(key, m);
   return m;
@@ -148,12 +151,12 @@ const tm = new THREE.Matrix4();
 // amt: see zombify — a body that's still turning gets its own materials so the change can creep over it
 export function dressZombie(s, variant, amt = null) {
   s.root.traverse(o => {
-    if (!o.isMesh || !o.material || o.userData.zDressed === variant && !amt) return;
+    if (!o.isMesh || !o.material || o.userData.zDressed === variant && !amt || o.userData.lkKeep) return;
     // her hair (hair.js): its own dead version — matted, dull, filthy — never zombify()'s (that would lose the strands)
     if (o.userData.hair) { if (amt) o.material = hairDead(o, amt); else if (o.userData.zDressed !== -1) o.material = hairDead(o); o.userData.zDressed = variant; return; }
-    const slot = slotOf(o), nm = (o.name + o.material.name).toLowerCase();
-    // every one of them different: caps on some, the beard or hair gone on others
-    if (!s.keepLook) {
+    const slot = o.userData.lkSlot || slotOf(o), nm = (o.name + o.material.name).toLowerCase();
+    // every one of them different: caps on some, the beard or hair gone on others (a look from looks.js already is)
+    if (!s.keepLook && !s.lookL) {
       if (nm.includes('headwear')) o.visible = Math.random() < 0.3;
       else if (nm.includes('beard')) o.visible = Math.random() < 0.7;
       else if (nm.includes('hair')) o.visible = Math.random() < 0.9;
@@ -209,7 +212,8 @@ export function makeZombie(kind, scene, variant, onStep) {
   void variant; variant = (MADE + Math.floor(MADE / 4)) % ZLOOKS; MADE++;
   // a woman: her own skin tone, clothes and hair (hair.js) — then made dead like the rest (only once the lead has
   // taken Michelle's buns/headphones/glasses off with cleanFemale, else she'd get hair on top of the buns)
-  if (s.isFemale || s.kind.root.userData.female) styleFemale(s, MADE * 7 + variant, { zombie: true });
+  // everyone their own look (looks.js), the same rules as the living: nobody's twin (then made dead below)
+  applyLook(s, lookFor('z' + MADE, kindName(kind.root)), { zombie: true });
   dressZombie(s, variant);
   const u = { s, team: 1, hp: 100, maxHp: 100, alive: false, active: false, zombie: true, name: 'ZOMBIE', id: NEXT++, kills: 0, deaths: 0, hurtT: 99, deadT: 0, variant };
   s.setVisible(false);
@@ -245,7 +249,7 @@ export function wake(u, x, z, opts = {}) {
   // a thick chest, heavy arms and thighs — never by stretching the whole body (that shears the limbs)
   const sc = rnd(0.9, 1.08);
   if (u.big) { u.s.root.scale.setScalar(sc * 1.14); u.sizeK = sc * 1.14 * 1.05; }   // (bulk: a broader chest and limbs)
-  else { if (!(opts.keepScale || u.turned)) u.s.root.scale.setScalar(sc); u.sizeK = u.s.root.scale.x; }
+  else { if (!(opts.keepScale || u.turned)) u.s.root.scale.setScalar(u.s.lookL ? u.s.lookL.zs : sc); u.sizeK = u.s.root.scale.x; }
   bulk(u.s, u.big);
   if (u.big) { u.maxHp = u.hp = (opts.hp || rnd(240, 300)) * u.bigK; }
   if (D.allRun) opts.runner = true;

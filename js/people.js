@@ -12,6 +12,7 @@ import { slotOf, adoptZombie, wake, Z, vestOn, dressZombie, startTurning, turnAm
 import { Melee, MELEE } from './melee.js';
 import { refreshHitShapes } from './combat.js';
 import * as HELI from './heli.js';
+import * as LOOKS from './looks.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -20,96 +21,19 @@ export const PPL = { list: [], cast: {}, phase: 'calm' };
 let X = null;   // what main.js hands us: { scene, world, KINDS, SWINGS, onStep, damage, noise, SND, P, G, camera }
 
 // ---------------------------------------------------------------- what they wear
-// Real clothes come in real colours: the fabric in each texture is re-dyed in the shader (its folds and seams kept), the
-// skin, hair, faces, logos and shoes left alone. Tops and bottoms are picked separately, so the same body is never the same person.
-const TOPS = [0x2c3e64, 0x6a2430, 0x55603a, 0xd6d2c6, 0x6e6e6e, 0x8a5a30, 0x2f6a78, 0xa8884e, 0x46344e, 0x9a3a2a, 0x1e1e22, 0x4f7a4a];
-const BOTTOMS = [0x34496e, 0x232323, 0x8a7a55, 0x55603a, 0x4a3a2a, 0x6c6c6c, 0x2a2f45, 0x6a5a48, 0x3e4a5e, 0x5a2a2a];
-const HAIR = [0x5a4030, 0x2a2018, 0xb89060, 0x8a8a88, 0x6a3020, 0x181410];
-// mode 0: Michelle's one-piece atlas (the yellow trousers by colour; the black top by colour AND by where it sits on the body)
-// mode 1: a Ready Player Me outfit piece (all of it is fabric; whites and light trims like shirt collars survive)
-// The dye goes into the texture itself, so when one of them turns, the dead body still wears the same clothes.
-const DYED = new Map(), imgId = new WeakMap(); let imgN = 0;
-function dye(src, mode, colA, colB, geo = null) {
-  const map = src.map; if (!map || !map.image || !map.image.width) return src;
-  const im = map.image; if (!imgId.has(im)) imgId.set(im, ++imgN);
-  const key = imgId.get(im) + ':' + mode + ':' + colA + ':' + colB;
-  let tex = DYED.get(key);
-  if (!tex) {
-    const sz = Math.min(im.width, 512), cv = document.createElement('canvas'); cv.width = cv.height = sz;
-    const g2 = cv.getContext('2d', { willReadFrequently: true }); g2.drawImage(im, 0, 0, sz, sz);
-    const D = g2.getImageData(0, 0, sz, sz), d = D.data;
-    // where the torso is in the texture: fill the UV triangles that sit between the waist and the shoulders
-    let mask = null;
-    if (mode === 0 && geo) {
-      const mc = document.createElement('canvas'); mc.width = mc.height = sz; const mg = mc.getContext('2d'); mg.fillStyle = '#fff';
-      geo.computeBoundingBox(); const y0 = geo.boundingBox.min.y, yh = geo.boundingBox.max.y - y0;
-      const pa = geo.attributes.position, ua = geo.attributes.uv, ix = geo.index, nt = ix ? ix.count / 3 : pa.count / 3;
-      for (let t = 0; t < nt; t++) {
-        const i0 = ix ? ix.getX(t * 3) : t * 3, i1 = ix ? ix.getX(t * 3 + 1) : t * 3 + 1, i2 = ix ? ix.getX(t * 3 + 2) : t * 3 + 2;
-        const yb = ((pa.getY(i0) + pa.getY(i1) + pa.getY(i2)) / 3 - y0) / yh;
-        if (yb < 0.5 || yb > 0.85) continue;
-        mg.beginPath(); mg.moveTo(ua.getX(i0) * sz, ua.getY(i0) * sz); mg.lineTo(ua.getX(i1) * sz, ua.getY(i1) * sz); mg.lineTo(ua.getX(i2) * sz, ua.getY(i2) * sz); mg.closePath(); mg.fill();
-      }
-      mask = mg.getImageData(0, 0, sz, sz).data;
-    }
-    const A = new THREE.Color(colA), Bc = new THREE.Color(colB);   // hex in sRGB: work in the texture's own (sRGB) bytes
-    const ar = A.getHex() >> 16 & 255, ag = A.getHex() >> 8 & 255, ab = A.getHex() & 255, br = Bc.getHex() >> 16 & 255, bg = Bc.getHex() >> 8 & 255, bb2 = Bc.getHex() & 255;
-    const sm = (e0, e1, x) => { const k = clamp((x - e0) / (e1 - e0), 0, 1); return k * k * (3 - 2 * k); };
-    for (let p = 0; p < d.length; p += 4) {
-      const r = d[p], g = d[p + 1], b = d[p + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b), dl = mx - mn, sat = mx ? dl / mx : 0;
-      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      let hue = 0; if (dl > 0) { hue = mx === r ? ((g - b) / dl + 6) % 6 : mx === g ? (b - r) / dl + 2 : (r - g) / dl + 4; hue /= 6; }
-      if (mode === 0) {
-        if (sat > 0.45 && hue > 0.1 && hue < 0.2 && mx > 110) { const k = clamp(lum / 185, 0.3, 1.25); d[p] = ar * k; d[p + 1] = ag * k; d[p + 2] = ab * k; }
-        else if (mask && mask[p + 3] > 128 && lum < 62 && sat < 0.6) { const k = clamp(lum / 30, 0.5, 1.6), w = sm(62, 38, lum); d[p] = lerp(r, br * k, w); d[p + 1] = lerp(g, bg * k, w); d[p + 2] = lerp(b, bb2 * k, w); }
-      } else {
-        const k = 0.5 + 0.5 * clamp(lum / 80, 0, 1.9), keep = sm(150, 205, lum) * (1 - sat), w = 0.85 * (1 - keep);
-        d[p] = lerp(r, ar * k, w); d[p + 1] = lerp(g, ag * k, w); d[p + 2] = lerp(b, ab * k, w);
-      }
-    }
-    g2.putImageData(D, 0, 0);
-    tex = new THREE.CanvasTexture(cv); tex.colorSpace = map.colorSpace; tex.flipY = map.flipY; tex.wrapS = map.wrapS; tex.wrapT = map.wrapT; tex.anisotropy = map.anisotropy;
-    DYED.set(key, tex);
-  }
-  const m = src.clone(); m.map = tex; return m;
-}
-function dress(s, seed, body) {
-  const saved = [], top = TOPS[(seed * 7 + 3) % TOPS.length], bot = BOTTOMS[(seed * 5 + 1) % BOTTOMS.length];
-  s.root.traverse(o => {
-    if (!o.isMesh || !o.material) return;
-    if (body === 'michelle') {
-      o.userData.mat0 = o.material; o.material = dye(o.material, 0, bot, top, o.geometry);
-    } else {
-      const slot = slotOf(o), nm = (o.name + o.material.name).toLowerCase();
-      if (nm.includes('headwear')) { o.visible = seed % 3 === 0; o.userData.hat = true; }
-      if (slot === 'hair') { const m = o.material.clone(); m.color.lerp(new THREE.Color(HAIR[seed % HAIR.length]), 0.55); o.material = m; }
-      else if (slot === 'cloth' && !nm.includes('footwear')) { o.userData.mat0 = o.material; o.userData.bottom = nm.includes('bottom'); o.material = dye(o.material, 1, nm.includes('bottom') ? bot : top, top); }
-    }
-    saved.push([o, o.material, o.visible]);   // what they wear today (restore() puts it back after the dead are done with the body)
-  });
-  // a hairstyle of her own (hair.js, when it's there)
-  // (her skin tone goes into the texture we just dyed; we dye the clothes ourselves, so clothes: false)
-  if (body === 'michelle' && HAIRS && HAIRS.styleFemale) {
-    try { HAIRS.styleFemale(s, seed, { clothes: false }); for (const e of saved) e[1] = e[0].material; } catch (e) { console.warn('hair', e); }
-  }
-  return saved;
-}
+// looks.js: everyone's own skin, hair, clothes (re-dyed in the shader from the body's own texture), glasses, hats and
+// beards, and no two alike. The dye lives in their own copy of the materials, so when one of them turns, the dead body
+// still wears the same clothes.
 
 // a paramedic's uniform: navy trousers, a pale blue-white shirt (dyed from the same undyed cloth, so folds and seams stay)
 const MED_TOP = 0xdce6ef, MED_BOT = 0x1b2744;
 const BEN_TOP = 0x2f4f6f, BEN_BOT = 0x2a3550;   // Ben: the same slate-blue hoodie and dark jeans every time, so you know him from across the street
 function uniformOn(u, TOP = MED_TOP, BOT = MED_BOT) {
-  for (const [o] of u.look) {
-    const m0 = o.userData.mat0;
-    if (o.userData.hat) o.visible = false;
-    if (!m0) continue;
-    const tone = u.s.look && u.s.look.tone;   // her own skin (hair.js) kept under the uniform
-    if (u.body === 'michelle' && tone && HAIRS && HAIRS.toneMaterial && o.isSkinnedMesh) { try { o.material = HAIRS.toneMaterial(m0, tone, [TOP, BOT], o.geometry, o.skeleton); continue; } catch (e) { /* fall through to the plain dye */ } }
-    o.material = u.body === 'michelle' ? dye(m0, 0, BOT, TOP, o.geometry) : dye(m0, 1, o.userData.bottom ? BOT : TOP, TOP);
-  }
+  // (looks.js: the same per-person materials, the dye's colours swapped; restore() swaps them back)
+  for (const [o] of u.look) if (o.name === 'LookHeadwear') o.visible = false;
+  LOOKS.outfit(u.s, TOP, BOT);
   u.uniform = true;
 }
-let HAIRS = null;   // js/hair.js (another engineer's): styleFemale(soldier, seed). Loaded if it's there; nobody breaks if it isn't.
 
 const pend = [];
 // ---------------------------------------------------------------- making them (once, while loading)
@@ -117,7 +41,6 @@ const pend = [];
 const BODIES = ['coach', 'butler', 'human', 'michelle', 'michelle', 'coach', 'butler', 'michelle', 'michelle', 'butler', 'michelle', 'michelle', 'coach', 'michelle', 'human', 'michelle', 'butler', 'michelle', 'coach'];
 export async function makePeople(ctx, n = 19, tick = null) {
   X = ctx;
-  if (!HAIRS) HAIRS = await import('./hair.js').catch(() => null);
   for (let i = 0; i < n; i++) {
     makeOne(i);
     if (tick && i % 4 === 3) await tick();
@@ -130,10 +53,11 @@ function makeOne(i, body = BODIES[i % BODIES.length]) {
   const kind = X.KINDS[body] || X.KINDS.human;
   const s = new Soldier(kind, X.scene, { clone: true, onStep: X.onStep });
   s.update(1 / 60, {});
-  const look = dress(s, i * 5 + 3, body);
+  // a look of their own (looks.js): skin, hair, clothes, glasses, hats, beards — nobody in town anybody else's twin
+  const L = LOOKS.lookFor('p' + i, body), look = LOOKS.applyLook(s, L);
   s.setVisible(false);
   // nobody is quite the same size: a little taller or shorter, a little broader or slighter
-  const hk = rnd(0.95, 1.05), bk = hk * rnd(0.97, 1.06), scl = V(bk, hk, bk * rnd(0.98, 1.04));
+  const hk = L.h, bk = L.w, scl = V(bk, hk, bk * L.d);
   s.root.scale.copy(scl);
   // team 3: not the player's side, so a stray shot or a blast of yours really hurts them (and they react to it)
   const u = { s, npc: true, team: 3, scl, sizeK: (hk + bk) / 2, id: 9000 + i, i, body, kind0: kind, look, hp: 100, maxHp: 100, alive: false, active: false, hidden: true, kills: 0, deaths: 0, name: '', role: 'walker', st: 'off', doorsOpen: [] };
@@ -158,6 +82,7 @@ function restore(u) {
     u.s.zTurn = null; u.s.keepLook = false; u.s.spasm = 0;
   }
   if (u.uniform) { if (!u.zu) for (const [o, m, v] of u.look) { o.material = m; o.visible = v; } u.uniform = false; }
+  LOOKS.outfit(u.s);   // their own clothes' colours back (after a paramedic's uniform or Ben's hoodie)
   if (u.bag) { if (u.bag.parent) u.bag.parent.remove(u.bag); u.bag = null; }
   if (u.mel) { u.mel.hideAll(); }
   u.s.dead = false; u.s.resetActs(); u.s.lookAt = null; u.s.fly = null; u.s.animLod = false;

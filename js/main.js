@@ -35,6 +35,10 @@ import STATS from './stats.js';
 import { MAPS, validMap, loadStory, normalizeStory } from './maps/index.js';
 import { DEV, PROFILE as MOB, capTextures, makeGovernor, guardContext } from './mobile.js';   // phones / tablets: MOB is null on desktop
 import { initTouch, touchStep, touchWords, ic as touchIcon } from './touch.js';
+import * as MP from './mp.js';   // MP: online multiplayer (mp.js + net.js + p2p.js + chat.js + voice.js); every MP.* hook is a no-op in single player
+import * as LOOKS from './looks.js';   // [looks] everyone their own look, you included
+import * as SHOP from './shop.js';   // [zLux] money + a store on every map (shop.js, money.js)
+import { whoInfoHTML, WHO_INFO_CSS } from './whoinfo.js';   // [who] the file on the person you pick
 // line icons into the static markup
 for (const e of document.querySelectorAll('[data-ic]')) e.outerHTML = icon(e.dataset.ic);
 
@@ -244,6 +248,7 @@ async function load() {
   }
   SWINGS = analyseSwings(KINDS.human); Z.swings = SWINGS;
   $('loadtext').textContent = 'building ' + MAPS[MAP_ID].name; await tick();
+  world.KINDS = KINDS;   // [stadium] the map builders can pose the real character models (the stadium's fans and players)
   MAPINFO = await world.buildAsync(MAP_ID); C.mapInfo = MAPINFO;
   if (world.mapId !== MAP_ID) MAP_ID = world.mapId || 'maple';
   // (Chrome sometimes cancels this dynamic import right after the heavy world build — net::ERR_ABORTED — and caches the
@@ -252,6 +257,7 @@ async function load() {
   C.story = STORY;
   if (!MAPLE()) placeMapNotes();
   if (world.lockGates) world.lockGates();
+  SHOP.init({ scene, world, camera, G, keys, KINDS, PEOPLE, SND, P: () => P, MAP_ID: () => MAP_ID, toast, think, addItem, startSearch, showScreen, closeBag, equipGun, startThrow, later, fillTank });   // [zLux] the store, its keeper, the HUD wallet
   initHeli();
   DRIVE.initDrive({ scene, world, SND, fx, camera, damage, noise, Z, C, getP: () => P, hasKeys: () => (G.inv && G.inv.keys || 0) > 0, PEOPLE });
   LANTERN.initLanterns({ scene, world, noise, SND, getP: () => P });
@@ -310,7 +316,7 @@ function onStep(s, e) {
   SND.step({ ...e, pan: mine ? e.side * 0.12 : 0, pos: mine ? null : V().set(s.pos.x, 0.1, s.pos.z), surface, mine, zombie: !!s.isZombie, heavy: mine ? 1 : (s.isZombie && s.big ? 1.0 : 0.75) });
   if (mine) noise(s.pos, e.crouch > 0.5 ? 1.5 : e.run > 0.5 ? 13 : 5);
 }
-function noise(p, loud) { C.noises.push({ x: p.x, z: p.z, t: G.t, loud: loud * (1 - (world.rain || 0) * 0.35) }); }   // rain covers you a little
+function noise(p, loud) { C.noises.push({ x: p.x, z: p.z, t: G.t, loud: loud * (1 - (world.rain || 0) * 0.35) }); MP.noise(p, loud); }   // rain covers you a little (MP: a client's loud ones go to the host's dead)
 
 // ---------------------------------------------------------------- the backpack
 const NEW_INV = () => ({ water: 1, bar: 1, bandage: 1 });
@@ -364,7 +370,7 @@ function useItem(id) {
   }
   if (id === 'lantern') { if (!LANTERN.carrying()) LANTERN.carry(true); const S = P.s, a = S.yaw; LANTERN.place(S.pos.x + Math.sin(a) * 0.6, S.pos.z + Math.cos(a) * 0.6, a); G.inv.lantern--; toast('Lantern set down', 'grey'); return true; }
   if (id === 'battery') { G.inv[id]--; const lanternLow = G.inv.lantern > 0 && LANTERN.charge() < 100, torchLow = G.inv.flashlight > 0 && G.battery < 100; if ((lanternLow && (!torchLow || LANTERN.carrying() || LANTERN.charge() < G.battery)) || (!(G.inv.flashlight > 0) && G.inv.lantern > 0)) { LANTERN.recharge(); toast('Fresh batteries in the lantern', 'grey'); return true; } G.battery = 100; batteryAnim(); toast('Fresh batteries in the flashlight', 'grey'); return true; }
-  return false;
+  return SHOP.useMore(id);   // [zLux] everything else in the pack does something too
 }
 function quickHeal() {
   for (const id of G.bleed > 0 ? ['bandage', 'medkit'] : ['medkit', 'bandage', 'pills']) if (G.inv[id] > 0) { useItem(id); return; }
@@ -458,7 +464,7 @@ function updateThrows(dt) {
 
 // ---------------------------------------------------------------- input
 addEventListener('keydown', e => {
-  if (e.metaKey) return;
+  if (e.metaKey || MP.typing()) return;   // MP: typing in the chat / lobby
   if (G.state === 'note') { if (['KeyE', 'Space', 'Escape', 'Enter', 'Tab'].includes(e.code)) { closeNote(); e.preventDefault(); } return; }
   if (G.state === 'intro') return;
   if (G.state === 'news') { if (['Space', 'Enter', 'Escape'].includes(e.code) && G.news && G.news.t > 1) endNews(true); e.preventDefault(); return; }
@@ -557,10 +563,12 @@ C.events.playerHurt = (dmg, info, by) => {
   C.shake = Math.max(C.shake, Math.min(0.55, dmg / 45));
   if (G.search) cancelSearch();
 };
-C.events.hurt = (v, dmg, by, info) => { if (v.zombie) { zombieHurt(v, dmg, by, info); if (Math.random() < 0.6) SND.zombie('hurt', v.s.pos, zp(v)); } };
+C.events.hurt = (v, dmg, by, info) => { MP.hitLanded(v, dmg, by, info, false); if (v.zombie) { zombieHurt(v, dmg, by, info); if (Math.random() < 0.6) SND.zombie('hurt', v.s.pos, zp(v)); } };
 C.events.kill = (v, by, info) => {
   if (v === P) return playerDied(info);
+  if (v.remote) return MP.hitLanded(v, 0, by, info, true);   // MP: you knocked a friend down (friendly fire)
   if (!v.zombie) return;
+  MP.hitLanded(v, 0, by, info, true);   // MP: a client's kill on one of the host's dead
   SND.zombie('die', v.s.pos, zp(v), v.s.deathRate || 1.075);
   v.deadT = 0; v.z.down = 0;
   if (by === P) { G.stats.kills++; save.kills++; if (info.part === 'head') G.stats.heads++; STATS.event('kill', { info }); }
@@ -602,8 +610,9 @@ C.events.zombieAlert = u => SND.zombie('groan', u.s.pos, zp(u));
 C.events.zombieGroan = (u, chasing) => SND.zombie(chasing ? (Math.random() < 0.5 ? 'growl' : 'groan') : Math.random() < 0.5 ? 'moan' : 'groan', u.s.pos, zp(u));
 C.events.zombieGrowl = u => SND.zombie('growl', u.s.pos, zp(u));
 C.events.zombieClaw = u => {
-  if (!P.alive || C.godMode) return;
   const dmg = rnd(6, 11) * DIFF.dmg * (u.big ? 1.7 * u.bigK : 1);
+  if (MP.clawRemote(u, dmg)) return;   // MP: the host's zombie clawed a friend
+  if (!P.alive || C.godMode) return;
   damage(P, dmg, u, { claw: true });
   if (Math.random() < 0.35) { if (G.bleed <= 0) toast('You\'re bleeding — bandage it (Q)', 'bad'); G.bleed = Math.max(G.bleed, 1); }
   fx.blood(P.chest || P.s.pos, V(Math.sin(u.s.yaw), 0, Math.cos(u.s.yaw)), 0.6);
@@ -611,6 +620,7 @@ C.events.zombieClaw = u => {
 // each zombie's own voice: women higher, every one a little different, the big ones deep
 function zp(u) { if (!u) return 1; return (u.big ? 0.72 : (u.s && (u.s.isFemale || (u.s.kind && u.s.kind.root && u.s.kind.root.userData.female)) ? 1.18 : 0.94)) + (((u.id || 0) * 29) % 9) * 0.012; }
 C.events.zombieGrab = u => {
+  if (MP.clawRemote(u, rnd(12, 18) * DIFF.dmg * (u.big ? 1.5 : 1), true)) return;   // MP: grabbed a friend: a bite on their side
   if (!P.alive || G.grabbedBy || G.vaulting || C.godMode) return;
   G.grabbedBy = u; G.grabT = 0; G.struggle = 0; tip('grab'); STATS.event('grabbed'); G.biteAt = rnd(1.9, 2.6) * (G.stam < 25 ? 0.8 : 1);
   u.z.hold = true;   // it takes hold of your shoulders (zombies.js zombiePose reaches both hands to you)
@@ -786,7 +796,7 @@ function playerStep(dt) {
     G.inv[W.ammo] = am.res;
     A.pose(dt, {});
     if (fired) {
-      fire(P, G.aimPoint);
+      fire(P, G.aimPoint); MP.shot(P, A.cur);   // MP: the others hear it
       const k = A.W.recoil * (aim ? 0.5 : 0.8);
       G.recoilP = (G.recoilP || 0) + k * 0.35; G.recoilY = (G.recoilY || 0) + (Math.random() - 0.5) * k * 0.25;
       G.stats.shots++; STATS.event('shot'); tut('attack');
@@ -813,7 +823,7 @@ function meleeLand(aimYaw) {
   // measured against the zombie's real body (its hit spheres), from your shoulder, in the direction you swing
   const sh = V(S.pos.x, 1.3 - S.crouchW * 0.35, S.pos.z), to = V();
   const downOf = u => u.npc ? (u.st === 'ko' ? 1 : 0) : u.z.down;
-  for (const u of [...Z.list, ...(C.npcs || [])]) {
+  for (const u of [...Z.list, ...(C.npcs || []), ...MP.proxies()]) {   // MP: friends too (friendly fire)
     if (!u.alive || u.gone || (u.npc && (u.hidden || u.boarded))) continue;
     if (Math.hypot(u.s.pos.x - S.pos.x, u.s.pos.z - S.pos.z) > reach + 1.5) continue;
     if (u.npc && (!u.sph || u.sphT !== C.t)) refreshHitShapes(u);   // the townspeople: their real body, too
@@ -843,7 +853,7 @@ function meleeLand(aimYaw) {
   }
   if (push) {
     SND.shove();
-    for (const [u] of hits.slice(0, n)) { const dir = V(u.s.pos.x - S.pos.x, 0, u.s.pos.z - S.pos.z).normalize(); if (downOf(u) > 0) continue; if (u.npc) { PEOPLE.shoveNPC(u, dir, P); continue; } if (Math.random() < 0.38) knockDown(u, dir); else zombieHurt(u, 0, P, { knock: 0.75, dir }); u.z.atkT = Math.max(u.z.atkT, 1.2); }
+    for (const [u] of hits.slice(0, n)) { const dir = V(u.s.pos.x - S.pos.x, 0, u.s.pos.z - S.pos.z).normalize(); if (downOf(u) > 0) continue; if (u.remote) { damage(u, 3, P, { dir, knock: 1, melee: true, push: true }); continue; } if (u.npc) { PEOPLE.shoveNPC(u, dir, P); continue; } if (Math.random() < 0.38) knockDown(u, dir); else zombieHurt(u, 0, P, { knock: 0.75, dir }); u.z.atkT = Math.max(u.z.atkT, 1.2); }
     C.shake = Math.max(C.shake, 0.12); noise(S.pos, 6);
     return;
   }
@@ -879,6 +889,8 @@ function context() {
   if (!P.alive || G.search) return null;
   const S = P.s, px = S.pos.x, pz = S.pos.z;
   let best = null, bd = 1e9;
+  { const sh = SHOP.context(px, pz, S.yaw); if (sh) return sh; }
+  { const mc = MP.context(px, pz); if (mc) return mc; }   // MP: help a friend up, bandage them, give them supplies, ride in their car   // [zLux] the shop counter, the vending machine, money on the floor
   // containers in front of you
   { const Ln = LANTERN.nearest(px, pz, 1.3); if (Ln) return { label: 'Pick up the lantern', sub: `${Math.round(Ln.charge)}% battery`, go: () => { LANTERN.pickUp(Ln); G.inv.lantern = (G.inv.lantern || 0) + 1; SND.mech && SND.mech('switch'); } }; }
   { const dv = DRIVE.canUse(px, pz, P); if (dv) return dv.locked ? { label: dv.label, sub: dv.sub, go: () => { dv.go(); think('Locked. No keys in this one.', 2.5); } } : { ...dv, go: () => { const was = DRIVE.active(); dv.go(); const v = DRIVE.current(); if (!was && DRIVE.active() && v) STATS.event('drive', { kind: v.kind }); } }; }
@@ -970,6 +982,7 @@ function updateSearch(dt) {
   if (c.radio && !MAPLE() && G.phase === 'outbreak' && !G.radioDone) later(playMapRadio, 0.6);
   if (c.paper) c.paper.visible = false; STATS.event('search', { kind: c.kind }); tut('search');
   let loot = c.fixed ? [...c.fixed, ...rollLoot(c.kind).filter(x => x[0] !== c.fixed[0][0])] : rollLoot(c.kind);
+  loot = SHOP.cashLoot(c, loot);   // [zLux] money in tills, drawers, wallets on bodies
   if (c.note) later(() => showNote(c.note), loot.length ? 0.9 : 0.2);
   if (!loot.length) { P.s.stopAct(0.3); if (!c.note) toast(c.kind === 'corpse' ? 'Nothing on the body' : pick(['Nothing useful', 'Empty', 'Already picked clean']), 'grey'); return; }
   // it's yours now (the story moves on at once); your hand takes each thing out and puts it in the pack
@@ -1271,7 +1284,7 @@ function useDoor(D, open) {
   G.doorUse = { t: 0, snap: ok, x0: S.pos.x, z0: S.pos.z, x1: st.x, z1: st.z, face: Math.atan2(hp.x - (ok ? st.x : S.pos.x), hp.z - (ok ? st.z : S.pos.z)) };
   const side = freeHand(); if (open) tut('door');
   reachHand(out => { world.doorHandle(D, P.s.pos.x, P.s.pos.z, out); const sh = P.s.B[side > 0 ? 'RightArm' : 'LeftArm'].getWorldPosition(hTmp2); if (out.distanceTo(sh) > 0.62 && G.hand && G.hand.t < G.hand.inT + G.hand.hold) G.hand.t = G.hand.inT + G.hand.hold; return true; }, { side, inT: ok ? 0.3 : 0.22, hold: 0.3, out: 0.25, curl: 0.9 });
-  later(() => { world.setDoor(D, open); SND.door(open ? 'open' : 'close', V(D.x, 1, D.z)); noise(V(D.x, 0, D.z), open ? 6 : 8); }, ok ? 0.3 : 0.22);
+  later(() => { world.setDoor(D, open); MP.door(D, open); SND.door(open ? 'open' : 'close', V(D.x, 1, D.z)); noise(V(D.x, 0, D.z), open ? 6 : 8); }, ok ? 0.3 : 0.22);
 }
 // a cupboard door, a drawer, a lid: your hand goes to its knob and rides it open
 const kBox = new THREE.Box3();
@@ -1334,7 +1347,7 @@ function pickJob(c, T, side, box, first) {
       if (model) HANDS.hold(side, model, { from });
     } else {
       SND.touch(c.kind === 'corpse' ? 'body' : ITEMS[T.id].cat === 'melee' || ITEMS[T.id].cat === 'gun' ? 'misc' : 'hand', grabP.clone());
-      if (!now && !keep) HANDS.hold(side, itemModel(T.id), { grow: true });
+      if (!now && !keep) HANDS.hold(side, SHOP.handModel(T.id) || itemModel(T.id), { grow: true });   // [zLux] bills in your hand
     }
     for (const m of T.more) world.moveItem(m, 'take');
     if (keep) { MEL.set(T.id); SND.mech('switch'); }
@@ -1432,7 +1445,7 @@ function clearLitter() { for (const L of litter) L.m.removeFromParent(); litter.
 // how full the pack is (what's actually arrived in it)
 function packFill() {
   let n = 0;
-  for (const id in G.inv) { const I = ITEMS[id], k = (G.inv[id] || 0) - (G.transit.get(id) || 0); if (!I || k <= 0) continue; n += I.cat === 'ammo' ? k / 12 : I.cat === 'med' ? k * 0.6 : id === 'gascan' ? 4 : id === 'keys' ? 0.1 : id === 'battery' ? k * 0.3 : k; }
+  for (const id in G.inv) { const I = ITEMS[id], k = (G.inv[id] || 0) - (G.transit.get(id) || 0); if (!I || k <= 0 || I.cat === 'cash') continue; n += I.cat === 'ammo' ? k / 12 : I.cat === 'med' ? k * 0.6 : id === 'gascan' ? 4 : id === 'keys' ? 0.1 : id === 'battery' ? k * 0.3 : k; }
   return clamp(n / 14, 0, 1);
 }
 const ikT = { p: V(), f: V(), s: V(), curl: 0.9, blend: true };
@@ -1553,13 +1566,13 @@ function rollWho() {
 }
 // a head-and-shoulders portrait of each body, rendered once in a little studio of its own
 const FACES = {};
-function faceOf(body) {
-  if (FACES[body]) return FACES[body];
+function faceOf(body, name = '') {   // [looks] the portrait is of the person you'll be (their own look)
+  const fk = body + ':' + name; if (FACES[fk] != null) return FACES[fk];
   try {
     const ps = new THREE.Scene(); ps.background = new THREE.Color(0x1c1a18);
     ps.add(new THREE.HemisphereLight(0xfff4e8, 0x302820, 1.6)); const key = new THREE.DirectionalLight(0xfff0dc, 2.4); key.position.set(1.2, 2.2, 2); ps.add(key);
     const rim = new THREE.DirectionalLight(0x9ab0ff, 1.2); rim.position.set(-1.5, 2, -1.5); ps.add(rim);
-    const s2 = new Soldier(KINDS[body] || KINDS.human, ps, { clone: true }); if (body === 'michelle') styleFemale(s2, 11); s2.place(0, 0, 0); for (let i = 0; i < 20; i++) s2.update(1 / 30, {});
+    const s2 = new Soldier(KINDS[body] || KINDS.human, ps, { clone: true }); LOOKS.applyLook(s2, LOOKS.lookFor('who:' + name, body)); s2.place(0, 0, 0); for (let i = 0; i < 20; i++) s2.update(1 / 30, {});
     s2.pivot.updateMatrixWorld(true); const head = s2.B.Head.getWorldPosition(V());
     const cam = new THREE.PerspectiveCamera(30, 0.8, 0.05, 20); cam.position.set(head.x + 0.35, head.y - 0.02, head.z + 1.15); cam.lookAt(head.x, head.y - 0.12, head.z);
     const W2 = 160, H2 = 200, rt = new THREE.WebGLRenderTarget(W2, H2);
@@ -1567,16 +1580,19 @@ function faceOf(body) {
     const px = new Uint8Array(W2 * H2 * 4); renderer.readRenderTargetPixels(rt, 0, 0, W2, H2, px);
     const cv = document.createElement('canvas'); cv.width = W2; cv.height = H2; const cx = cv.getContext('2d'), id = cx.createImageData(W2, H2);
     for (let y = 0; y < H2; y++) id.data.set(px.subarray((H2 - 1 - y) * W2 * 4, (H2 - y) * W2 * 4), y * W2 * 4);
-    cx.putImageData(id, 0, 0); FACES[body] = cv.toDataURL('image/jpeg', 0.85);
+    cx.putImageData(id, 0, 0); FACES[fk] = cv.toDataURL('image/jpeg', 0.85);
     rt.dispose(); s2.pivot.removeFromParent();
-  } catch (e) { FACES[body] = ''; }
-  return FACES[body];
+  } catch (e) { FACES[fk] = ''; }
+  return FACES[fk];
 }
 function showWho(go) {
   const roll = () => {
     const W2 = rollWho();
-    $('whoList').innerHTML = W2.map((w, i) => `<button class="dbtn who" data-i="${i}">${faceOf(w.body) ? `<img class="face" src="${faceOf(w.body)}" alt="">` : ''}<div class="wtx"><div class="top"><b>${w.name.toUpperCase()}</b></div><small>${w.job[0].toUpperCase() + w.job.slice(1)}.<br>Lives at <b>${addressOf(w.house)}</b></small></div></button>`).join('');
-    const pickCard = i => { G.whoPick = W2[i]; for (const b of $('whoList').querySelectorAll('button')) b.classList.toggle('sel', +b.dataset.i === i); };
+    $('whoList').innerHTML = W2.map((w, i) => `<button class="dbtn who" data-i="${i}">${faceOf(w.body, w.name) ? `<img class="face" src="${faceOf(w.body, w.name)}" alt="">` : ''}<div class="wtx"><div class="top"><b>${w.name.toUpperCase()}</b></div><small>${w.job[0].toUpperCase() + w.job.slice(1)}.<br>Lives at <b>${addressOf(w.house)}</b></small></div></button>`).join('');
+    const pickCard = i => { G.whoPick = W2[i]; for (const b of $('whoList').querySelectorAll('button')) b.classList.toggle('sel', +b.dataset.i === i);
+      // [who] the file on them, under the cards
+      if (!$('whoInfo')) { const d = document.createElement('div'); d.id = 'whoInfo'; $('whoList').after(d); const st = document.createElement('style'); st.textContent = WHO_INFO_CSS; document.head.appendChild(st); }
+      const w = W2[i]; $('whoInfo').innerHTML = whoInfoHTML(w, faceOf(w.body, w.name), addressOf(w.house)); };
     for (const b of $('whoList').querySelectorAll('button')) { b.onclick = () => pickCard(+b.dataset.i); b.ondblclick = () => { pickCard(+b.dataset.i); $('whoStart').click(); }; }
     pickCard(0); G.whoPickCard = pickCard; G.whoN = W2.length;
   };
@@ -1617,7 +1633,7 @@ function writeSlot() { if (!RUN_ON || G.slot == null) return; const rec = { diff
 function clearRun() { if (!RUN_ON || G.slot == null) return; try { localStorage.removeItem(SLOT_KEY(G.slot)); } catch { } }
 function saveRun() { if (G.slot == null) G.slot = 0; const d = runData(); if (!d) return; G.ckpt = d; writeSlot(); }   // (tests)
 function checkpoint() {
-  if (save.ckpt === false) return; const d = runData();
+  if (save.ckpt === false || MP.on()) return;   // MP: no checkpoints online const d = runData();
   if (!d) { if (P && P.alive && G.state !== 'title' && G.state !== 'result') later(checkpoint, 1.5); return; }   // on the phone, mid-jump: try again in a moment
   G.ckpt = d; writeSlot(); toast('Checkpoint saved', 'grey', 'check'); tip('checkpoint');
 }
@@ -2223,7 +2239,7 @@ function zombiesStep(dt) {
     // far ones think and move less often
     // far ones think and move less often — much less when the streets are packed
     const crowd = Z.list.length > 40;
-    u.lod = MOB ? (crowd ? (d > 45 ? 5 : d > 28 ? 3 : d > 14 ? 2 : 1) : (d > 45 ? 3 : d > 25 ? 2 : 1)) : crowd ? (d > 70 ? 5 : d > 45 ? 3 : d > 22 ? 2 : 1) : (d > 70 ? 3 : d > 45 ? 2 : 1);
+    u.lod = MP.on() && MP.nearDist(S.pos, P) < 22 ? 1 : MOB ? (crowd ? (d > 45 ? 5 : d > 28 ? 3 : d > 14 ? 2 : 1) : (d > 45 ? 3 : d > 25 ? 2 : 1)) : crowd ? (d > 70 ? 5 : d > 45 ? 3 : d > 22 ? 2 : 1) : (d > 70 ? 3 : d > 45 ? 2 : 1);
     // only the near ones cast shadows (a shadow pass per body adds up fast)
     const sh = d < (crowd ? 18 : 30);
     if (u.shadowOn !== sh) { u.shadowOn = sh; u.s.root.traverse(o => { if (o.isMesh) o.castShadow = sh; }); }
@@ -2236,7 +2252,7 @@ function zombiesStep(dt) {
       if (S.visible !== show) S.setVisible(show); }
     // only the thinking is throttled for far ones; every body moves and animates every frame (no 12-30 fps stutter)
     let cmd;
-    if (u.lodN === 0 || !u.lastCmd) { cmd = zombieThink(u, dt * u.lod, P, G); u.lastCmd = cmd; }
+    if (u.lodN === 0 || !u.lastCmd) { cmd = zombieThink(u, dt * u.lod, MP.target(u, P), G); u.lastCmd = cmd; }
     else { cmd = Object.assign({}, u.lastCmd); cmd.jump = false; }
     cmd = Object.assign({}, cmd);
     if (u.burn > 0) { u.burn -= dt; if (Math.random() < 0.7 * Math.min(1, dt * 60 / u.lod)) fx.fire(V(S.pos.x, 0.9 + Math.random() * 0.6, S.pos.z), 1); if (Math.random() < dt * 3) damage(u, 6, P, { fire: true }); if (cmd.move != null) cmd.speed *= 1.3; }
@@ -2266,6 +2282,12 @@ function zombiesStep(dt) {
   if (P.alive && !G.vault && !DRIVE.active()) { world.collide(P.s.pos, 0.33); DRIVE.pushBodies(P.s.pos, 0.33); world.keepSide(G.safe ||= { x: P.s.pos.x, z: P.s.pos.z, set: true }, P.s.pos); }
   else if (G.vault) G.safe = null;
   G.chasing = chasing; G.closeN = closeN;
+}
+// MP: on a client the dead are the host's (puppets, moved by net.js); you still bump into them and the walls
+function clientZombies(dt) {
+  MP.NETMOD.zombiesStep(dt); separate();
+  if (P.alive && !G.vault && !DRIVE.active()) { world.collide(P.s.pos, 0.33); DRIVE.pushBodies(P.s.pos, 0.33); world.keepSide(G.safe ||= { x: P.s.pos.x, z: P.s.pos.z, set: true }, P.s.pos); }
+  else if (G.vault) G.safe = null;
 }
 // bodies never overlap, out to the draw distance: a 2 m spatial hash, each pair tested once
 const sepHash = new Map();
@@ -2298,10 +2320,10 @@ function populate(dt, initial = false) {
   G.popT = (G.popT || 0) - dt; if (G.popT > 0 && !initial) return; G.popT = 1.2;
   const night = world.night > 0.5;
   const ramp = G.phase === 'outbreak' ? clamp(0.3 + (G.t - G.obT) / (HOUR * 2.2), 0.3, 1) : 0;
-  const want = Math.max(1, Math.min(Z.pool.length - 4, Math.round(((night ? 26 : 12) + (G.day - 1) * 3 + (initial ? 4 : 0)) * DIFF.count * ramp)));   // the night is when they come out
+  const want = Math.max(1, Math.min(Z.pool.length - 4, Math.round(((night ? 26 : 12) + (G.day - 1) * 3 + (initial ? 4 : 0)) * DIFF.count * ramp * (1 + 0.4 * (MP.playerCount() - 1)))));   // MP: more players, more of them   // the night is when they come out
   // put far-away ones back to sleep (not the ones after you, not Dale)
   for (const u of [...Z.list]) {
-    const d = u.s.pos.distanceTo(P.s.pos);
+    const d = MP.on() ? MP.nearDist(u.s.pos, P) : u.s.pos.distanceTo(P.s.pos);   // MP: near anybody
     if (!u.alive) { if ((u.deadT > 40 && d > 45) || (d > 70)) { if (u.corpse) { const i = world.containers.indexOf(u.corpse); if (i >= 0 && !u.dale) world.containers.splice(i, 1); } if (!u.dale) sleep(u); } continue; }
     if (d > 85 && u.z.state !== 'chase' && u.z.state !== 'feed' && !u.dale) sleep(u);
   }
@@ -2342,18 +2364,19 @@ function groupSpot(initial) {
 const camFwd = V();
 function spawnSpot(initial) {
   camera.getWorldDirection(camFwd);
+  const O = MP.spawnAround(P);   // MP: round a random player (just you in single player)
   for (let tries = 0; tries < 30; tries++) {
     let x, z, indoor = false;
     if (Math.random() < 0.3) {   // in a house nobody's searched
-      const H = pick(world.houses); const d = Math.hypot(H.x - P.s.pos.x, H.z - P.s.pos.z);
+      const H = pick(world.houses); const d = Math.hypot(H.x - O.x, H.z - O.z);
       if (d < (initial ? 25 : 30) || d > 75 || H === G.home || !H.inside) continue;
       [x, z] = pick(H.inside); indoor = true;
     } else {
       const a = Math.random() * Math.PI * 2, r = initial ? rnd(28, 80) : rnd(38, 70);
-      x = clamp(P.s.pos.x + Math.cos(a) * r, -102, 102); z = clamp(P.s.pos.z + Math.sin(a) * r, -102, 102);
+      x = clamp(O.x + Math.cos(a) * r, -102, 102); z = clamp(O.z + Math.sin(a) * r, -102, 102);
     }
     if (!world.walkable(x, z)) continue;
-    const d = Math.hypot(x - P.s.pos.x, z - P.s.pos.z);
+    const d = MP.on() ? MP.nearDist({ x, z }, P) : Math.hypot(x - P.s.pos.x, z - P.s.pos.z);
     if (d < 24) continue;
     // never pop in where you can see it
     const tx = x - camera.position.x, tz = z - camera.position.z;
@@ -2426,10 +2449,11 @@ function playerDied(info) {
   save.deaths++; writeSave();
   bigText(G.deathCause === 'turned' ? 'YOU TURNED' : 'YOU DIED', '', 5);
   if (G.deathCause === 'turned') later(() => { P.s.resetActs(); P.s.play('LayToIdle', { fade: 0.5, rate: 0.6 }); }, 2.5);
-  later(() => endRun('died'), 5);
+  if (!MP.died()) later(() => endRun('died'), 5);   // MP: a friend still up gets you back up (mp.js)
 }
 function endRun(how) {
   if (G.state === 'result' || G.state === 'title') return;
+  MP.ended(how);   // MP: tell the room; a host who's done passes the world on
   const win = how === 'escaped';
   if (win) clearRun();
   const hours = (G.day - 1) * 24 + G.hour - G.startHour;
@@ -2462,6 +2486,7 @@ function endRun(how) {
   $('rAgain').onclick = () => { showScreen(null); G.ckpt = null; newGame(); };
   if ($('rCkpt')) $('rCkpt').onclick = () => { const d = G.ckpt; G.who = { body: d.who.body, name: d.who.name, job: d.who.job, house: world.houses[d.who.house] }; save.diff = d.diff; showScreen(null); newGame(d).then(() => { G.ckpt = d; }); };
   $('rMenu').onclick = () => toTitle();
+  if (MP.on()) { $('rAgain').remove(); if ($('rCkpt')) $('rCkpt').remove(); $('rMenu').textContent = 'Leave the room'; $('rMenu').classList.add('go'); }   // MP
 }
 
 // ---------------------------------------------------------------- a new run
@@ -2498,6 +2523,7 @@ async function newGame(restore = null) {
   G.role = !MAPLE() && STORY && STORY.role ? STORY.role(who) : null;
   HANDS.flush(); PACK.swing = PACK.zip = 0; G.packAnim = null; clearLitter(); tutStop('quiet'); tipHide(true);
   setBody(who.body); G.pname = who.name.split(' ')[0];
+  LOOKS.applyLook(P.s, LOOKS.lookFor('who:' + who.name, who.body));   // [looks] you look like your card
   G.home = who.house;
   const H = G.home;
   // you wake up at home (Maple Hollow) — or wherever the map's story starts you
@@ -2570,6 +2596,7 @@ function setupStory(H, P0) {
 }
 function fadeHelp() { $('help').classList.remove('fade'); clearTimeout(fadeHelp.t); fadeHelp.t = setTimeout(() => $('help').classList.add('fade'), 25000); }
 function toTitle() {
+  MP.leaveGame();   // MP: leave the online room
   timers.length = 0; G.runId = (G.runId || 0) + 1;
   DRIVE.reset(); HELI.reset(); HELI.setUIVisible(false); G.boarded = false; G.heliCine = false; if (PACK && PACK.P) PACK.P.visible = true;
   if (HANDS) { HANDS.flush(); PACK.swing = PACK.zip = 0; G.packAnim = null; clearLitter(); tutStop('quiet'); tipHide(true); }
@@ -2625,10 +2652,10 @@ function renderBag() {
     + SLOTS.filter(id => P.arms.guns[id]).map(id => tile(id, 0, `${P.arms.ammo[id].mag} loaded · ${G.inv[WEAPONS[id].ammo] || 0} spare`, `<button data-gun="${id}" class="${held(id) ? 'held' : ''}">${held(id) ? 'In hand' : 'Hold'}</button>`)).join('');
   const pocket = (cls, title, sub, body, empty) => `<section class="pocket ${cls}"><h4><span>${title}</span><small>${sub}</small></h4><div class="bagGrid">${body || `<div class="none">${empty}</div>`}</div></section>`;
   const front = `<div class="it phoneIt"><div class="ib">${icon('phone')}</div><div class="nm">Your phone</div><div class="d">${PH.unread.mom + PH.unread.bro ? (PH.unread.mom + PH.unread.bro) + ' unread' : 'messages · calls · 911'}</div><button id="bagPhone">Open (T)</button></div>`
-    + items(['keys']) + G.notes.map(id => `<div class="it"><div class="ib">${icon('note')}</div><div class="nm">${(noteOf(id) || { title: 'A note' }).title}</div><div class="d">read it again</div><button class="notebtn" data-note="${id}">Read</button></div>`).join('');
+    + items(['zlux', 'keys', 'keycardRed', 'keycardBlue', 'keycardGreen', 'keycardGold', 'sewerKey']) + G.notes.map(id => `<div class="it"><div class="ib">${icon('note')}</div><div class="nm">${(noteOf(id) || { title: 'A note' }).title}</div><div class="d">read it again</div><button class="notebtn" data-note="${id}">Read</button></div>`).join('');
   renderBagSub();
-  $('bagBody').innerHTML = pocket('main', 'MAIN COMPARTMENT', 'weapons · ammo · gear', weapons + items(['ammo9', 'shells', 'rifleAmmo', 'battery', 'bottle', 'molotov', 'gascan']), '')
-    + pocket('food', 'FOOD POCKET', 'eat and drink', items(['beans', 'soup', 'chips', 'bar', 'apple', 'cereal', 'water', 'soda', 'juice']), 'Nothing to eat. Kitchens, pantries and fridges.')
+  $('bagBody').innerHTML = pocket('main', 'MAIN COMPARTMENT', 'weapons · ammo · gear', weapons + items(['ammo9', 'shells', 'rifleAmmo', 'battery', 'flashlight', 'lantern', 'bottle', 'molotov', 'gascan']), '')
+    + pocket('food', 'FOOD POCKET', 'eat and drink', items(['beans', 'soup', 'chips', 'bar', 'apple', 'cereal', 'dates', 'bread', 'water', 'soda', 'juice']), 'Nothing to eat. Kitchens, pantries and fridges.')
     + pocket('med', 'MEDICINE POCKET', 'patch yourself up', items(['bandage', 'medkit', 'pills', 'antibiotics']), 'No medicine. Bathroom cabinets, the pharmacy, the ambulance.')
     + pocket('front', 'FRONT POCKET', 'phone · keys · notes', front, '');
   for (const b of $('bagBody').querySelectorAll('[data-use]')) b.onclick = () => { useItem(b.dataset.use); renderBag(); };
@@ -3042,6 +3069,7 @@ function showDiffs() {
   mark(); showScreen('diff'); const sc = $('diff').querySelector('.center-panel'); if (sc) sc.scrollTop = 0;
 }
 $('btnPlay').onclick = () => { startAudio(); showDiffs(); };
+$('btnMP').onclick = () => { startAudio(); MP.openLobby(); };   // MP
 document.body.classList.toggle('hc', !!save.hc);
 $('btnCont').onclick = () => { startAudio(); showSlots('load'); };
 $('diffBack').onclick = () => showScreen('title');
@@ -3052,7 +3080,7 @@ function togglePause() {
     unlockMouse();
     G.prevState = G.state; G.state = 'pause'; keys.clear(); G.mouse.left = G.mouse.right = false; showScreen('pause'); SND.pause(true);
     $('pauseSub').textContent = `${DIFF.name} · day ${G.day} · ${G.stats.kills} put down`;
-    STATS.showInPause(document.querySelector('#pause .center-panel')); HELI.setMuted(true); HELI.setUIVisible(false);
+    STATS.showInPause(document.querySelector('#pause .center-panel')); $('restart').style.display = MP.on() ? 'none' : ''; HELI.setMuted(true); HELI.setUIVisible(false);
   } else if (G.state === 'pause') { G.state = G.prevState || 'play'; showScreen(null); SND.pause(false); HELI.setMuted(false); HELI.setUIVisible(true); lockMouse(); }
 }
 $('resume').onclick = togglePause;
@@ -3075,15 +3103,16 @@ function step(dt) {
   // nothing can hurt you until you're actually playing (title, difficulty picker, intro, menus)
   C.godMode = !['play', 'bag', 'note', 'escaping', 'phone'].includes(G.state) || !!G.boarded || !!G.inAmb;
   C.calm = G.state === 'title' || G.state === 'intro' || G.state === 'loading';
-  if (G.state === 'pause' || G.state === 'bag' && false) return;
+  if ((G.state === 'pause' && !MP.on()) || (G.state === 'shop' && !MP.on()) || G.state === 'bag' && false) return;   // [zLux] the shop screen pauses too   // MP: online, the world never stops for one player's pause menu
   if (G.hitStop > 0) { G.hitStop -= dt; dt *= 0.2; }
   if (G.locked && !LOOK_STATES.includes(G.state)) unlockMouse();
   const bagOpen = G.state === 'bag' || G.state === 'note' || G.state === 'phone';
   const rdt = dt;
   if (TC) TC.tick(rdt);
-  if (bagOpen) dt *= 0.25;   // the world slows (not stops) while you rummage in your bag
+  if (bagOpen && !MP.on()) dt *= 0.25;   // the world slows (not stops) while you rummage in your bag
   G.t += dt; C.t = G.t;
   runTimers();
+  SHOP.update(dt);   // [zLux]
   if (G.state === 'play' || G.state === 'dead' || bagOpen) {
     edgeSteer(dt);
     if (G.state !== 'dead') survive(dt);
@@ -3096,7 +3125,7 @@ function step(dt) {
   } else if (G.state === 'escaping') { P.s.update(dt, {}); if (G.boarded && HELI.state() === 'landed') { G.climbT = Math.min(1, (G.climbT || 0) + dt / 0.7); const a = HELI.doorPos(), b = HELI.seatPos(Math.max(0, G.heliSeat | 0)), k = G.climbT * G.climbT * (3 - 2 * G.climbT); P.s.pos.set(a.x + (b.x - a.x) * k, P.s.pos.y, a.z + (b.z - a.z) * k); P.s.pivot.position.y = Math.max(0, a.y - 0.9 + (b.y - a.y + 0.9) * Math.min(1, k * 1.6)); P.s.yaw = Math.atan2(b.x - a.x, b.z - a.z); } updateEscape(dt); }
   else if (G.state === 'intro') { P.s.update(dt, {}); }
   else if (G.state === 'news') { P.s.update(dt, {}); MEL.pose(true); newsStep(dt); G.noCull = !!(G.news && G.news.tv); PEOPLE.PPL.noCull = G.noCull; }
-  else if (G.state !== 'result') playerStep(dt);
+  else if (G.state !== 'result' && G.state !== 'pause' && !MP.riding(dt)) playerStep(dt);   // MP: a passenger in a friend's car goes where it goes
   if (G.state !== 'result') packStep(rdt);
   // the open bag's header (HP, food, water, bleeding) stays live; its Eat/Drink buttons come back when your hands are free
   if (G.state === 'bag') { G.bagSubT = (G.bagSubT || 0) - rdt; if (G.bagSubT <= 0) { G.bagSubT = 0.25; renderBagSub(); } const hb = HANDS.busy(); if (hb !== G.bagHandsBusy) { G.bagHandsBusy = hb; for (const b of document.querySelectorAll('#bagBody [data-use]')) b.disabled = hb; } }
@@ -3104,21 +3133,21 @@ function step(dt) {
   if (G.state === 'dead') P.deadT += dt;
   // the helicopter flies on game time; it freezes on the menus
   if (['play', 'bag', 'note', 'phone', 'escaping', 'dead'].includes(G.state) && G.phase !== 'title') {
-    HELI.update(dt, G.hour, G.day); heliPeople(dt); storyTick();
+    HELI.update(dt, G.hour, G.day); heliPeople(dt); if (!MP.isClient()) storyTick();   // MP: the host's chapter comes over the net
     if (G.heliCine) { const hc = HELI.cameraTarget(); if (hc && hc.t > 13.6) $('fade').classList.add('on'); if (HELI.cinematicDone()) endRun('escaped'); }
   }
   STATS.tick(dt, P, G);
   if (G.state !== 'result') {
-    if ((G.state === 'play' || G.state === 'bag') && G.phase === 'outbreak') { populate(dt); outbreakStep(dt); }
+    if ((G.state === 'play' || G.state === 'bag' || (MP.on() && G.state !== 'title')) && G.phase === 'outbreak' && !MP.isClient()) { populate(dt); outbreakStep(dt); }   // MP: only the host's game makes the dead (and keeps doing it while friends play on)
     if (G.state === 'play' || G.state === 'phone') phoneTick(dt);
     if (G.state === 'play' && P.alive && world.hazards) for (const h of world.hazards) { if (h.off || !h.dps) continue; if (Math.hypot(P.s.pos.x - h.x, P.s.pos.z - h.z) < h.r && (P.s.gy || 0) < 0.6) { damage(P, dt * h.dps, null, { [h.kind]: true }); G.hurtFlash = Math.max(G.hurtFlash || 0, 0.3); } }
     if (G.state === 'play' && G.phase === 'calm' && G.hour >= obHour() && G.hour < obHour() + 6) { if (MAPLE()) startNews(); else startMapNews(); }
     if (G.state === 'play' && G.phase === 'news' && MAPLE()) newsStep(dt);   // it's happening right in front of you
     if (G.state === 'play' || G.state === 'bag') mapBeats();
-    PEOPLE.peopleStep(dt, focusPos());
+    if (MP.isClient()) MP.NETMOD.peopleStep(dt); else PEOPLE.peopleStep(dt, focusPos());   // MP: a client shows the host's townspeople
     if (G.state !== 'title' && G.state !== 'escaping' && G.state !== 'dead' && P.alive && G.t % 0.5 < dt + 1e-4) world.navFrom(P.s.pos.x, P.s.pos.z, 55);
     if (G.state === 'title' && world.NAV.gen === 0) { const T0 = MAPLE() ? { x: -46, z: 9 } : startSpot(); world.navFrom(T0.x, T0.z, 40); }
-    zombiesStep(dt);
+    if (MP.isClient()) clientZombies(dt); else zombiesStep(dt);   // MP: a client shows the host's dead
     updateThrows(dt);
   }
   C.noises = C.noises.filter(n => G.t - n.t < 1.5);
@@ -3185,6 +3214,7 @@ function frame(now) {
   const dt = clamp((now - last) / 1000, 0, 0.1); last = now;
   dtS = lerp(dtS, dt, 0.2);
   if (G.state !== 'loading' && !MANUAL) { step(Math.min(dtS, 1 / 30)); render(); perf(dt); }
+  if (G.state !== 'loading') MP.update(Math.min(dt, 0.1));   // MP: the room, chat, voice (every frame, every screen)
 }
 // ---- touch screens: the stick, look and buttons (touch.js); on desktop TC stays null
 const TC = initTouch({
@@ -3223,6 +3253,79 @@ STATS.init({
   click: () => SND.phoneTap && SND.phoneTap(),
 });
 G.chasing = 0; G.closeN = 0; G.hurtDir = []; G.transit = new Map(); G.inv = NEW_INV(); G.melee = {}; G.stats = { kills: 0 }; G.hour = 19.6; G.day = 1; G.food = 100; G.water = 100; G.stam = 100; G.battery = 100; G.infection = 0;
+// ---------------------------------------------------------------- MP: online multiplayer (mp.js does the rest)
+// start (or, after a reload to load the host's map, rejoin) an online game with the host's settings
+async function startMP(st) {
+  startAudio();
+  if (st.diff && DIFFS[st.diff]) save.diff = st.diff;
+  const w = MP.who();
+  G.who = { body: w.body, name: w.name, job: w.job || 'survivor', house: homeHouse() };
+  G.slot = null; G.ckpt = null;
+  showScreen(null);
+  await newGame();
+  // online there's no quiet morning: everyone wakes up to the outbreak
+  if (G.phase === 'calm') { if (MAPLE()) { startNews(); endNews(true); } else { G.hour = Math.max(G.hour, obHour()); startMapNews(); endMapNews(true); } }
+  // stand next to each other, not inside each other
+  if (w.index > 0) { const y = P.s.yaw, off = [[1.1, 0], [-1.1, 0], [0, -1.1], [1.1, -1.1]][(w.index - 1) % 4];
+    for (const k of [1, 0.6, 0.3]) { const x = P.s.pos.x + (off[0] * Math.cos(y) + off[1] * Math.sin(y)) * k, z = P.s.pos.z + (-off[0] * Math.sin(y) + off[1] * Math.cos(y)) * k; if (world.walkable(x, z)) { P.s.place(x, z, y); break; } } }
+}
+// a friend got you back up (instead of game over)
+function mpRespawn(x, z) {
+  if (G.state !== 'dead') return;
+  let px = x, pz = z; const a0 = Math.random() * 6.28;
+  for (let k = 0; k < 8; k++) { const xx = x + Math.cos(a0 + k * 0.8) * 1.3, zz = z + Math.sin(a0 + k * 0.8) * 1.3; if (world.walkable(xx, zz)) { px = xx; pz = zz; break; } }
+  P.alive = true; P.hp = P.maxHp * 0.6; P.hurtT = 99; P.s.dead = false; P.s.resetActs(); P.s.setVisible(true); P.s.place(px, pz, P.s.yaw);
+  Object.assign(G, { state: 'play', bleed: 0, grabbedBy: null, infection: Math.min(G.infection || 0, 30), saidFever: false, food: Math.max(G.food, 40), water: Math.max(G.water, 40) });
+  document.body.classList.remove('grabbed'); $('big').style.opacity = 0;
+  if (P.arms.cur) equipGun(P.arms.cur, true); else equipMelee(MEL.cur || 'fists', true);
+  SND.musicPlaying(true); camInit = false;
+}
+// one of the host's dead clawed / bit you
+function mpHurt(amt, pos, info) {
+  if (!P.alive || G.state === 'result' || G.state === 'title') return;
+  const z = info && info.zombie && info.zombie.s ? info.zombie : null;
+  damage(P, amt, z, { claw: true });
+  if (Math.random() < (info && info.bite ? 0.7 : 0.35)) { if (G.bleed <= 0) toast('You\'re bleeding — bandage it (Q)', 'bad'); G.bleed = Math.max(G.bleed, 1); }
+  fx.blood(P.chest || P.s.pos, V(pos.x - P.s.pos.x, 0, pos.z - P.s.pos.z).normalize().negate(), 0.6);
+}
+MP.init({
+  G, C, SND, world, scene, camera, KINDS, keys, Z, touch: TOUCH, onStep,
+  get SWINGS() { return SWINGS; },
+  getP: () => P, people: () => PEOPLE.PPL.list, damage, focusPos, showScreen,
+  getWeapon: () => (P && P.arms.cur) || (MEL && MEL.cur) || 'fists', getVehicle: () => mpVehicle(), getBody: () => (P && P.body) || 'human',
+  maps: () => Object.values(MAPS).map(m => ({ id: m.id, name: m.name, blurb: m.blurb })),
+  diffs: () => Object.entries(DIFFS).map(([id, d]) => ({ id, name: d.name, desc: d.desc })),
+  mapId: () => MAP_ID, mapDefault: () => MAP_ID, diffDefault: () => save.diff || 'medium',
+  toast: (t, k) => toast(t, k === 'bad' ? 'bad' : k === 'good' ? 'good' : 'grey'), bigText, ask, setStage, endRun, toTitle,
+  start: st => startMP(st), respawn: mpRespawn, hurtMe: mpHurt,
+  reloadTo: id => { id = validMap(id); save.map = id; writeSave(); const q = new URLSearchParams(location.search); q.set('map', id); for (const k of ['setup', 'd', 'play', 'slot']) q.delete(k); location.search = q.toString(); },
+  showLoading: () => $('fade').classList.add('on'),
+  // the lobby's characters: 4 men and 4 women from "Set up your run", with their portraits and info cards
+  characters: () => MP_CHARS.map(n => { const p = PEOPLE_POOL.find(q => q[1] === n); return { body: p[0], name: p[1], job: p[2], get face() { try { return faceOf(p[0], p[1]); } catch { return ''; } } }; }),
+  whoInfo: c => { if (!$('mpWhoCss')) { const st = document.createElement('style'); st.id = 'mpWhoCss'; st.textContent = WHO_INFO_CSS; document.head.appendChild(st); } return whoInfoHTML(c, c.face, mapName()); },
+  lookPuppet: (s, name, body) => { const c = PEOPLE_POOL.find(q => q[1] === name); if (c && c[0] === body) LOOKS.applyLook(s, LOOKS.lookFor('who:' + name, body)); },
+  vehicle: v => v[0] === 'c' ? DRIVE.cars[v[1]] : v[0] === 'b' ? DRIVE.bikes[v[1]] : null,
+  moveVehicle: v => { const T = v[0] === 'c' ? DRIVE.cars[v[1]] : DRIVE.bikes[v[1]]; if (!T || T === DRIVE.current()) return; T.g.position.x = T.x = v[2]; T.g.position.z = T.z = v[3]; T.g.rotation.y = T.yaw = v[4]; if (T.C && T.C.box) T.C.box.off = true; if (T.C) { T.C.x = v[2]; T.C.z = v[3]; } },
+  driving: () => DRIVE.active(),
+  pvpHurt: (dmg, by, e) => { if (!P.alive) return; damage(P, dmg, by && by.s ? by : null, { human: true, part: e.part || undefined, blast: !!e.blast }); if (P.alive && (e.knock > 0.6 || dmg > 30 || e.blast) && P.s.acts.Hit_Knockback) { P.s.play('Hit_Knockback', { fade: 0.1, rate: 1.3 }); C.shake = Math.max(C.shake, 0.4); } },
+  healMe: (hp, who) => { P.hp = Math.min(P.maxHp, P.hp + hp); G.bleed = 0; toast(`${who} bandaged you up`, 'good'); },
+  giveMe: (id, who) => { if (ITEMS[id]) { addItem(id, 1); toast(`${who} gave you ${ITEMS[id].name}`, 'good'); } },
+  have: id => (G.inv[id] || 0) > 0,
+  take: id => { if (!(G.inv[id] > 0)) return false; G.inv[id]--; if (!G.inv[id]) delete G.inv[id]; return true; },
+  giveable: () => { const out = []; for (const cat of ['food', 'drink']) { const id = Object.keys(G.inv).find(k => G.inv[k] > 0 && ITEMS[k] && ITEMS[k].cat === cat); if (id) out.push({ id, name: ITEMS[id].name }); } return out; },
+  reach: () => P.s.playUp && P.s.playUp('Interact', { rate: 1.2, fade: 0.1, fadeAt: 0.7 }),
+  kneel: on => { if (on) P.s.play('Fixing_Kneeling', { loop: true, fade: 0.3 }); else if (P.s.act === 'Fixing_Kneeling') P.s.stopAct(0.3); },
+  hideMe: on => { P.s.setVisible(!on); if (on) { MEL.hideAll(); P.arms.hideAll(); if (PACK.P) PACK.P.visible = false; } else { if (PACK.P) PACK.P.visible = true; if (P.arms.cur) equipGun(P.arms.cur, true); else equipMelee(MEL.cur || 'fists', true); } },
+});
+// MP: what you're in, for the others: ['c' car | 'b' bike, index, x, z, yaw], or ['r', driver] riding with a friend
+const MP_CHARS = ['Sam Carter', 'Jordan Hale', 'Walter Hughes', 'Mike Russo', 'Nina Brooks', 'Tasha Greene', 'Maya Ortiz', 'Jade Wilson'];
+function mpVehicle() {
+  if (MP.isRiding()) return MP.rideState();
+  const V = DRIVE.active() && DRIVE.current(); if (!V) return null;
+  const r = x => Math.round(x * 100) / 100, car = V.kind === 'car', i = car ? DRIVE.cars.indexOf(V) : DRIVE.bikes.indexOf(V);
+  return i < 0 ? null : [car ? 'c' : 'b', i, r(V.g.position.x), r(V.g.position.z), r(V.g.rotation.y)];
+}
+window.ZA.MP = MP;   // (tests)
 load().then(async () => {
   toTitle();
   document.body.classList.add('ready');
@@ -3246,7 +3349,9 @@ load().then(async () => {
     window.__hitDbg = () => { let k = 0; for (const u of C.units) { if (!u.alive || !u.sph || !u.s.visible) continue; for (const S of u.sph) { let m = pool[k]; if (!m) { m = pool[k] = new THREE.Mesh(sg, sm); m.renderOrder = 51; scene.add(m); } m.visible = true; m.position.copy(S.c); m.scale.setScalar(S.r); k++; } } for (; k < pool.length; k++) pool[k].visible = false; };
   }
   if (Q.has('who')) { const w = rollWho(); G.who = w.find(x => x.body === Q.get('who')) || w[0]; }   // test hook
-  if (Q.has('play')) { startAudio(); showScreen(null); await newGame(); }
+  const mpResume = MP.resumeSettings();   // MP: back from loading the host's map: straight into the online game
+  if (mpResume) await startMP(mpResume);
+  else if (Q.has('play')) { startAudio(); showScreen(null); await newGame(); }
   else if (Q.has('slot') && RUN_ON) { const i = +Q.get('slot'), r = readSlot(i); if (r && validMap(r.map || 'maple') === MAP_ID) await loadSlot(i, r); }
   else if (Q.get('setup') === 'who') { if (Q.get('d') && DIFFS[Q.get('d')]) save.diff = Q.get('d'); showWho(() => introThen(newGame)); }   // came back from loading the map you picked: straight on to "set up your run"
   else if (Q.has('setup')) showDiffs();

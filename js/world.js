@@ -55,7 +55,7 @@ const skyFS = `
     for (int i = 0; i < 4; i++) { vec2 cc0 = vec2(sin(float(i) * 2.4 + 0.6), cos(float(i) * 3.1 + 0.2)) * 0.55; float cr = length(mq - cc0); maria -= 0.12 * smoothstep(0.16, 0.1, cr) - 0.06 * smoothstep(0.2, 0.16, cr) * smoothstep(0.1, 0.16, cr); }
     float limb = pow(max(1.0 - mr * mr, 0.0), 0.25);
     float ma2 = length(d - moonDir), mUp = smoothstep(-0.02, 0.03, d.y);
-    vec3 mcol = (vec3(1.0, 0.98, 0.92) * md * maria * (0.55 + 0.45 * limb) * 2.4
+    vec3 mcol = (vec3(1.0, 0.98, 0.92) * md * maria * (0.5 + 0.5 * limb) * 1.25
                + vec3(0.62, 0.7, 0.9) * (exp(-ma2 * 16.0) * 0.32 + exp(-ma2 * 4.5) * 0.07)) * night * mUp;
     float moonHide = 0.0;
     // clouds: a layer of drifting cumulus (a few puffs on a clear day, a solid deck in rain), lit on the sun's side,
@@ -912,6 +912,17 @@ export function makeWorld(scene, renderer) {
     pool.userData.halo = halo; pool.userData.shaft = shaft;
     solid(x, z, 0.13, 0.13, 0, 5.6, 'metal');
     W.lamps.push({ x: ax, y: 5.3 + y0, z: az, bulb, pool, broken: Math.random() < 0.3, flicker: Math.random() < 0.25, ph: Math.random() * 10 });
+  }
+  // a map's own light fixture for the night (floodlights, wall packs, tower lamps): no mesh of its own — the map draws
+  // the fixture with an emissive material it drives itself. It joins W.lamps, so the street-lamp machinery lights it:
+  // on at dusk, and the few nearest you get one of the fixed pool of real spot lights (no new lights, phones too).
+  // o: { pow (spot strength ×70), dist, angle, tx, tz (where it points, on the ground), col, reach (m: counts as
+  //      that much closer when picking the nearest), halo (sprite size, 0 = none), flicker, broken }
+  function lamp(x, y, z, o = {}) {
+    const L = { x, y, z, bulb: null, pool: null, broken: !!o.broken, flicker: !!o.flicker, ph: Math.random() * 10, pow: o.pow || 1, dist: o.dist, angle: o.angle, tx: o.tx, tz: o.tz, col: o.col, reach: o.reach || 0, power: 1 };
+    if (o.halo) { const h = new THREE.Sprite(haloMat); h.position.set(x, y, z); h.scale.setScalar(o.halo); h.visible = false; h.renderOrder = 6; level.add(h); L.halo = h; }
+    W.lamps.push(L);
+    return L;
   }
   // a wheelie bin; fixed: it stays put whatever hits it (the one by the porch is the first step up onto the roof)
   function trashBin(x, z, yaw, colMat = MAT.greenPaint, fixed = false) {
@@ -4345,19 +4356,23 @@ export function makeWorld(scene, renderer) {
     { const wet = W.rain || 0; haloMat.opacity = 0.22 + wet * 0.25; shaftUni.k.value = 0.008 + wet * 0.045 + Math.max(0, scene.fog.density - 0.012) * 1.5; poolMat.opacity = 0.32 + wet * 0.18; }
     const on = W.daylight < 0.45;
     for (const L of W.lamps) {
-      let e = on && !L.broken ? 2.2 : 0;
+      // (L.power: a map can dim / cut a lamp, 0..1 — the prison's failing power; maps' own lamps (K.lamp) may have
+      // no bulb mesh or pool of their own: their glow is a shared emissive material the map drives itself)
+      let e = on && !L.broken ? 2.2 * (L.power ?? 1) : 0;
       if (L.flicker && on) { L.ph += dt * 13; e *= (Math.sin(L.ph) > -0.3 || Math.sin(L.ph * 0.37) > 0.8) ? 1 : 0.08; }
-      L.bulb.material.emissiveIntensity = e; L.on = e > 0.5;
-      if (L.pool.visible !== L.on) L.pool.visible = L.on;
-      if (L.pool.userData.halo.visible !== L.on) { L.pool.userData.halo.visible = L.on; L.pool.userData.shaft.visible = L.on; }
+      if (L.bulb) L.bulb.material.emissiveIntensity = e;
+      L.on = e > 0.5;
+      if (L.pool && L.pool.visible !== L.on) L.pool.visible = L.on;
+      const hl = L.pool ? L.pool.userData.halo : L.halo;
+      if (hl && hl.visible !== L.on) { hl.visible = L.on; if (L.pool && L.pool.userData.shaft) L.pool.userData.shaft.visible = L.on; }
     }
     if (lampT <= 0) {
       lampT = 0.5;
-      const lit = W.lamps.filter(L => !L.broken).map(L => [L, Math.hypot(L.x - focus.x, L.z - focus.z)]).sort((a, b) => a[1] - b[1]).slice(0, lampLights.length);
-      lampLights.forEach((pl, i) => { const L = lit[i] && lit[i][0]; pl.userData.lamp = L; if (L) { pl.position.set(L.x, L.y, L.z); pl.target.position.set(L.x, 0, L.z); pl.target.updateMatrixWorld(); } });
+      const lit = W.lamps.filter(L => !L.broken).map(L => [L, Math.hypot(L.x - focus.x, L.z - focus.z) - (L.reach || 0)]).sort((a, b) => a[1] - b[1]).slice(0, lampLights.length);
+      lampLights.forEach((pl, i) => { const L = lit[i] && lit[i][0]; pl.userData.lamp = L; if (L) { pl.position.set(L.x, L.y, L.z); pl.target.position.set(L.tx ?? L.x, 0, L.tz ?? L.z); pl.target.updateMatrixWorld(); pl.distance = L.dist || 24; pl.angle = L.angle || 1.05; pl.color.setHex(L.col || 0xffc890); } });
     }
     // they light the street, not the inside of the house you're standing in (no shadows from these: so cut them there)
-    for (const pl of lampLights) { const L = pl.userData.lamp; pl.intensity = L && L.on && !inside ? 70 : 0; }
+    for (const pl of lampLights) { const L = pl.userData.lamp; pl.intensity = L && L.on && !inside ? 70 * (L.pow || 1) * Math.min(1, L.power ?? 1) : 0; }
     // porch lanterns, the gas station canopy, the store sign at night; the store's tubes once the trouble starts
     const dark = W.daylight < 0.4;
     MAT.porchOn.emissiveIntensity = dark ? 2.2 : 0;
@@ -4606,7 +4621,7 @@ export function makeWorld(scene, renderer) {
     // nature
     tree, pine, bush, hedge, sapling, fallenTree, flowerPot,
     // fences & street things
-    picketFence, privacyFence, chainFence, streetLamp, trashBin, hydrant, cone, mailbox, barricade, crateStack, gardenChair, gardenTable, yardSign,
+    picketFence, privacyFence, chainFence, streetLamp, lamp, trashBin, hydrant, cone, mailbox, barricade, crateStack, gardenChair, gardenTable, yardSign,
     // vehicles
     car, wreck, policeCar, ambulance,
     // whole Maple Hollow pieces (12 × 10 m house with yard; watchtower; the corner store; gas station; playground)

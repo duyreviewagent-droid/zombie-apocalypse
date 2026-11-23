@@ -524,6 +524,7 @@ function masks(geo, skel, sz) {
   const r = { torso: T.getImageData(0, 0, sz, sz).data, head: Hd.getImageData(0, 0, sz, sz).data, eyes: Eb.getImageData(0, 0, sz, sz).data };
   TORSO.set(geo, r); return r;
 }
+export const masksOf = (geo, skel, sz) => masks(geo, skel, sz);   // (looks.js: the same masks, as a texture)
 export function toneMaterial(src, tone, clothes = null, geo = null, skel = null) {
   const map = src.map; if (!map || !map.image || !map.image.width) return src;
   const im = map.image; if (!imgId.has(im)) imgId.set(im, ++imgN);

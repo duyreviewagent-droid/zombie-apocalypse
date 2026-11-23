@@ -50,6 +50,14 @@ const P = {
   zip: '<path d="M12 2v20M9.5 4h2.5M12 7h2.5M9.5 10h2.5M12 13h2.5"/><rect x="9" y="15" width="6" height="6" rx="1"/>',
   heli: '<path d="M3 5.5h18M12 5.5v3"/><path d="M5.5 11.5c0-1.7 1.6-3 3.5-3h5.5c2.5 0 4.5 1.8 4.5 4.2v.3c0 1.1-.9 2-2 2H9c-1.9 0-3.5-1.5-3.5-3.5z"/><path d="M5.5 12H2.5M2.5 10.5v3M9.5 15v3M15 15v3M7.5 18h10"/>',
   person: '<circle cx="12" cy="6" r="3"/><path d="M6.5 21v-5.5a5.5 5.5 0 0 1 11 0V21"/>',
+  // [zLux] money: a coin with a Z, a banknote, a wallet, a shop front; and the light / keycard items
+  coin: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="6.6" stroke-dasharray="1.2 1.6"/><path d="M9.2 9h5.6l-5.6 6h5.6"/>',
+  bill: '<rect x="2" y="6" width="20" height="12" rx="1.2"/><circle cx="12" cy="12" r="2.6"/><path d="M5 9h1.6l-1.6 2.6h1.6M17 9.4v2.4h1.6"/>',
+  wallet: '<path d="M4 7.5h14.5a1.5 1.5 0 0 1 1.5 1.5v9.5a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 18.5V6.5A1.5 1.5 0 0 1 5.5 5H16v2.5"/><path d="M15 12h5v3.5h-5a1.75 1.75 0 0 1 0-3.5z"/>',
+  shop: '<path d="M3.5 9.5L5 4h14l1.5 5.5"/><path d="M3.5 9.5a2.1 2.1 0 0 0 4.2 0 2.1 2.1 0 0 0 4.3 0 2.1 2.1 0 0 0 4.2 0 2.1 2.1 0 0 0 4.3 0"/><path d="M5 11.5V20h14v-8.5M10 20v-5h4v5"/>',
+  lantern: '<path d="M9 3.5h6M10 3.5V6M14 3.5V6"/><rect x="7" y="6" width="10" height="13" rx="2"/><path d="M7 21h10M12 10v5"/><circle cx="12" cy="12.5" r="1.6"/>',
+  card: '<rect x="3" y="6" width="18" height="12" rx="1.5"/><path d="M3 10h18M6.5 14.5h4"/>',
+  bread: '<path d="M4 13c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5v4.5H4z"/><path d="M8.5 9.5l1 2.5M12 8.8l.6 2.7M15.5 9.5l-.6 2.5"/>',
 };
 export function icon(name, cls = '') {
   return `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || P.box}</svg>`;
@@ -59,5 +67,6 @@ export const ITEM_ICON = {
   beans: 'can', soup: 'can', chips: 'chips', bar: 'bar', apple: 'apple', cereal: 'box', water: 'bottle', soda: 'soda', juice: 'juice',
   bandage: 'cross', medkit: 'medkit', pills: 'pills', antibiotics: 'syringe', ammo9: 'ammo', shells: 'ammo', rifleAmmo: 'ammo',
   battery: 'battery', bottle: 'bottle', molotov: 'flame', keys: 'keys', gascan: 'gas',
-  knife: 'knife', bat: 'bat', crowbar: 'crowbar', machete: 'machete', axe: 'axe', pistol: 'pistol', shotgun: 'shotgun', sniper: 'rifle', fists: 'fist',
+  knife: 'knife', bat: 'bat', zlux: 'coin', flashlight: 'torch', lantern: 'lantern', dates: 'apple', bread: 'bread',
+  keycardRed: 'card', keycardBlue: 'card', keycardGreen: 'card', keycardGold: 'card', sewerKey: 'keys', crowbar: 'crowbar', machete: 'machete', axe: 'axe', pistol: 'pistol', shotgun: 'shotgun', sniper: 'rifle', fists: 'fist',
 };
