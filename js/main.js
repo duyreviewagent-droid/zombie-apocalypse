@@ -302,7 +302,7 @@ async function load() {
   Soldier.groundY = world.groundY; world.nBase = world.containers.length;
   for (const c of world.containers) { if (c.fixed) c.fixed0 = c.fixed.map(a => [...a]); if (c.kind === 'corpse') c.mapBody = true; }   // the map's own loot and bodies: a new run puts them back
   $('loadtext').textContent = 'they\'re coming'; await tick();
-  const s = new Soldier(KINDS.human, scene, { clone: false, onStep });
+  const s = new Soldier(KINDS.human, scene, { clone: true, onStep });   // (its own copy: the pack, guns and hands it wears must not end up on every zombie / person cloned from KINDS.human)
   s.update(1 / 60, {});
   P = { s, team: 0, hp: 100, maxHp: 100, alive: true, name: 'YOU', isPlayer: true, kills: 0, deaths: 0, hurtT: 99, deadT: 0 };
   P.arms = new Arms(s, scene, [], { onEvent: (ty, d) => armsEvent(ty, d), countThrow: id => G.inv ? (G.inv[id] || 0) : 0 });
@@ -360,6 +360,7 @@ async function load() {
 }
 
 // ---------------------------------------------------------------- footsteps (and the noise they make)
+const STEPB = { t: 0, n: 0 };
 function onStep(s, e) {
   if (G.state !== 'play' && G.state !== 'dead' && G.state !== 'title') return;
   const mine = P && s === P.s;
@@ -369,6 +370,8 @@ function onStep(s, e) {
   if (e.body) return SND.bodyFall(s.pos, Math.min(1, e.body / 5));
   if (!s.visible && !(s.pivot && s.pivot.parent && Z.list.some(u => u.s === s && u.active))) return;
   if (!mine && s.pos.distanceTo(P.s.pos) > 30) return;
+  // a crowd: at most 6 other people's footsteps every 0.1 s — the near ones always, the far ones only while there's room
+  if (!mine) { const now = performance.now(); if (now - STEPB.t > 100) { STEPB.t = now; STEPB.n = 0; } if (STEPB.n >= 6 && s.pos.distanceTo(P.s.pos) > 7) return; STEPB.n++; }
   SND.step({ ...e, pan: mine ? e.side * 0.12 : 0, pos: mine ? null : V().set(s.pos.x, 0.1, s.pos.z), surface, mine, zombie: !!s.isZombie, heavy: mine ? 1 : (s.isZombie && s.big ? 1.0 : 0.75) });
   if (mine) noise(s.pos, e.crouch > 0.5 ? 1.5 : e.run > 0.5 ? 13 : 5);
 }
@@ -520,7 +523,8 @@ function updateThrows(dt) {
 
 // ---------------------------------------------------------------- input
 addEventListener('keydown', e => {
-  if (e.metaKey || MP.typing()) return;   // MP: typing in the chat / lobby
+  if (e.metaKey) { keys.clear(); return; }   // Cmd-anything (Cmd-Tab, Cmd-Q...): a Mac never sends the keyups that follow, so nothing may stay held
+  if (MP.typing()) return;   // MP: typing in the chat / lobby
   if (G.state === 'note') { if (['KeyE', 'Space', 'Escape', 'Enter', 'Tab'].includes(e.code)) { closeNote(); e.preventDefault(); } return; }
   if (G.state === 'intro') return;
   if (G.state === 'news') { if (['Space', 'Enter', 'Escape'].includes(e.code) && G.news && G.news.t > 1) endNews(true); e.preventDefault(); return; }
@@ -538,7 +542,7 @@ addEventListener('keydown', e => {
   if (G.state !== 'play' || !P.alive) return;
   if (G.grabbedBy && (e.code === 'Space' || e.code === 'KeyE')) { struggle(); e.preventDefault(); return; }
   if (e.code === 'Space') { G.jumpReq = true; tut('jump'); }
-  if (e.code === 'KeyC' || e.code === 'ControlLeft') { G.crouch = !G.crouch; if (G.crouch) tut('crouch'); }
+  if (e.code === 'KeyC') { G.crouch = !G.crouch; if (G.crouch) tut('crouch'); }
   if (e.code === 'KeyR') P.arms.cur && P.arms.startReload();
   if (e.code === 'KeyE') G.useReq = true;
   if (e.code === 'KeyF') { if (!(G.inv && G.inv.flashlight > 0)) { toast('No flashlight — search attics, nightstands, garages, cars', 'bad'); return; } G.flashlight = !G.flashlight; SND.flashlight(G.flashlight); if (G.flashlight && G.battery <= 0) toast('Flashlight is dead — find batteries', 'bad'); }
@@ -549,7 +553,7 @@ addEventListener('keydown', e => {
   const n = { Digit1: 1, Digit2: 2, Digit3: 3, Digit4: 4, Digit5: 5 }[e.code]; if (n) selectSlot(n);
   e.preventDefault();
 });
-addEventListener('keyup', e => { keys.delete(e.code); });
+addEventListener('keyup', e => { keys.delete(e.code); if (e.key === 'Meta') keys.clear(); });
 addEventListener('blur', () => { keys.clear(); G.mouse.left = G.mouse.right = false; });
 canvas.addEventListener('pointermove', e => { if (TOUCH && e.pointerType === 'touch') return; G.mouse.x = e.clientX; G.mouse.y = e.clientY; G.mouse.inside = true; });
 addEventListener('pointermove', e => { if (TOUCH && e.pointerType === 'touch') return; G.mouse.x = e.clientX; G.mouse.y = e.clientY; });
@@ -635,7 +639,12 @@ C.events.kill = (v, by, info) => {
   if (v.remote) return MP.hitLanded(v, 0, by, info, true);   // MP: you knocked a friend down (friendly fire)
   if (!v.zombie) return;
   MP.hitLanded(v, 0, by, info, true);   // MP: a client's kill on one of the host's dead
-  SND.zombie('die', v.s.pos, zp(v), v.s.deathRate || 1.075);
+  { // how it dies, by ear: a head shot drops it without a sound but the skull going; one already on the floor just stops
+    const rate = v.s.deathRate || 1.075, wasDown = v.z.down > 0, head = info.part === 'head';
+    if (head) SND.impact(V(v.s.pos.x, (v.s.pos.y || 0) + (wasDown ? 0.25 : 1.6), v.s.pos.z), 'fleshHead', 0.9);
+    if (head || wasDown) { if (!wasDown) SND.bodyFall(v.s.pos, 0.8, SND.DEATH_HIT / rate); else if (!head && Math.random() < 0.5) SND.zombie('hurt', v.s.pos, zp(v)); }
+    else SND.zombie('die', v.s.pos, zp(v), rate);
+  }
   v.deadT = 0; v.z.down = 0;
   if (by === P) { G.stats.kills++; save.kills++; if (info.part === 'head') G.stats.heads++; STATS.event('kill', { info }); }
   if (G.grabbedBy === v) releaseGrab(false);
@@ -776,7 +785,8 @@ const DIFF = { dmg: 1 };
 const POOL_CAP = { easy: 34, medium: 34, hard: 40, extreme: 60, apocalypse: 84, zombiex: 110 };
 function playerStep(dt) {
   const A = P.arms, S = P.s;
-  if (!P.alive) { S.update(dt, {}); world.collide(S.pos, 0.3); A.update(dt, { trigger: false }); return; }
+  if (!P.alive) { S.update(dt, {}); world.collide(S.pos, 0.3); A.update(dt, { trigger: false }); updateDropped(dt); return; }
+  if (DROPPED.length) clearDropped();   // back up (a new run, or a friend got you up): it's in your hands again
   if (DRIVE.active()) {   // at the wheel / on the bike: WASD drives, Space brakes, E gets out
     S.update(dt, { move: null, speed: 0, aimYaw: S.yaw, aimPitch: 0, combat: 0 });
     DRIVE.update(dt, { up: keys.has('KeyW'), down: keys.has('KeyS'), left: keys.has('KeyA'), right: keys.has('KeyD'), brake: keys.has('Space'), jump: G.jumpReq, sprint: keys.has('ShiftLeft') || keys.has('ShiftRight'), exit: G.useReq });
@@ -784,6 +794,9 @@ function playerStep(dt) {
   }
   cursorAim();
   const grabbed = !!G.grabbedBy, swapping = !!(HANDS.cur && HANDS.cur.weapon), busy = !!G.search || PACK.swing > 0.15 || swapping;
+  // a click or a jump pressed mid weapon swap isn't lost: it happens as soon as the new one's in your hand
+  if (swapping) { if (G.clickReq) G.bufClick = G.t; if (G.jumpReq) G.bufJump = G.t; }
+  else { if (G.bufClick && G.t - G.bufClick < 0.45) G.clickReq = true; if (G.bufJump && G.t - G.bufJump < 0.45) G.jumpReq = true; G.bufClick = G.bufJump = 0; }
   let move = G.state === 'play' && !grabbed ? inputMove() : null;
   if (G.search && move != null) { cancelSearch(); }
   // walking off while your hand's still in the cupboard, or while you're getting the pack off: you stop doing it
@@ -793,7 +806,7 @@ function playerStep(dt) {
   if (G.clickReq && HANDS.busy() && !swapping && !G.pickAct) HANDS.flush();   // you drop what you're doing to fight
   if (G.search) move = null;
   const gun = !!A.cur;
-  const aim = gun && G.mouse.right && G.state === 'play' && !grabbed;
+  const aim = gun && G.mouse.right && rdrag.d < 12 && G.state === 'play' && !grabbed;   // hold right still to aim; drag with it to look around
   const trigger = gun && G.mouse.left && G.state === 'play' && !grabbed && !busy;
   if (trigger || (G.clickReq && !gun)) G.lastShot = G.t;
   const wantSprint = (keys.has('ShiftLeft') || keys.has('ShiftRight')) && move != null && !aim && !trigger && (!FP() || Math.abs(wrapPi(move - G.camYaw)) < 1.2);
@@ -803,7 +816,7 @@ function playerStep(dt) {
   // how fast you can go: hurt, starving, exhausted all slow you down
   const weak = clamp(1 - Math.max(0, 40 - P.hp) / 80 - (G.food < 10 ? 0.12 : 0) - (G.water < 10 ? 0.12 : 0) - (G.winded ? 0.15 : 0), 0.55, 1);
   let speed = (G.crouch ? S.vc * 1.05 : aim ? S.vw * 1.05 : sprint ? S.vr * 1.22 : S.vr * 0.92) * weak;
-  if (G.stick && !sprint && G.stick.m < 0.6) speed = Math.min(speed, S.vw * 1.05 * weak);   // a light push on the touch stick walks
+  if (G.stick && !sprint && G.stick.m < 0.6) speed = Math.min(speed, S.vw * 1.05 * weak * (0.4 + 0.6 * smooth(0.12, 0.6, G.stick.m)));   // a light push on the touch stick walks — the lighter, the slower (a creep at the edge of the dead zone)
   const eye = P.head || V().set(S.pos.x, 1.6, S.pos.z);
   let dx = G.aimPoint.x - eye.x, dy = G.aimPoint.y - eye.y, dz = G.aimPoint.z - eye.z, hd = Math.hypot(dx, dz);
   if (hd < 1.2) { dx = Math.sin(G.camYaw); dz = Math.cos(G.camYaw); dy = Math.sin(G.camPitch); hd = 1; }
@@ -813,9 +826,17 @@ function playerStep(dt) {
     const facing = move != null ? move : S.yaw;
     // a ledge in front at chest height (crates, a landing, a porch roof): climb up onto it
     const L = !S.climbing && world.ledgeAhead ? world.ledgeAhead(S.pos.x, S.pos.z, S.gyT ?? S.gy ?? 0, facing) : null;
-    if (L && G.stam > 10) { STATS.event('climb'); S.mantle(L); P.s.playUp('Push', { rate: 0.9, fade: 0.1, fadeAt: 0.8 }); reachHand(out => { out.set(L.x, L.y + 0.05, L.z); return true; }, { side: 1, inT: 0.15, hold: 0.45, out: 0.3, curl: 1 }); G.stam -= 10; noise(S.pos, 5); SND.land(2, true); G.jumpReq = false; }
+    if (L && G.stam > 10) { STATS.event('climb'); S.mantle(L); P.s.playUp('Push', { rate: 0.9, fade: 0.1, fadeAt: 0.8 }); reachHand(out => { out.set(L.x, L.y + 0.05, L.z); return true; }, { side: freeHand(), inT: 0.15, hold: 0.45, out: 0.3, curl: 1 }); G.stam -= 10; noise(S.pos, 5); SND.land(2, true); G.jumpReq = false; }
     const va = !L && !S.climbing ? world.vaultAhead(S.pos.x, S.pos.z, facing) : null;
-    if (va && G.stam > 8) { G.vault = { x0: S.pos.x, z0: S.pos.z, x1: va.x, z1: va.z, t: 0, dur: 0.62 }; G.stam -= 8; noise(S.pos, 6); }
+    if (va && G.stam > 8) {
+      // a real hop over it: the body's own jump (take-off speed from how high the thing is), a hand planted on top
+      const J = S.jump, top = va.box.y1 ?? 0.9, hT = clamp(top - (S.gy || 0) + 0.2, 0.45, 0.95);
+      J.st = 'air'; J.t = 0; J.y = Math.max(0, J.y || 0); J.vy0 = J.vy = Math.sqrt(2 * 9.81 * hT); J.runAt = 0.6; J.fall = false; J.clipL = 0;
+      const dur = 2 * J.vy0 / 9.81 * 0.95, hx = lerp(S.pos.x, va.x, 0.42), hz = lerp(S.pos.z, va.z, 0.42);
+      G.vault = { x0: S.pos.x, z0: S.pos.z, x1: va.x, z1: va.z, t: 0, dur };
+      reachHand(out => { out.set(hx, top + 0.03, hz); return true; }, { side: freeHand(), inT: 0.12, hold: dur * 0.3, out: 0.25, curl: 1 });
+      G.stam -= 8; noise(S.pos, 6); SND.land(1.5, true);
+    }
   }
   const cmd = { move, speed: move != null ? speed : 0, aimYaw, aimPitch: Math.atan2(dy, hd), combat: combat || A.throwT >= 0 ? 1 : 0, crouch: (G.crouch || (world.headroom && world.headroom(S.pos.x, S.pos.z, S.gy || 0) < 1.75)) && !G.vault, jump: G.jumpReq && !G.vault && !grabbed && !busy && G.stam > 5, tired: G.winded ? 0.8 : 0 };
   if (G.vault) { cmd.move = null; cmd.speed = 0; cmd.face = Math.atan2(G.vault.x1 - G.vault.x0, G.vault.z1 - G.vault.z0); }
@@ -825,11 +846,10 @@ function playerStep(dt) {
   if (G.doorUse) { const U2 = G.doorUse; U2.t += dt; if (U2.snap) { const k = Math.min(1, U2.t / 0.28), e = k * k * (3 - 2 * k); S.pos.x = lerp(U2.x0, U2.x1, e); S.pos.z = lerp(U2.z0, U2.z1, e); } cmd.move = null; cmd.speed = 0; cmd.face = U2.face; cmd.aimYaw = U2.face; cmd.combat = 0; if (U2.t > 0.95 || move != null && U2.t > 0.5) G.doorUse = null; }
   const ox = S.pos.x, oz = S.pos.z;
   S.update(dt, cmd);
-  if (HELI.blocks(S.pos.x, S.pos.z, 0.33) && !HELI.blocks(ox, oz, 0.33)) { S.pos.x = ox; S.pos.z = oz; }   // the parked helicopter is solid
+  if (HELI.blocks(S.pos.x, S.pos.z, 0.33)) { if (!HELI.blocks(ox, oz, 0.33)) { S.pos.x = ox; S.pos.z = oz; } else HELI.pushOut(S.pos, 0.33); }   // the parked helicopter is solid (already inside it: step out to the nearest edge)
   if (G.vault) {
-    const Vt = G.vault; Vt.t += dt; const k = smooth(0, 1, Vt.t / Vt.dur);
+    const Vt = G.vault; Vt.t += dt; const k = clamp(Vt.t / Vt.dur, 0, 1);   // (the height is the body's own jump arc)
     S.pos.x = lerp(Vt.x0, Vt.x1, k); S.pos.z = lerp(Vt.z0, Vt.z1, k); S.vel.set(0, 0, 0);
-    S.pivot.position.y = (S.gy || 0) + Math.sin(k * Math.PI) * 0.75; S.pivot.updateMatrixWorld(true);
     G.vaulting = true;
     if (Vt.t >= Vt.dur) { G.vault = null; G.vaulting = false; world.collide(S.pos, 0.33); }
     else world.collide(S.pos, 0.33, { ignoreVault: true });
@@ -1890,6 +1910,9 @@ function phoneTick(dt) {
 const AMBS = [];
 // one shared light for the ambulance's beacons, in the scene from the start (adding a light later recompiles every shader)
 const ambLight = new THREE.PointLight(0xff2010, 0, 18, 1.6); world.addLight(ambLight);
+// and its headlights' beam down the road at night (computers only: one more light in every shader costs a phone too much)
+const ambSpot = MOB ? null : new THREE.SpotLight(0xfff2dc, 0, 42, 0.55, 0.55, 1.4);
+if (ambSpot) { ambSpot.castShadow = false; world.addLight(ambSpot); scene.add(ambSpot.target); }
 const ambFwd = V(), ambO = V();
 // the road ahead of the van: a wreck, a parked car, a barricade? (the same boxes you collide with)
 function ambBlocked(A) { ambFwd.set(A.axis === 'x' ? A.dir : 0, 0, A.axis === 'z' ? A.dir : 0); ambO.set(A.pos.x, 0.8, A.pos.z).addScaledVector(ambFwd, 2.7); const h = world.ray(ambO, ambFwd, 4); return h ? h.t : null; }
@@ -1910,7 +1933,7 @@ function ambDrive(A, dt) {
   if (L.tail) L.tail.emissiveIntensity = A.speed < A.prevSpeed - 0.1 * dt * 60 || (A.state === 'driving' && A.speed < 2) ? 2 : 0.4;
   A.prevSpeed = A.speed;
 }
-const ambPaint = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.35, metalness: 0.2 });
+const ambPaint = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.2, metalness: 0.12, envMapIntensity: 1.35 });   // a fresh glossy fleet finish (the same shader as every other car: no hitch when it turns up)
 function dispatchAmbulance(eta, n) { AMBS.push({ n, eta, t: 0, state: 'coming' }); }
 const ambRed = new THREE.MeshStandardMaterial({ color: 0xb01810, roughness: 0.42, metalness: 0.15 });   // the red stripe and roof panel (vehicles.js wants the material)
 function makeAmbulance() {
@@ -1923,7 +1946,7 @@ function makeAmbulance() {
   return { g, red, wht, light: ambLight, live, prevSpeed: 0, parts: g.userData.parts || [] };
 }
 function updateAmbulances(dt) {
-  if (!AMBS.some(B => B.g && B.state !== 'gone')) ambLight.intensity = 0;
+  if (!AMBS.some(B => B.g && B.state !== 'gone')) { ambLight.intensity = 0; if (ambSpot) ambSpot.intensity = 0; }
   for (const A of AMBS) {
     A.t += dt;
     if (A.state === 'coming' && A.t >= A.eta - 9) {   // it turns into the street, siren going
@@ -1941,17 +1964,22 @@ function updateAmbulances(dt) {
     if (!A.g) continue;
     const flash = Math.floor(G.t * 6) % 2, lit = A.state !== 'gone' && A.state !== 'coming';
     A.red.emissiveIntensity = lit && flash ? 3 : 0.2; A.wht.emissiveIntensity = lit && !flash ? 3 : 0.2;
-    if (AMBS.find(B => B.g && B.state !== 'gone') === A) { ambLight.position.copy(A.pos); ambLight.position.y += 2.8; ambLight.intensity = lit ? (flash ? 14 : 6) : 0; ambLight.color.setHex(flash ? 0xff2010 : 0xffffff); }
+    if (AMBS.find(B => B.g && B.state !== 'gone') === A) {
+      ambLight.position.copy(A.pos); ambLight.position.y += 2.8; ambLight.intensity = lit ? (flash ? 14 : 6) : 0; ambLight.color.setHex(flash ? 0xff2010 : 0xffffff);
+      const nt = world.night || 0, ya = A.g.rotation.y, fx2 = Math.sin(ya), fz2 = Math.cos(ya);
+      if (ambSpot) { ambSpot.position.set(A.pos.x + fx2 * 2.9, 0.85, A.pos.z + fz2 * 2.9); ambSpot.target.position.set(A.pos.x + fx2 * 16, 0, A.pos.z + fz2 * 16); ambSpot.target.updateMatrixWorld(); ambSpot.intensity = lit && nt > 0.25 ? 26 * smooth(0.25, 0.6, nt) : 0; }
+    }
+    if (A.live && A.live.head) A.live.head.emissiveIntensity = lit ? 0.5 + 2.5 * smooth(0.15, 0.6, world.night || 0) : 0;   // dipped headlights on, always (bright at night)
     if (A.state === 'driving') {
       const cur = A.axis === 'x' ? A.pos.x : A.pos.z, left = (A.stop - cur) * A.dir;
-      let want = left < 18 ? Math.max(1.2, left * 0.8) : 14;
+      let want = Math.min(14, Math.max(0.7, Math.sqrt(2 * 4.5 * Math.max(0, left - 0.15))));   // it brakes like a real van: a steady ~4.5 m/s², the nose dipping, right down to the spot
       const bt = ambBlocked(A); if (bt != null) want = Math.min(want, Math.max(0, (bt - 0.6) * 2.5));   // something in the road: brake and stop short of it
       A.speed = want > A.speed ? Math.min(want, A.speed + 6 * dt) : Math.max(want, A.speed - 12 * dt);
       if (bt != null && bt < 1.2 && A.speed < 0.3) { A.stop = cur; A.speed = 0; }   // can't get through: the doors open here
       if (A.axis === 'x') A.pos.x += A.dir * A.speed * dt; else A.pos.z += A.dir * A.speed * dt;
       A.sirenT -= dt; if (A.sirenT <= 0) { A.sirenT = 3.2; SND.siren && SND.siren(A.pos.clone(), 3.2); noise(A.pos, 45); }
       ambHits(A);
-      if (left <= 0.4 || A.stop === cur) { A.state = 'open'; A.openT = 20; A.speed = 0; for (const pt of A.parts) { pt.base ??= pt.o.rotation[pt.axis || 'y']; } A.openK = 0; SND.door('open', A.pos.clone()); A.board = []; if (PEOPLE.ambulanceArrives) PEOPLE.ambulanceArrives(A, PH.chance); think(A.n === 0 ? 'The ambulance! Get in the back — quick!' : 'Another one. Get in!', 3); }
+      if (left <= 0.2 || A.stop === cur) { A.state = 'open'; A.openT = 20; A.speed = 0; for (const pt of A.parts) { pt.base ??= pt.o.rotation[pt.axis || 'y']; } A.openK = 0; SND.door('open', A.pos.clone()); A.board = []; if (PEOPLE.ambulanceArrives) PEOPLE.ambulanceArrives(A, PH.chance); think(A.n === 0 ? 'The ambulance! Get in the back — quick!' : 'Another one. Get in!', 3); }
     }
     if (A.state === 'open') {
       A.openK = Math.min(1, A.openK + dt * 2); for (const pt of A.parts) pt.o.rotation[pt.axis || 'y'] = pt.base + pt.a * A.openK;
@@ -2303,10 +2331,19 @@ function startEscape() {
 function updateEscape(dt) {
   G.escT += dt;
   if (G.driving) {
-    // the truck backs out and drives off down Main St, east
-    const T = world.truck; G.driving.t += dt; const t = G.driving.t;
-    if (t < 1.6) { T.g.position.z -= dt * 3.2 * Math.sign(T.z); }
-    else { T.g.rotation.y = dampAngle(T.g.rotation.y, Math.PI / 2, 2.5, dt); T.g.position.x += dt * Math.min(16, (t - 1.6) * 6); T.g.position.z = damp(T.g.position.z, 2.2, 1.5, dt); }
+    // the truck pulls out of the driveway and drives off down Main St, east — steered like a real car from wherever it
+    // actually stands (pure pursuit of a point in the eastbound lane ahead; it can only turn as it rolls), wheels turning
+    const T = world.truck; G.driving.t += dt; const t = G.driving.t, D = G.driving, WB = 3.1;
+    if (!D.live) { D.live = T.g.userData.live || (T.g.userData.wheelMeshes ? makeDrivable(T.g, T.type || 'pickup') : null); D.v = 0; D.steer = 0; }
+    const gp = T.g.position, yaw = T.g.rotation.y, tx = gp.x + 9, tz = 2.2;
+    const alpha = wrapPi(Math.atan2(tx - gp.x, tz - gp.z) - yaw), Ld = Math.hypot(tx - gp.x, tz - gp.z);
+    const steerW = clamp(Math.atan2(2 * WB * Math.sin(alpha), Ld), -0.6, 0.6);
+    D.steer = damp(D.steer, steerW, 4, dt);
+    const vW = Math.min(16, 0.8 + t * 3.2) * (Math.abs(D.steer) > 0.25 ? 0.4 : 1);
+    D.v = vW > D.v ? Math.min(vW, D.v + 4.5 * dt) : Math.max(vW, D.v - 6 * dt);
+    T.g.rotation.y = yaw + D.v / WB * Math.tan(D.steer) * dt;
+    gp.x += Math.sin(T.g.rotation.y) * D.v * dt; gp.z += Math.cos(T.g.rotation.y) * D.v * dt;
+    if (D.live) { for (const w of D.live.wheels) { w.spin.rotation.x += D.v * dt / D.live.r; if (w.front) w.hub.rotation.y = D.steer; } if (D.live.body) D.live.body.rotation.x = damp(D.live.body.rotation.x, -clamp((vW - D.v) * 0.004, -0.03, 0.03), 6, dt); }
     if (!G.driving.crash && T.g.position.x > 103) { G.driving.crash = true; SND.door('break', V(105, 1, 2)); SND.glass(V(105, 1, 2), 1); C.shake = 0.6; }
     T.box.off = true;
   }
@@ -2408,7 +2445,22 @@ function separate() {
       }
     }
   }
+  // the ones on the floor (knocked down, or dead) are heavy: the others walk round them, not through them, and they
+  // don't budge (measured at the hips — where the body actually is, not where its feet were). You can still step over.
+  for (const u of Z.list) {
+    if (!u.active || (u.alive && !(u.z.down > 0)) || !u.s.B || !u.s.B.Hips || u.s.pos.distanceTo(F) > 40) continue;
+    const h = u.s.B.Hips.getWorldPosition(sepV), cx = Math.floor(h.x / 2), cz = Math.floor(h.z / 2), R = 0.42 * (u.sizeK || 1);
+    for (let ox = -1; ox <= 1; ox++) for (let oz = -1; oz <= 1; oz++) {
+      const bucket = sepHash.get(key(cx + ox, cz + oz)); if (!bucket) continue;
+      for (const j of bucket) {
+        const w = list[j]; if (w === P || w === u || (w.z && w.z.state === 'feed') || w.s.act === 'Fixing_Kneeling') continue;
+        const b = w.s.pos, dx = b.x - h.x, dz = b.z - h.z, d = Math.hypot(dx, dz), Rr = R + 0.25 * (w.sizeK || 1);
+        if (d < Rr && d > 1e-4 && Math.abs((b.y || 0) - (u.s.pos.y || 0)) < 1.2) { const k = (Rr - d) / d * 0.35; b.x += dx * k; b.z += dz * k; }
+      }
+    }
+  }
 }
+const sepV = V();
 // keep the right number of the dead around you: more at night, more every day
 function populate(dt, initial = false) {
   G.popT = (G.popT || 0) - dt; if (G.popT > 0 && !initial) return; G.popT = 1.2;
@@ -2532,13 +2584,48 @@ function survive(dt) {
   if (G.food < 20 && !G.saidFood) { G.saidFood = true; think('I\'m starving. I have to eat something.', 3.5); } if (G.food > 40) G.saidFood = false;
   if (G.water < 20 && !G.saidWater) { G.saidWater = true; think('My mouth is like sand. I need water.', 3.5); } if (G.water > 40) G.saidWater = false;
 }
+// what you were holding falls out of your hand when you go down: a real copy of it, tumbling to the floor and lying there
+const DROPPED = [];
+function dropHeld(info = {}) {
+  const src = P.arms.cur ? P.arms.guns[P.arms.cur] : MEL.cur && MEL.cur !== 'fists' ? MEL.meshes[MEL.cur] : null;
+  if (!src || !src.visible || !src.parent) return;
+  src.updateWorldMatrix(true, true);
+  const m = src.clone(true); src.matrixWorld.decompose(m.position, m.quaternion, m.scale); m.visible = true;
+  m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = true; } });
+  scene.add(m);
+  const d = info.dir || V(Math.sin(P.s.yaw), 0, Math.cos(P.s.yaw));
+  DROPPED.push({ m, v: V(d.x * 1.2 + rnd(-0.5, 0.5), 1.4, d.z * 1.2 + rnd(-0.5, 0.5)), w: V(rnd(-6, 6), rnd(-3, 3), rnd(-6, 6)), q1: null, bounce: 0 });
+}
+const dropB = new THREE.Box3();
+function updateDropped(dt) {
+  for (const D of DROPPED) {
+    const m = D.m, p = m.position, gy = (world.groundY ? world.groundY(p.x, p.z, p.y + 0.3) : 0) + 0.01;
+    if (!D.q1) {
+      D.v.y -= 9.8 * dt; p.addScaledVector(D.v, dt);
+      m.rotation.x += D.w.x * dt; m.rotation.y += D.w.y * dt; m.rotation.z += D.w.z * dt;
+      world.collide && world.collide(p, 0.08);
+      if (p.y <= gy + 0.06 && D.v.y < 0) {
+        if (D.v.y < -1.6 && D.bounce < 2) { D.bounce++; D.v.y *= -0.28; D.v.x *= 0.45; D.v.z *= 0.45; D.w.multiplyScalar(0.4); SND.impact(p.clone(), 'wood', 0.5 / D.bounce); }
+        else {   // it settles flat on its side, the way it came down
+          const e = new THREE.Euler().setFromQuaternion(m.quaternion, 'YXZ');
+          D.q1 = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, e.y, Math.abs(e.z) > 1.57 ? -Math.PI / 2 : Math.PI / 2, 'YXZ'));
+        }
+      }
+    }
+    if (D.q1) { if (D.rest) continue; m.quaternion.slerp(D.q1, 1 - Math.exp(-14 * dt)); if (m.quaternion.angleTo(D.q1) < 0.01) { m.quaternion.copy(D.q1); D.rest = true; } }
+    m.updateMatrixWorld(true); dropB.setFromObject(m);
+    if (dropB.min.y < gy) p.y += gy - dropB.min.y; else if (D.q1) p.y -= Math.min(dropB.min.y - gy, 0.5 * dt + 0.002);
+    m.updateMatrixWorld(true);
+  }
+}
+function clearDropped() { for (const D of DROPPED) scene.remove(D.m); DROPPED.length = 0; }
 function playerDied(info) {
   if (G.state === 'bag' || G.state === 'note') { showScreen(null); noteDone = null; }
   $('phone').classList.remove('show'); PH.call = null;
   DRIVE.reset(); HANDS.flush(); G.pickAct = false; if (G.packAnim || PACK.swing > 0) G.packAnim = { dir: -1, t: 0, snd: {} };
   G.state = 'dead'; P.deadT = 0; G.deathCause = info.infection ? 'turned' : info.starve ? 'starved' : info.thirst ? 'thirst' : info.bleed ? 'bled' : info.fire ? 'burned' : info.fall ? 'fall' : info.crash ? 'crash' : info.human ? 'killed' : 'eaten';
   if (G.grabbedBy) releaseGrab(false);
-  cancelSearch(); MEL.hideAll(); P.arms.hideAll();
+  cancelSearch(); dropHeld(info); MEL.hideAll(); P.arms.hideAll();
   SND.sting('death'); SND.musicPlaying(false); SND.playerDeath(P.s.deathRate || 1);
   save.deaths++; writeSave();
   bigText(G.deathCause === 'turned' ? 'YOU TURNED' : 'YOU DIED', '', 5);
@@ -2799,6 +2886,8 @@ function edgeSteer(dt) {
   if (G.state !== 'play' && G.state !== 'dead') return;
   if (keys.has('ArrowLeft')) { G.camYaw += 2.2 * dt; G.lookT = G.t; } if (keys.has('ArrowRight')) { G.camYaw -= 2.2 * dt; G.lookT = G.t; }
   if (keys.has('ArrowUp')) G.camPitch += 1.2 * dt; if (keys.has('ArrowDown')) G.camPitch -= 1.2 * dt;
+  // touch aim assist: a quick, smooth turn onto the one you're attacking (not a jump cut); for ~0.35 s at most
+  if (G.assistYaw != null) { if (G.t > (G.assistT || 0)) G.assistYaw = null; else { const k = 1 - Math.exp(-18 * dt); G.camYaw += wrapPi(G.assistYaw - G.camYaw) * k; G.lookT = G.t; } }
   // third person: when you run somewhere and leave the mouse alone, the camera swings round behind you
   const S = P.s;
   if (P.alive && !DRIVE.active() && S.speed > 0.6 && G.t - (G.lookT || 0) > 0.7 && !MEL.swing && !G.mouse.right && G.t - G.lastShot > 1.5) {
@@ -3373,7 +3462,7 @@ const TC = initTouch({
     const gun = !!P.arms.cur, R = gun ? 28 : 4.2, cone = gun ? 0.22 : 1.2; let best = null, bs = 1e9;
     for (const u of Z.list) { if (!u.active || !u.alive) continue; const dx = u.s.pos.x - P.s.pos.x, dz = u.s.pos.z - P.s.pos.z, d = Math.hypot(dx, dz); if (d > R || d < 0.2) continue;
       let da = Math.atan2(dx, dz) - G.camYaw; da = Math.atan2(Math.sin(da), Math.cos(da)); if (Math.abs(da) > cone) continue; const sc = d + Math.abs(da) * 3; if (sc < bs) { bs = sc; best = da; } }
-    if (best !== null) G.camYaw += best * (gun ? 0.85 : 1);
+    if (best !== null) { G.assistYaw = G.camYaw + best * (gun ? 0.85 : 1); G.assistT = G.t + 0.35; }   // (edgeSteer swings the camera there smoothly)
   },
   ammo: () => { const A = P && P.arms; if (!A || !A.cur) return ''; const a = A.ammo[A.cur]; return `${a.mag}/${G.inv[A.W.ammo] || 0}`; },
 });

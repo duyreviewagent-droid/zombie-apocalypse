@@ -1,4 +1,4 @@
-// Zombie_Apocalypse — STATS: what you did this run, and everything you've ever done in Maple Hollow.
+// Zombie_Apocalypse — STATS: what you did this run, and everything you've ever done (all maps).
 //  - the lead calls event(name, data) from the game's moments (a kill, a search, a bite...) and tick() every frame;
 //    tick measures how far you went on foot / running / at the wheel / on a bike, and how long you've lasted.
 //  - commitRun() folds the run into the lifetime totals (localStorage), per difficulty, and checks the records.
@@ -201,7 +201,10 @@ export function fmtDist(m) { m = Math.max(0, num(m)); return m >= 1000 ? `${(m /
 const fmtN = n => Math.round(num(n)).toLocaleString('en-US');
 const fmtBy = (f, v) => f === 'hours' ? fmtHours(v) : f === 'sec' ? fmtSec(v) : f === 'dist' ? fmtDist(v) : f === 'pct' ? Math.round(v) + '%' : fmtN(v);
 // a number that counts up when shown (data-n / data-f are read by animate())
-const N = (v, f = '') => `<span class="zst-n" data-n="${num(v)}" data-f="${f}">${fmtBy(f, v)}</span>`;
+// units (h / m / s / km) set small + lowercase in Oswald, so '0h 00m' never reads 'OH OOM' in the all-caps display font
+const unitHTML = t => String(t).replace(/(\d)\s?(km|h|m|s)\b/g, '$1<span class="zst-u">$2</span>');
+const fmtHTML = (f, v) => f === 'hours' || f === 'sec' || f === 'dist' ? unitHTML(fmtBy(f, v)) : fmtBy(f, v);
+const N = (v, f = '') => `<span class="zst-n" data-n="${num(v)}" data-f="${f}">${fmtHTML(f, v)}</span>`;
 const dName = d => esc((ctx.diffs && ctx.diffs[d] && ctx.diffs[d].name) || D_DEF[d] || d);
 const dList = () => { const k = Object.keys(ctx.diffs || D_DEF); for (const d in life.diff) if (!k.includes(d)) k.push(d); return k; };
 
@@ -265,7 +268,7 @@ function ensureScreen() {
   if (scr) return scr;
   scr = document.createElement('div'); scr.className = 'screen zst-screen'; scr.id = 'stats';
   scr.innerHTML = `<div class="zst-panel" role="dialog" aria-label="Stats">
-    <header><div><div class="zst-eye">maple hollow · records</div><h2>STATS</h2></div>
+    <header><div><div class="zst-eye">All maps · records</div><h2>STATS</h2></div>
       <nav class="zst-tabs"><button data-t="life">Lifetime</button><button data-t="diff">Per difficulty</button><button data-t="rec">Records</button></nav></header>
     <div class="zst-body"></div>
     <footer><button class="zst-btn" data-a="back">Back</button></footer></div>`;
@@ -297,7 +300,7 @@ export function addTitleButton(menu, no = '03') {
   if (!menu) return null;
   let b = menu.querySelector('#btnStats');
   if (!b) { b = document.createElement('button'); b.className = 'mi'; b.id = 'btnStats'; menu.appendChild(b); b.onclick = () => { if (ctx.click) ctx.click(); open('life'); }; }
-  const L = life, sub = L.runs ? `${fmtN(L.c.kills)} put down · ${fmtN(L.wins)} escape${L.wins === 1 ? '' : 's'} · ${fmtHours(L.hours)} survived` : 'Everything you\'ve done in Maple Hollow.';
+  const L = life, sub = L.runs ? `${fmtN(L.c.kills)} put down · ${fmtN(L.wins)} escape${L.wins === 1 ? '' : 's'} · ${fmtHours(L.hours)} survived` : 'Everything you\'ve done out there.';
   b.innerHTML = `<span class="no">${esc(no)}</span><span class="tx"><b>STATS</b><small>${esc(sub)}</small></span>`;
   return b;
 }
@@ -343,7 +346,7 @@ export function animate(root, dur = 900) {
     let more = false;
     ns.forEach((e, i) => {
       const k = Math.min(1, Math.max(0, (now - t0 - Math.min(i, 24) * 22) / dur)), v = +e.dataset.n * (1 - Math.pow(1 - k, 3));
-      e.textContent = fmtBy(e.dataset.f, k >= 1 ? +e.dataset.n : v); if (k < 1) more = true;
+      e.innerHTML = fmtHTML(e.dataset.f, k >= 1 ? +e.dataset.n : v); if (k < 1) more = true;
     });
     if (more) requestAnimationFrame(go);
   };
@@ -364,7 +367,7 @@ function injectCSS() {
 .zst-panel::before { content: ''; position: absolute; left: -1px; top: 26px; width: 3px; height: 46px; background: var(--zr); box-shadow: 0 0 16px rgba(198,42,30,.6); }
 @keyframes zstIn { from { opacity: 0; transform: translateY(14px) scale(.985); } }
 .zst-panel header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 22px 28px 14px; border-bottom: 1px solid var(--ze); flex: none; }
-.zst-eye { font-size: 10px; letter-spacing: .45em; text-transform: uppercase; color: var(--zr); margin-bottom: 4px; }
+.zst-eye { font-size: 12px; letter-spacing: .45em; text-transform: uppercase; color: var(--zr); margin-bottom: 4px; }
 .zst-panel h2 { margin: 0; font-family: 'Bebas Neue', 'Oswald', Impact, sans-serif; font-weight: 400; font-size: 46px; letter-spacing: .08em; line-height: .95; color: var(--zb); }
 .zst-tabs { display: flex; gap: 4px; background: rgba(0,0,0,.35); border: 1px solid var(--ze); padding: 3px; border-radius: 2px; flex-wrap: wrap; }
 .zst-tabs button { background: none; border: none; color: var(--zm); font: inherit; font-size: 12px; letter-spacing: .22em; text-transform: uppercase; padding: 8px 14px; cursor: pointer; border-radius: 1px; transition: all .18s; }
@@ -380,8 +383,11 @@ function injectCSS() {
 .zst-hero { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
 .zst-tile { position: relative; padding: 12px 14px; background: rgba(255,255,255,.035); border: 1px solid var(--ze, rgba(255,255,255,.08)); text-align: left; min-width: 0; overflow: hidden; }
 .zst-tile .ic { font-size: 18px; color: var(--zr, #c62a1e); }
-.zst-tile b { display: block; font-family: 'Bebas Neue', 'Oswald', Impact, sans-serif; font-weight: 400; font-size: 32px; line-height: 1.05; margin-top: 4px; color: var(--zb, #ece6d8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-.zst-tile small { display: block; font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--zd, #6e685e); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zst-tile b { display: block; font-family: 'Bebas Neue', 'Oswald', Impact, sans-serif; font-weight: 400; font-size: 32px; line-height: 1.15; padding: 2px 0 1px; margin-top: 4px; color: var(--zb, #ece6d8); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.zst-u { font-family: 'Oswald', 'Arial Narrow', sans-serif; font-size: .85em; font-weight: 500; text-transform: none; letter-spacing: .04em; margin: 0 .3em 0 .08em; opacity: .75; }
+.zst-u:last-child { margin-right: 0; }
+.zst-tile .zst-u, .zst-rec b .zst-u, .zst-dgrid b .zst-u, .zst-ring b .zst-u { font-size: .5em; }
+.zst-tile small { display: block; font-size: 12px; line-height: 1.25; letter-spacing: .16em; text-transform: uppercase; color: var(--zd, #6e685e); overflow-wrap: break-word; }
 .zst-tile.zst-big { padding: 16px 16px 14px; background: linear-gradient(160deg, rgba(198,42,30,.13), rgba(255,255,255,.02) 60%); }
 .zst-tile.zst-big b { font-size: clamp(32px, 4vw, 48px); }
 .zst-tile.zst-big .ic { font-size: 22px; } .zst-tile.zst-win .ic { color: #7ac04a; }
@@ -395,19 +401,19 @@ function injectCSS() {
 .zst-bars { display: flex; flex-direction: column; gap: 6px; }
 .zst-bar { display: grid; grid-template-columns: 16px 74px 1fr 46px; align-items: center; gap: 8px; font-size: 12px; letter-spacing: .06em; color: #cfc8ba; }
 .zst-bar .ic { font-size: 15px; color: var(--zm); } .zst-bar.zst-zero { opacity: .38; }
-.zst-bar .l { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zst-bar .l { line-height: 1.15; overflow-wrap: break-word; }
 .zst-bar .t, .zst-dbars .t { height: 6px; background: rgba(255,255,255,.07); border-radius: 3px; overflow: hidden; }
 .zst-bar .t i, .zst-dbars .t i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #8a1810, #c62a1e); border-radius: 3px; transition: width 1s cubic-bezier(.2,.8,.2,1); box-shadow: 0 0 8px rgba(198,42,30,.45); }
 .zst-bar b { text-align: right; font-weight: 500; color: var(--zb); font-variant-numeric: tabular-nums; }
 .zst-minis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 14px; }
 .zst-mini { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.05); font-size: 12px; letter-spacing: .05em; color: var(--zm, #9b9486); min-width: 0; }
 .zst-mini .ic { font-size: 14px; color: var(--zd, #6e685e); }
-.zst-mini span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zst-mini > span { flex: 1; min-width: 0; line-height: 1.2; overflow-wrap: break-word; }
 .zst-mini b { font-weight: 500; color: var(--zb, #ece6d8); font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .zst-ring { --p: 0; width: 108px; height: 108px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--zr) calc(var(--p) * 1%), rgba(255,255,255,.07) 0); position: relative; }
 .zst-ring::before { content: ''; position: absolute; inset: 8px; border-radius: 50%; background: #13110f; }
 .zst-ring div { position: relative; text-align: center; } .zst-ring b { display: block; font-family: 'Bebas Neue', sans-serif; font-weight: 400; font-size: 30px; line-height: 1; }
-.zst-ring small { font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--zd); }
+.zst-ring small { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--zd); }
 .zst-strip { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: rgba(255,255,255,.06); margin: 2px 0 10px; }
 .zst-strip i { display: block; height: 100%; width: 0; transition: width 1.1s cubic-bezier(.2,.8,.2,1); }
 .zst-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--zm); margin-bottom: 8px; }
@@ -420,7 +426,7 @@ function injectCSS() {
 .zst-dname b { display: block; font-family: 'Bebas Neue', sans-serif; font-weight: 400; font-size: 28px; letter-spacing: .08em; line-height: 1; color: var(--zb); }
 .zst-dname .sk { display: flex; gap: 2px; margin-top: 4px; color: var(--dc); font-size: 12px; }
 .zst-dgrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
-.zst-dgrid small, .zst-dbars small { display: block; font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--zd); white-space: nowrap; }
+.zst-dgrid small, .zst-dbars small { display: block; font-size: 10px; line-height: 1.2; letter-spacing: .16em; text-transform: uppercase; color: var(--zd); }
 .zst-dgrid b { display: block; font-family: 'Bebas Neue', sans-serif; font-weight: 400; font-size: 24px; line-height: 1.1; color: var(--zb); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .zst-dbars { display: flex; flex-direction: column; gap: 6px; }
 .zst-dbars > div { display: grid; grid-template-columns: 64px 1fr 56px; align-items: center; gap: 8px; }
@@ -430,15 +436,15 @@ function injectCSS() {
 .zst-rec { display: flex; gap: 14px; align-items: center; padding: 14px 16px; background: linear-gradient(150deg, rgba(201,162,74,.1), rgba(255,255,255,.02) 55%); border: 1px solid var(--ze); min-width: 0; }
 .zst-rec > .ic { font-size: 30px; color: #c9a24a; padding: 9px; border: 1px solid rgba(201,162,74,.35); border-radius: 50%; box-sizing: content-box; }
 .zst-rec > div { min-width: 0; } .zst-rec.zst-none { opacity: .4; } .zst-rec.zst-none > .ic { color: var(--zd); border-color: var(--ze); }
-.zst-rec small { display: block; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--zm); }
-.zst-rec b { display: block; font-family: 'Bebas Neue', sans-serif; font-weight: 400; font-size: 34px; line-height: 1.05; color: var(--zb); white-space: nowrap; }
+.zst-rec small { display: block; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--zm); }
+.zst-rec b { display: block; font-family: 'Bebas Neue', sans-serif; font-weight: 400; font-size: 34px; line-height: 1.15; color: var(--zb); overflow-wrap: anywhere; }
 .zst-rec em { display: block; font-style: normal; font-size: 11px; color: var(--zd); letter-spacing: .06em; }
 /* pause: this run */
 .zst-run { --zb: var(--bone, #ece6d8); --zm: var(--muted, #9b9486); --zd: var(--dim, #6e685e); --zr: var(--red, #c62a1e); text-align: left; margin: 0 0 14px; padding: 10px 12px 8px; background: rgba(0,0,0,.25); border: 1px solid var(--edge, rgba(255,255,255,.08)); font-family: 'Oswald', sans-serif; }
-.zst-runh { display: flex; justify-content: space-between; align-items: baseline; font-size: 10px; letter-spacing: .35em; text-transform: uppercase; color: var(--zr); margin-bottom: 4px; }
+.zst-runh { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; letter-spacing: .35em; text-transform: uppercase; color: var(--zr); margin-bottom: 4px; }
 .zst-runh span { letter-spacing: .12em; color: var(--zd); }
 .zst-rgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
-.zst-run .zst-mini { padding: 4px 0; font-size: 11px; } .zst-run .zst-mini b { font-size: 13px; }
+.zst-run .zst-mini { padding: 4px 0; font-size: 12px; } .zst-run .zst-mini b { font-size: 13px; }
 .zst-fav { margin-top: 6px; font-size: 11px; color: var(--zm); letter-spacing: .05em; display: flex; align-items: center; gap: 6px; } .zst-fav .ic { color: var(--zr); font-size: 14px; } .zst-fav b { color: var(--zb); font-weight: 500; }
 /* end of run */
 .zst-results { --zb: var(--bone, #ece6d8); --zm: var(--muted, #9b9486); --zd: var(--dim, #6e685e); --zr: var(--red, #c62a1e); --ze: var(--edge, rgba(255,255,255,.08)); margin: 18px 0; text-align: left; font-family: 'Oswald', sans-serif; }

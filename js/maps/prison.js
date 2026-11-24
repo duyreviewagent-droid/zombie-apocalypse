@@ -294,6 +294,16 @@ export function buildMap(K) {
     const { x0, z0, x1, z1 } = YARD;
     for (const [a, b, c, d] of [[x0, z0, -2, z0], [2, z0, x1, z0], [x0, z1, -2, z1], [2, z1, x1, z1], [x0, z0, x0, 13], [x0, 17, x0, z1], [x1, z0, x1, 13], [x1, 17, x1, z1]]) fence(a, b, c, d);
     K.region(x0, z0, x1, z1, 'dirt', 'gravel', 0.7);
+    // the yard is raked grey gravel, not bare earth: a gravel layer laid round the court, the weight pile and the handball pad
+    { const sub = (rs, [hx0, hz0, hx1, hz1]) => rs.flatMap(([a0, b0, a1, b1]) => {
+        if (hx0 >= a1 || hx1 <= a0 || hz0 >= b1 || hz1 <= b0) return [[a0, b0, a1, b1]];
+        const o = [], cz0 = Math.max(b0, hz0), cz1 = Math.min(b1, hz1);
+        if (hz0 > b0) o.push([a0, b0, a1, hz0]); if (hz1 < b1) o.push([a0, hz1, a1, b1]);
+        if (hx0 > a0) o.push([a0, cz0, hx0, cz1]); if (hx1 < a1) o.push([hx1, cz0, a1, cz1]);
+        return o; });
+      let rs = [[x0 + 0.1, z0 + 0.1, x1 - 0.1, z1 - 0.1]];
+      for (const h of [[-33, 11, -3, 29], [8, 10, 24, 24], [14, 36, 26, 42.5]]) rs = sub(rs, h);
+      for (const [a0, b0, a1, b1] of rs) K.slab(a0, b0, a1, b1, 'gravel', 'gravel', 0.012); }
     // basketball court
     K.slab(-33, 11, -3, 29, 'pCourt', 'concrete');
     const line = (a, b, c, d) => bx(a, 0.02, b, c, 0.035, d, 'white');

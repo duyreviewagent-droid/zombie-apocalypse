@@ -43,7 +43,7 @@ function mapNet(W) {
   // Blackwater's access road: staff drive in and park by the gatehouse, others drive out
   if (id === 'prison') return { id, roads: [{ ax: 'z', c: 44, a0: 103.5, a1: 154, lane: 2.9, kerb: 4.85, lo: false, hi: true }], nCars: 2, nBikes: 0, cruise: 8, kerbFrom: 104, kerbTo: 128 };
   // the stadium car park: the front aisle, cars crawling through looking for a space
-  if (id === 'stadium') return { id, roads: [{ ax: 'x', c: 62.4, a0: -104, a1: 104, lane: 1.75, kerb: null, lo: true, hi: true }], nCars: 3, nBikes: 0, cruise: 6.5 };
+  if (id === 'stadium') return { id, roads: [{ ax: 'x', c: 62.4, a0: -99, a1: 99, lane: 1.75, kerb: null, lo: true, hi: true }], nCars: 3, nBikes: 0, cruise: 6.5 };
   return null;   // the jungle: footpaths and a river, no roads
 }
 // keep only the stretch of each road a car can really drive (nothing solid in either lane); a road too short goes
@@ -55,8 +55,8 @@ function validate(N, W) {
     let lo = mid, hi = mid;
     if (N.id === 'maple') { lo = R.a0; hi = R.a1; }   // (parked cars stand in Maple's lanes: they're driven round)
     else { while (lo - 1.5 >= R.a0 && free(lo - 1.5)) lo -= 1.5; while (hi + 1.5 <= R.a1 && free(hi + 1.5)) hi += 1.5; }
-    if (lo > R.a0 + 1) { R.a0 = lo + 3; R.lo = false; } if (hi < R.a1 - 1) { R.a1 = hi - 3; R.hi = false; }
-    if (R.a1 - R.a0 >= 60) keep.push(R);
+    if (lo > R.a0 + 1.6) { R.a0 = lo + 3; R.lo = false; } if (hi < R.a1 - 1.6) { R.a1 = hi - 3; R.hi = false; }   // (1.5 m steps: within one step of the end is the end)
+    if (R.a1 - R.a0 >= 40) keep.push(R);
   }
   N.roads = keep;
   return keep.length ? N : null;
@@ -191,11 +191,10 @@ function addUturn(R, r, d, a, lat, v) {
 export function initTraffic(env) {
   E = env;
   window.__TRAFFIC = { T, get NET() { return NET; }, start, stop, update, dump, forcePanic: (c) => startPanic(c) };   // (tests)
-  try { NET = mapNet(E.world); if (NET) NET = validate(NET, E.world); } catch (e) { console.warn('traffic: no roads', e); NET = null; }
+  // (the roads are checked, and the kerbs chosen, on the first run: the outbreak's wrecks are still lying across them now)
+  try { NET = mapNet(E.world); if (NET) NET.spots = []; } catch (e) { console.warn('traffic: no roads', e); NET = null; }
   if (!NET) return;
   const W = E.world;
-  NET.spots = mkSpots(NET, W);
-  for (const R of NET.roads) R.esc = { 1: escapeA(R, 1, W), '-1': escapeA(R, -1, W) };
   // fewer on phones and tablets
   const k = MOB ? (DEV.phone ? 0.5 : 0.67) : 1;
   const nC = Math.max(1, Math.round(NET.nCars * k)), nB = Math.round((NET.nBikes || 0) * k);
@@ -245,6 +244,12 @@ export function start() {
   stop();
   if (!NET || !T.built || (E.MP && E.MP.on())) return;   // (online: no traffic — it isn't synced)
   const W = E.world, G = E.G, P = E.getP && E.getP();
+  if (!NET.checked) {   // the calm morning's streets (the chaos layer hidden): which stretches are drivable, where to park
+    NET.checked = true;
+    try { if (!validate(NET, W)) { NET.roads = []; } NET.spots = mkSpots(NET, W); for (const R of NET.roads) R.esc = { 1: escapeA(R, 1, W), '-1': escapeA(R, -1, W) }; }
+    catch (e) { console.warn('traffic: roads', e); NET.roads = []; NET.spots = []; }
+  }
+  if (!NET.roads.length) return;
   T.on = true; T.t = 0; T.startT = 0; T.panic = false; T.J = { busy: null, busyT: 0 };
   for (const S of NET.spots) S.taken = null;
   const px = P ? P.s.pos.x : 0, pz = P ? P.s.pos.z : 0;

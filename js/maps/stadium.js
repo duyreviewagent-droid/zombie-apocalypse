@@ -109,6 +109,9 @@ export function buildMap(K) {
   // the ends of a board run (between whole sponsor panels): a claret panel with a pale-blue rule, lit like the rest
   const bEnd = K.ctex ? K.ctex(64, 64, (g, w, h) => { g.fillStyle = HOME.col; g.fillRect(0, 0, w, h); g.fillStyle = HOME.col2; g.fillRect(0, h * 0.42, w, h * 0.16); g.fillStyle = 'rgba(0,0,0,0.2)'; for (let y = 0; y < h; y += 3) g.fillRect(0, y, w, 1); }, [1, 1]) : null;
   const boardEnd = add('sdBoardEnd', std({ map: bEnd, color: 0xffffff, emissive: 0xffffff, emissiveMap: bEnd, emissiveIntensity: 0.9, roughness: 0.4 }), 0.92);
+  // galvanised crowd-control barriers: top and bottom rails, vertical bars (alpha-tested; TILE = the barrier's height)
+  { const bt3 = K.ctex(64, 64, (g, w, h) => { g.clearRect(0, 0, w, h); g.fillStyle = '#c8ccd0'; g.fillRect(0, 2, w, 5); g.fillRect(0, h - 9, w, 5); for (let x = 3; x < w; x += 8) g.fillRect(x, 4, 2, h - 10); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, 6, w, 1); g.fillRect(0, h - 5, w, 1); }, [1, 1]);
+    add('sdBarrier', std({ map: bt3, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.45, metalness: 0.7 }), 1.1); }
   const strip = add('sdStrip', glow(0xf6f6f2, 0xfff6e8, 2.2));
   const lens = add('sdLens', glow(0xfffbe8, 0xfff4dc, 6, { side: THREE.DoubleSide }));
   const screenM = add('sdScreen', std({ map: T.screen, emissive: 0xffffff, emissiveMap: T.screen, emissiveIntensity: 1.25, roughness: 0.3 }));
@@ -271,7 +274,7 @@ export function buildMap(K) {
       K.inst(G.turnstile, MAT.metal, K.mat4(x, 0, z, yaw + Math.PI / 2));
       sbox(st, u - 0.17, st.back - 0.15, u + 0.17, st.back + 0.55, 0, 1.0, null, { surf: 'metal' });   // (a little narrower than the cabinet: the 0.7 m lane between two was too tight to get through)
     }
-    const [x, z] = P(st, (u0 + u1) / 2, st.back + 0.42); sign([label, 'TURNSTILES'], x, 2.72, z, yaw, 3.2, 0.62, '#0e2a4a');   // (under the canopy, over the lanes: the canopy hid a higher one)
+    const [x, z] = P(st, (u0 + u1) / 2, st.back + 0.58); sign([label, 'TURNSTILES'], x, 2.72, z, yaw, 3.2, 0.62, '#0e2a4a');   // (in front of the shutter that comes down after the outbreak)   // (under the canopy, over the lanes: the canopy hid a higher one)
     // after the outbreak: the steel shutters are down over every turnstile block (police orders)
     K.chaos(x, z, () => { sbox(st, u0, st.back + 0.42, u1, st.back + 0.52, 0, 3.0, { side: 'sdRoofTop' }, { surf: 'metal' }); });
     gates.push({ st: st.id, x, z });
@@ -736,14 +739,27 @@ export function buildMap(K) {
   }
   // the burger van (where it started): a box van with a serving hatch and an awning
   { const x = -16, z = -88, van = std({ color: 0xe8e4dc, roughness: 0.4, metalness: 0.2 });
-    K.block(x, 0.45, z, 3.0, 2.9, 1.2, 0, f => f === 'bot' ? 'darkMetal' : 'white', 'metal');
+    // its livery: white panels, a claret skirt and a gold pinstripe, rivet lines at the panel joints (TILE = its height)
+    const liv = K.ctex(256, 256, (g, w, h) => {
+      g.fillStyle = '#ece8de'; g.fillRect(0, 0, w, h);
+      const yAt = m => h - m / 2.9 * h; g.fillStyle = '#a8201a'; g.fillRect(0, yAt(0.92), w, yAt(0.45) - yAt(0.92));
+      g.fillStyle = '#e8b830'; g.fillRect(0, yAt(1.06), w, yAt(0.98) - yAt(1.06));
+      g.fillStyle = 'rgba(0,0,0,0.25)'; for (let x = 0; x < w; x += 128) { g.fillRect(x, 0, 2, h); for (let y = 6; y < h; y += 14) g.fillRect(x + 5, y, 2, 2); }
+      const gr = g.createLinearGradient(0, yAt(0.9), 0, h); gr.addColorStop(0, 'rgba(40,30,20,0)'); gr.addColorStop(1, 'rgba(40,30,20,0.35)'); g.fillStyle = gr; g.fillRect(0, yAt(0.9), w, h - yAt(0.9));
+    }, [1, 1]);
+    add('sdVanLiv', std({ map: liv, roughness: 0.4, metalness: 0.2 }), 2.9);
+    K.block(x, 0.45, z, 3.0, 2.9, 1.2, 0, f => f === 'bot' ? 'darkMetal' : f === 'top' ? 'white' : 'sdVanLiv', 'metal');
     K.solid(x + 0.9, z, 3.95, 1.2, 0, 2.9, 'metal');
     K.WX(G.box, MAT.darkMetal, x - 1.8, 1.7, z + 1.21, 0, 2.2, 0.9, 0.02);
     K.xadd(G.plane, MAT.awning, K.mat4(x - 1.8, 2.55, z + 1.6, 0, 2.6, 0.9, 1, -1.1, 0), false);
-    for (const s of [-1, 1]) for (const zz of [-0.9, 0.9]) K.WX(G.wheel, MAT.rubber, x + s * 2.0, 0.42, z + zz, 0, 0.85, 0.85, 0.85);
+    // wheels (axles across the van), hub caps, dark arches over them
+    const vWheel = (wx, zz) => { K.WX(G.wheel, MAT.rubber, wx, 0.42, z + zz, Math.PI / 2, 0.85, 0.85, 0.85); K.WX(G.cyl, MAT.chrome, wx, 0.42, z + zz + Math.sign(zz) * 0.12, 0, 0.48, 0.04, 0.48, Math.PI / 2, 0); K.WX(G.box, MAT.black, wx, 0.86, z + Math.sign(zz) * 1.205, 0, 1.0, 0.12, 0.02); };
+    for (const s of [-1, 1]) for (const zz of [-1.0, 1.0]) vWheel(x + s * 2.0, zz);
     K.WX(G.box, van, x + 3.95, 1.45, z, 0, 1.8, 2.0, 2.2); K.WX(G.box, MAT.shopGlass, x + 4.86, 1.9, z, 0, 0.02, 0.8, 2.0);
     for (const zz of [-1.11, 1.11]) K.WX(G.box, MAT.shopGlass, x + 4.0, 1.9, z + zz, 0, 1.0, 0.7, 0.02);
-    for (const zz of [-0.9, 0.9]) K.WX(G.wheel, MAT.rubber, x + 4.2, 0.42, z + zz, 0, 0.85, 0.85, 0.85);
+    for (const zz of [-1.0, 1.0]) vWheel(x + 4.2, zz);
+    K.WX(G.box, MAT.black, x + 4.9, 0.6, z, 0, 0.14, 0.28, 2.24); K.WX(G.box, MAT.darkMetal, x + 4.87, 1.05, z, 0, 0.03, 0.4, 1.0);   // the bumper, the grille
+    for (const zz of [-0.8, 0.8]) K.WX(G.box, MAT.chrome, x + 4.87, 1.05, z + zz, 0, 0.04, 0.18, 0.3);   // headlamps
     sign(['HARBOR GRILL', 'BIG ANCHOR BURGER $6'], x - 0.2, 3.25, z + 1.22, 0, 5.4, 0.7, '#a8201a', '#fff4d0');
     K.container('kitchen', x - 1.8, z + 0.7, 1.2, 'Burger van', 0);
     K.block(x - 1.8, 0, z + 1.55, 1.2, 0.95, 0.3, 0, f => f === 'top' ? 'counter' : 'sdClad', 'metal');
@@ -787,7 +803,14 @@ export function buildMap(K) {
       const m = std({ color: col, roughness: 0.4, metalness: 0.3 });
       K.block(-91, 0.5, z, 1.3, 4.0, 6.5, 0, f => f === 'bot' ? 'darkMetal' : 'sdClad', 'metal'); K.solid(-91, z, 1.3, 6.5, 0, 4.0, 'metal');
       K.WX(G.box, m, -91, 1.7, z - 8.0, 0, 2.5, 2.6, 2.6); K.solid(-91, z - 8.0, 1.3, 1.3, 0, 3.0, 'metal');
-      for (const a of [-6, -4.5, 4, 5.5, -8.4]) for (const s of [-1, 1]) K.WX(G.wheel, MAT.rubber, -91 + s * 1.2, 0.5, z + a, 0, 1, 1, 1);
+      // the cab: a windscreen, side windows, a grille, a bumper and lamps; the body: a red stripe along both sides
+      K.WX(G.box, MAT.shopGlass, -91, 2.35, z - 9.31, 0, 2.3, 1.0, 0.02);
+      for (const s of [-1, 1]) K.WX(G.box, MAT.shopGlass, -91 + s * 1.255, 2.35, z - 8.3, 0, 0.02, 0.9, 1.4);
+      K.WX(G.box, MAT.darkMetal, -91, 1.1, z - 9.31, 0, 1.4, 0.6, 0.03); K.WX(G.box, MAT.black, -91, 0.55, z - 9.38, 0, 2.55, 0.3, 0.16);
+      for (const s of [-1, 1]) K.WX(G.box, MAT.chrome, -91 + s * 0.95, 1.1, z - 9.33, 0, 0.32, 0.2, 0.03);
+      for (const s of [-1, 1]) { K.WX(G.box, MAT.redPaint, -91 + s * 1.315, 1.35, z, 0, 0.02, 0.3, 12.9); K.WX(G.box, MAT.white, -91 + s * 1.315, 1.58, z, 0, 0.02, 0.06, 12.9); }
+      for (const a of [-6, -4.5, 4, 5.5, -8.4]) for (const s of [-1, 1]) { K.WX(G.wheel, MAT.rubber, -91 + s * 1.2, 0.5, z + a, 0, 1, 1, 1); K.WX(G.cyl, MAT.chrome, -91 + s * 1.36, 0.5, z + a, 0, 0.55, 0.04, 0.55, 0, Math.PI / 2); }
+      sign(['HCTV SPORT', 'OUTSIDE BROADCAST'], -92.32, 3.0, z, -Math.PI / 2, 4.4, 1.0, '#b01010', '#ffffff');
       K.container('truck', -89.6, z + 2, 1.2, 'Broadcast truck', 0);
       sign(['HCTV', 'LIVE'], -89.68, 3.0, z, Math.PI / 2, 3.6, 1.2, '#b01010', '#ffffff');
     }
@@ -885,7 +908,7 @@ export function buildMap(K) {
   // ---- the plaza and the concourses on match night: queues of standing fans (crowd layer), crowd barriers ----
   const standers = [];   // [x, z, yaw, colour]
   const queue = (x0, z0, x1, z1, n, yaw, dense = true) => { for (let k = 0; k < n; k++) { const t = R(); standers.push([x0 + (x1 - x0) * t + (R() - 0.5) * 0.9, z0 + (z1 - z0) * t + (R() - 0.5) * 0.9, yaw + (R() - 0.5) * 1.2, R() < 0.6 ? 0 : R() < 0.6 ? 1 : 3, dense]); } };   // (dense: a queue — you squeeze through it, it isn't a wall)
-  for (const ux of [-28, 28]) { queue(ux - 2.5, -86, ux + 2.5, -72, 70, 0); for (const dx of [-3.4, 3.4]) { K.block(ux + dx, 0, -77.4, 0.04, 1.1, 4.1, 0, 'metal', 'metal', true); } }
+  for (const ux of [-28, 28]) { queue(ux - 2.5, -86, ux + 2.5, -72, 70, 0); for (const dx of [-3.4, 3.4]) { K.block(ux + dx, 0, -77.4, 0.04, 1.1, 4.1, 0, f => f === 'px' || f === 'nx' ? 'sdBarrier' : f === 'top' ? 'metal' : null, 'metal', true); for (let k = 0; k <= 3; k++) K.WX(G.box, MAT.metal, ux + dx, 0.03, -81.5 + k * 2.73, 0, 0.6, 0.05, 0.08); } }   // (steel crowd barriers on their feet)
   queue(-1.5, -80, 1.5, -71.5, 25, 0);
   queue(-20, -85, -12, -83, 22, Math.PI);           // the burger van queue
   queue(10, -79, 18, -76, 14, Math.PI);             // programmes
@@ -1162,7 +1185,7 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
     if (switchLamp) switchLamp.emissive.setHex(STADIUM.switchedOn ? 0x20ff40 : STADIUM.hasKey ? 0xffa010 : 0xff2010);
     if (STADIUM.power !== lastPower) { lastPower = STADIUM.power; GLOW.forEach((m, i) => { m.emissiveIntensity = STADIUM.power ? GLOW0[i] : 0; }); }
     // the emergency lamps: off with the mains on; after the blackout they glow (a slow flicker as the batteries come in)
-    { const em = STADIUM.power ? 0 : Math.min(1, (emT += dt) / 2.5) * (0.92 + 0.08 * Math.sin(tAcc * 7.3)); if (STADIUM.power) emT = 0; emLamp.emissiveIntensity = 0.2 + em * 4; for (const l of emLights) { if (STADIUM.power) { l.intensity = 10; l.color.setHex(0xfff0dc); } else { l.intensity = em * 14; l.color.setHex(0xdfe8ff); } } }   // (mains on: they're the concourse's ordinary lights)
+    { const em = STADIUM.power ? 0 : Math.min(1, (emT += dt) / 2.5) * (0.92 + 0.08 * Math.sin(tAcc * 7.3)); if (STADIUM.power) emT = 0; emLamp.emissiveIntensity = 0.2 + em * 4; for (const l of emLights) { if (STADIUM.power) { l.intensity = 4.5; l.color.setHex(0xfff0dc); } else { l.intensity = em * 12; l.color.setHex(0xdfe8ff); } } }   // (mains on: they're the concourse's ordinary lights)
     // the big screen on its backup battery after the blackout: a flickering red EVACUATE
     if (!STADIUM.power) screenM.emissiveIntensity = STADIUM.broken ? 0.35 + 0.25 * Math.random() : 0;
     for (let k = 0; k < 4; k++) { const tm = MAT['sdTower' + k]; if (tm) tm.emissiveIntensity = night * (STADIUM.power ? 1.1 : 0.7); }   // (the city still has power)

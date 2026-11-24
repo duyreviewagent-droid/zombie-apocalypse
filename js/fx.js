@@ -77,20 +77,28 @@ class Pool {
   }
 }
 
-export function makeFX(scene) {
+export function makeFX(scene, world = null) {
   // phones and tablets: smaller pools, a share of the smoke, fewer flash lights (every light costs every pixel)
   const LOW = tier(), PK = LOW > 1 ? 0.4 : LOW ? 0.6 : 1;
   const glow = new Pool(scene, Math.round(2500 * PK), true), smoke = new Pool(scene, Math.round(2200 * PK), false, true, true), bits = new Pool(scene, Math.round(1500 * PK), false, false);
   if (LOW) { smoke.keep = LOW > 1 ? 0.55 : 0.75; bits.keep = LOW > 1 ? 0.6 : 0.8; }
   const rnd = (a = 1) => (Math.random() - 0.5) * 2 * a;
-  // a few real lights for flashes (always in the scene so shaders never recompile)
-  const lights = [];
-  for (let i = 0; i < (LOW ? 2 : 4); i++) { const l = new THREE.PointLight(0xffb060, 0, 14, 2); scene.add(l); lights.push({ l, t: 0, dur: 0.05, peak: 0 }); }
+  // a few lights for flashes. They go through the world's light pool (world.addLight): the pool copies the few that
+  // matter onto a fixed set of real lights, so no shader ever recompiles and an idle flash light costs nothing.
+  // (world: passed in, or found once the game is up; no world at all (a test page): plain lights in the scene)
+  const lights = [], fxLights = [];
+  let pooled = false;
+  const pool = () => {
+    if (pooled) return; const Wd = world || (typeof window !== 'undefined' && window.ZA && window.ZA.world);
+    if (!Wd || !Wd.addLight) return; pooled = true; for (const l of fxLights) Wd.addLight(l, scene);
+  };
+  for (let i = 0; i < (LOW ? 2 : 4); i++) { const l = new THREE.PointLight(0xffb060, 0, 14, 2); fxLights.push(l); lights.push({ l, t: 0, dur: 0.05, peak: 0 }); }
   let li = 0;
   // three steady lights for things that keep burning (a pool of fuel, a lit Molotov rag): held by whoever calls holdLight
   // each frame, flickering like a flame, fading out a moment after the last call
   const held = [];
-  for (let i = 0; i < (LOW > 1 ? 1 : LOW ? 2 : 3); i++) { const l = new THREE.PointLight(0xff7a2a, 0, 8, 2); scene.add(l); held.push({ l, key: null, hold: 0, peak: 0, cur: 0 }); }
+  for (let i = 0; i < (LOW > 1 ? 1 : LOW ? 2 : 3); i++) { const l = new THREE.PointLight(0xff7a2a, 0, 8, 2); fxLights.push(l); held.push({ l, key: null, hold: 0, peak: 0, cur: 0 }); }
+  pool();
   const holdLight = (key, p, peak, dist = 8, col = 0xff7a2a) => {
     let H = held.find(h => h.key === key);
     if (!H) H = held.find(h => h.hold <= 0 && h.cur < 0.05) || held.reduce((a, b) => (b.peak < a.peak ? b : a));
@@ -280,10 +288,12 @@ export function makeFX(scene) {
   for (const k in DEB_KIND) debPool(k);
   const tv = new THREE.Vector3(), tq = new THREE.Quaternion(), Z = new THREE.Vector3(0, 0, 1);
   const F = {
+    _noW: 0,
     debris,
     debPools: DEB,   // (for tests)
     lights,
     update(dt, cam) {
+      if (!pooled) { pool(); if (!pooled && ++F._noW > 120) { pooled = true; for (const l of fxLights) scene.add(l); } }
       glow.update(dt); smoke.update(dt); bits.update(dt); debUpdate(dt);
       if (!F._lights) { F._lights = {}; scene.traverse(o => { if (o.isHemisphereLight) F._lights.hemi = o; else if (o.isDirectionalLight && o.castShadow) F._lights.sun = o; }); }
       { const { hemi, sun } = F._lights, a = AMB.value; a.setRGB(0.12, 0.12, 0.13);

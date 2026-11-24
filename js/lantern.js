@@ -30,7 +30,7 @@ function kit() {
   if (KIT) return KIT;
   const std = o => new THREE.MeshStandardMaterial(o);
   KIT = {
-    body: std({ color: 0x2c3a2c, roughness: 0.55 }),
+    body: std({ map: TX.paintedMetalTexture([44, 58, 44]), roughness: 0.55 }),   // scuffed olive paint, like the rest of the kit
     rubber: std({ color: 0x151515, roughness: 0.9 }),
     metal: std({ color: 0x9a9c9e, roughness: 0.35, metalness: 0.9 }),
     dial: std({ color: 0xb8b0a0, roughness: 0.5 }),
@@ -82,7 +82,9 @@ export function initLanterns(env) {
   if (!LIGHTS.length) for (let i = 0; i < 3; i++) {
     const l = new THREE.PointLight(0xffc88a, 0, i === 0 ? 11 : 7, 2); l.castShadow = i === 0;
     if (i === 0) { l.shadow.mapSize.set(256, 256); l.shadow.bias = -0.002; l.shadow.camera.near = 0.1; l.shadow.camera.far = 11; l.shadow.autoUpdate = false; }
-    E.scene.add(l); LIGHTS.push(l);
+    // (the other two go through the world's light pool: copied onto its few real lights only while they're lit and near)
+    if (i > 0 && E.world && E.world.addLight) E.world.addLight(l, E.scene); else E.scene.add(l);
+    LIGHTS.push(l);
   }
 }
 function makeLit(hang = false) {

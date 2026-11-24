@@ -440,26 +440,30 @@ function bigLeafPlant(seed) {
 // a colossal carved stone head (the Olmec kind): a helmeted face, heavy brow, broad flat nose, thick lips, ear
 // flaps; the face looks along +z. About 2.6 m tall, base at y 0.
 function carvedHead() {
-  const g = new THREE.SphereGeometry(1, 40, 30), p = g.attributes.position;
-  const bump = (x, y, z, cx, cy, cz, rx, ry, rz) => Math.exp(-(((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 + ((z - cz) / rz) ** 2));
+  const g = new THREE.SphereGeometry(1, 48, 36), p = g.attributes.position;
+  const bump = (x, y, cx, cy, rx, ry) => Math.exp(-(((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2));
   for (let i = 0; i < p.count; i++) {
     let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    const front = Math.max(0, z), face = front * (1 - smooth(0.55, 0.95, Math.abs(y)));
-    let d = 1;
-    d += 0.16 * bump(x, y, z, 0, -0.02, 1, 0.24, 0.26, 0.5);                                  // the nose
-    d += 0.07 * (bump(x, y, z, 0.17, -0.12, 0.95, 0.12, 0.1, 0.4) + bump(x, y, z, -0.17, -0.12, 0.95, 0.12, 0.1, 0.4));   // nostrils
-    d += 0.11 * bump(x, y, z, 0, -0.4, 0.92, 0.36, 0.08, 0.4) + 0.1 * bump(x, y, z, 0, -0.55, 0.88, 0.32, 0.08, 0.4);   // the lips
-    d -= 0.05 * bump(x, y, z, 0, -0.48, 0.95, 0.3, 0.03, 0.3);                                 // the mouth line
-    d -= 0.09 * (bump(x, y, z, 0.33, 0.2, 0.92, 0.17, 0.09, 0.4) + bump(x, y, z, -0.33, 0.2, 0.92, 0.17, 0.09, 0.4));   // the eyes (heavy lids)
-    d += 0.08 * bump(x, y, z, 0, 0.36, 0.95, 0.7, 0.07, 0.5);                                  // the brow
-    d += 0.1 * (1 - smooth(0.03, 0.1, Math.abs(y - 0.5))) * (0.6 + 0.4 * front);              // the helmet band
-    d += 0.06 * (bump(x, y, z, 0.98, 0, 0, 0.18, 0.4, 0.3) + bump(x, y, z, -0.98, 0, 0, 0.18, 0.4, 0.3));   // the ear flaps
-    d *= 1 - 0.18 * Math.max(0, -z);                                                         // flatter at the back
-    x *= d * 1.0; y *= d * 1.2; z *= d * 0.95 * (1 - face * 0.1);
-    if (y < -0.95) y = -0.95;                                                                // a flat base, sunk in the earth
+    // a broad, flat face plane in front; the features stand out of it (only on the front: w fades them round the sides)
+    const w = smooth(0.2, 0.6, z);
+    if (z > 0.5) z = 0.5 + (z - 0.5) * 0.45;
+    let f = 0;
+    f += 0.42 * bump(x, y, 0, -0.08, 0.2, 0.26);                                   // the broad flat nose
+    f += 0.12 * (bump(x, y, 0.2, -0.22, 0.1, 0.08) + bump(x, y, -0.2, -0.22, 0.1, 0.08));   // nostril wings
+    f += 0.26 * bump(x, y, 0, -0.44, 0.34, 0.07) + 0.24 * bump(x, y, 0, -0.6, 0.3, 0.07);  // thick lips
+    f -= 0.12 * bump(x, y, 0, -0.52, 0.3, 0.025);                                  // the parted mouth
+    f -= 0.16 * (bump(x, y, 0.32, 0.16, 0.14, 0.06) + bump(x, y, -0.32, 0.16, 0.14, 0.06));   // heavy-lidded eyes
+    f += 0.18 * bump(x, y, 0, 0.3, 0.6, 0.06);                                     // the brow ridge
+    f += 0.1 * bump(x, y, 0, -0.82, 0.4, 0.1);                                     // the chin
+    z += f * w;
+    let d = 1 + 0.12 * (1 - smooth(0.03, 0.09, Math.abs(y - 0.5)));                // the helmet band
+    d += 0.1 * Math.exp(-(((Math.abs(x) - 0.98) / 0.14) ** 2 + (y / 0.35) ** 2)) * (1 - w);   // the ear flaps
+    if (p.getZ(i) < 0) d *= 1 - 0.15 * -p.getZ(i);                                  // flatter at the back
+    x *= d * 1.05; y *= 1.15 * (1 + 0.12 * (1 - smooth(0.03, 0.09, Math.abs(y - 0.5)))); z *= p.getZ(i) < 0 ? d : 1;
+    if (y < -0.95) y = -0.95;                                                       // a flat base, sunk in the earth
     p.setXYZ(i, x, y + 0.95, z);
   }
-  g.computeVertexNormals(); return g.scale(1.35, 1.1, 1.35);
+  g.computeVertexNormals(); return g.scale(1.3, 1.1, 1.3);
 }
 // a stalactite (hangs down from y 0) / stalagmite: a lumpy tapering cone
 function dripstone(seed, up = false) {
@@ -557,7 +561,7 @@ export function jungleKit(K) {
     jRiver: new THREE.MeshStandardMaterial({ map: rippleTex(), color: 0x9ab8a8, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.9, envMapIntensity: 1.5, vertexColors: true, ...(ripN ? { normalMap: ripN, normalScale: new THREE.Vector2(0.6, 0.6) } : {}) }),
     jSea: new THREE.MeshStandardMaterial({ map: rippleTex(), color: 0x6a9aa8, roughness: 0.05, metalness: 0.25, transparent: true, opacity: 0.92, envMapIntensity: 1.8, ...(ripN ? { normalMap: ripN.clone(), normalScale: new THREE.Vector2(0.5, 0.5) } : {}) }),
     jFoam: new THREE.MeshStandardMaterial({ map: foamTex(), transparent: true, depthWrite: false, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-    jLake: new THREE.MeshStandardMaterial({ color: 0x050d0c, roughness: 0.04, metalness: 0.2, emissive: 0x0b4a2a, emissiveIntensity: 1.2, envMapIntensity: 0.25, transparent: true, opacity: 0.95 }),
+    jLake: new THREE.MeshStandardMaterial({ color: 0x050d0c, roughness: 0.04, metalness: 0.2, emissive: 0x0b4a2a, emissiveIntensity: 0.55, envMapIntensity: 0.25, transparent: true, opacity: 0.95 }),
     jCaveFloor: std({ ...K.TX.relief(K.TX.gravelTexture(), 1.2), color: 0x6a6258, roughness: 0.75 }),
     jSand: std({ map: K.TX.sandTexture(), roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
     jCrystal: std({ color: 0x66ff88, emissive: 0x33ff66, emissiveIntensity: 4, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.85 }),

@@ -22,17 +22,19 @@ for (const sd of ['Left', 'Right']) PARTS.push(
   // the gaps the first set left: shoulder caps, elbows, fingers, the upper inner thigh, toes and heels
   [sd + 'Shoulder', 0.08, 'body', sd + 'Arm', 0.7], [sd + 'Arm', 0.07, 'arms', sd + 'ForeArm', 0.92], [sd + 'Hand', 0.05, 'arms', sd + 'HandMiddle1', 1.6],
   [sd + 'UpLeg', 0.12, 'legs', sd + 'Leg', 0.15], [sd + 'Foot', 0.07, 'legs', sd + 'ToeBase', 1.0], [sd + 'Foot', 0.06, 'legs', sd + 'ToeBase', -0.35]);
-const HEAD_OFF = new THREE.Vector3(0, 0.085, 0.025), tQ = new THREE.Quaternion();
+const HEAD_OFF = new THREE.Vector3(0, 0.085, 0.025), tQ = new THREE.Quaternion(), tF = new THREE.Vector3();
 export function refreshHitShapes(u) {
   if (!u.sph) u.sph = PARTS.map(() => ({ c: V(), r: 0, part: '' }));
   const B = u.s.B, k = u.sizeK || 1;
+  // the whole body's matrices brought up to date once (not a walk up the bone chain for every sphere)
+  (u.s.pivot || u.s.root).updateMatrixWorld(true);
   for (let i = 0; i < PARTS.length; i++) {
     const [b, r, part, ch, t] = PARTS[i], S = u.sph[i], bone = B[b];
     S.r = r * k; S.part = part;
     if (!bone) { S.r = 0; continue; }
-    bone.getWorldPosition(S.c);
-    if (i === 0) { S.c.add(tE.copy(HEAD_OFF).multiplyScalar(k).applyQuaternion(bone.getWorldQuaternion(tQ))); continue; }   // the skull sits above and in front of the head joint, and tilts with it
-    if (ch && B[ch]) { B[ch].getWorldPosition(tE); S.c.lerp(tE, t); }
+    S.c.setFromMatrixPosition(bone.matrixWorld);
+    if (i === 0) { bone.matrixWorld.decompose(tD, tQ, tF); S.c.add(tE.copy(HEAD_OFF).multiplyScalar(k).applyQuaternion(tQ)); continue; }   // the skull sits above and in front of the head joint, and tilts with it
+    if (ch && B[ch]) { tE.setFromMatrixPosition(B[ch].matrixWorld); S.c.lerp(tE, t); }
   }
   u.chest = u.chest || V(); u.chest.copy(u.sph[2].c);
   u.head = u.head || V(); u.head.copy(u.sph[0].c);
@@ -149,7 +151,7 @@ function shot(u, o, d, W, first, agg = null) {
   } else if (hit.kind === 'unit') {
     const v = hit.unit;
     if (!v.alive) {   // a body still falling: it takes the round (blood, a wet thud), it doesn't die twice
-      C.fx.blood(p, d, W.pellets ? 0.35 : 0.6); if (first || !W.pellets) C.SND.impact(p, 'flesh', 0.7);
+      C.fx.blood(p, d, W.pellets ? 0.35 : 0.6); if (first || !W.pellets) C.SND.impact(p, hit.part === 'head' ? 'fleshHead' : 'flesh', 0.7);
       return;
     }
     // buckshot spreads and slows: worth little past ~40 m; bullets keep at least 55%
@@ -173,14 +175,14 @@ function landHit(u, v, dmg, part, p, d, W, count) {
   if (v.npc) {   // one of the townspeople: they feel it, and they let you know
     hurtNPC(v, dmg, u, { shot: true, part, weapon: W.id, dir: d, point: p });   // (people.js: how they react, and who saw it)
     C.fx.blood(p, d, amt * 0.8);
-    C.SND.impact(p, 'flesh', Math.min(1.6, 0.6 + count * 0.12));
+    C.SND.impact(p, part === 'head' ? 'fleshHead' : 'flesh', Math.min(1.6, 0.6 + count * 0.12));
     if (u && u.isPlayer && C.events.hitmarker) emit('hitmarker', v, !v.alive, part === 'head');
     if (u && !u.isPlayer && v.alive && v.say && (!v.ffT || C.t - v.ffT > 3)) { v.ffT = C.t; v.say(FF_LINES[Math.floor(Math.random() * FF_LINES.length)], 2.5); v.st = 'flee'; v.t = 0; v.threat = u; }
     return;
   }
   damage(v, dmg, u, { dir: d, part, weapon: W.id, point: p, knock: count > 1 ? 0.12 * Math.min(3, count) : W.id === 'sniper' ? 0.5 : 0.08 });
   C.fx.blood(p, d, amt);
-  C.SND.impact(p, 'flesh', count > 1 ? Math.min(1.6, 0.6 + count * 0.12) : 1);
+  C.SND.impact(p, part === 'head' ? 'fleshHead' : 'flesh', count > 1 ? Math.min(1.6, 0.6 + count * 0.12) : 1);
 }
 const FF_LINES = ["WHOA! It's me! Don't shoot!", 'Hey! HEY! I\'m not one of them!', 'Watch where you\'re shooting!', 'Stop! I\'m alive!'];
 
@@ -210,31 +212,48 @@ export function damage(v, dmg, by, info = {}) {
 }
 export function kill(v, by, info = {}) {
   if (!v.alive) return;
-  v.alive = false; v.hp = 0; v.s.dead = true; v.deadT = 0; v.deaths++; v.deadAt = C.t;
+  v.alive = false; v.hp = 0; v.s.dead = true; v.deadT = 0; v.deaths++; v.deadAt = C.t; v.s.fallYaw = null;
   const S = v.s, DD = S.acts.Death_D, DDd = DD ? DD.dur : 3;
   // already on the ground (or still getting up): finish it where it lies — never pop it back up to fall again
   const down = S.act === 'Death_D' || S.act === 'Hit_Knockback' || !!(v.z && v.z.down > 0);
   const rising = S.act === 'LayToIdle' && S.acts.LayToIdle && S.actTime() < S.acts.LayToIdle.dur * 0.6;
   if (S.up && S.ups[S.up]) { S.ups[S.up].target = 0; S.up = null; }
+  v.diedDown = down || rising;   // (already on the floor when it died: no fall, no thud)
+  S.deathRate = 1;
   if (down) { if (S.act !== 'Death_D') S.play('Death_D', { hold: true, from: DDd - 0.05, fade: 0.3 }); }
   else if (rising) S.play('Death_D', { hold: true, from: DDd * 0.7, fade: 0.35 });
   else {
     const head = info.part === 'head' && !info.blast;
     S.resetActs();
     // a head shot drops them like a switch was turned off (fast, with a nerve twitch); a body shot staggers them over
-    S.play('Death_D', { hold: true, fade: head ? 0.06 : 0.1, rate: head ? lerp(1.35, 1.55, Math.random()) : lerp(0.95, 1.2, Math.random()) });
+    const rate = head ? lerp(1.35, 1.55, Math.random()) : lerp(0.95, 1.2, Math.random());
+    S.play('Death_D', { hold: true, fade: head ? 0.06 : 0.1, rate }); S.deathRate = rate;
     if (head && v.zombie) S.spasm = 0.6;
     if (info.dir) {   // pushed the way the shot was going; the body turns toward falling away from it over the fall (no snap)
       const d = info.dir;
       S.vel.set(d.x * (info.blast ? 0 : 1.2), 0, d.z * (info.blast ? 0 : 1.2));
       const want = Math.atan2(-d.x, -d.z) + (Math.random() - 0.5) * 0.6;
-      S.fallYaw = S.yaw + clamp(wrapPi(want - S.yaw), -0.7, 0.7);   // soldier.js eases yaw toward it while dead
+      S.fallYaw = clearFall(S, S.yaw + clamp(wrapPi(want - S.yaw), -0.7, 0.7));   // soldier.js eases yaw toward it while dead
     }
   }
   if (info.fling) v.s.fly = info.fling;
   if (v.arms) { v.arms.throwT = -1; v.arms.reloadT = -1; v.arms.hideAll(); }
   if (by && by !== v) by.kills++;
   emit('kill', v, by, info);
+}
+// the body falls back (away from where it faces): if a wall, a table or a car is where it would land, try turning a
+// little either way, then further, so it doesn't lie folded through the furniture
+const FALL_TRY = [0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6, Math.PI];
+function clearFall(S, yaw) {
+  const Wd = C.world; if (!Wd || !Wd.ray) return yaw;
+  const p = S.pos;
+  for (const a of FALL_TRY) {
+    const y = yaw + a; tD.set(-Math.sin(y), 0, -Math.cos(y));
+    let ok = true;
+    for (const h of [0.35, 0.8]) { tE.set(p.x, (p.gy ?? p.y ?? 0) + h, p.z); if (Wd.ray(tE, tD, 1.65)) { ok = false; break; } }
+    if (ok) return y;
+  }
+  return yaw;
 }
 function dropGun(v) {
   const g = v.arms.drop(); if (!g) return;

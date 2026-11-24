@@ -137,8 +137,9 @@ function showBar(u) {
     bar = document.createElement('div'); bar.id = 'bossBar';
     bar.innerHTML = '<b></b><div class="tr"><i class="lag"></i><i class="hp"></i></div>';
     const st = document.createElement('style');
-    st.textContent = `#bossBar{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 76px);transform:translateX(-50%) translateY(-6px);width:min(560px,70vw);z-index:40;pointer-events:none;opacity:0;transition:opacity .35s,transform .35s;text-align:center;font-family:'Bebas Neue','Oswald',Impact,sans-serif;color:#f2e6d8}
+    st.textContent = `#bossBar{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 98px);transform:translateX(-50%) translateY(-6px);width:min(560px,70vw);z-index:40;pointer-events:none;opacity:0;transition:opacity .35s,transform .35s;text-align:center;font-family:'Bebas Neue','Oswald',Impact,sans-serif;color:#f2e6d8}
 #bossBar.on{opacity:1;transform:translateX(-50%)}
+body.heliOn #bossBar{top:calc(78px + 3vh + 170px)}
 #bossBar b{display:block;font-weight:400;font-size:22px;letter-spacing:.22em;text-shadow:0 2px 6px #000,0 0 18px rgba(180,20,10,.55);margin-bottom:4px}
 #bossBar.giant b{font-size:30px;letter-spacing:.3em;color:#ffd9c8}
 #bossBar .tr{position:relative;height:11px;background:rgba(10,6,6,.72);border:1px solid rgba(255,220,200,.28);box-shadow:0 2px 10px rgba(0,0,0,.6);overflow:hidden}

@@ -166,7 +166,7 @@ export function buildMap(K) {
     // no grass along the river: muddy banks
     for (let z = -94; z < 130; z += 3) { const x = RIVER_X(z); K.paint(x - 7.5, z, 2.4, 'mud', 0.5); K.paint(x + 7.5, z, 2.4, 'mud', 0.5); }
     // the waterfall: a cliff face of rock, water sheeting down it, mist at the foot
-    for (let i = 0; i < 7; i++) { const x = -40 + i * 5 + rr(-1, 1); K.block(x, -1, -101.2 + rr(-0.6, 0.6), 3.0, 13 + rr(-1.5, 2.5), 2.2, rr(-0.15, 0.15), 'rock', 'concrete'); }
+    for (let i = 0; i < 7; i++) { const x = -40 + i * 5 + rr(-1, 1), z = -101.2 + rr(-0.6, 0.6), h = 13 + rr(-1.5, 2.5), yw = rr(-0.15, 0.15); K.block(x, -1, z, 3.0, h, 2.2, yw, 'rock', 'concrete'); }
     // four sheets of water (soft-edged), the main fall in front of a thinner one, two side ribbons; the texture's
     // own alpha fades their sides; a ring of churned foam where they hit the pool
     for (const [x0, w, y0, zo] of [[-25, 3.6, 13.2, 0], [-24.4, 2.6, 13.0, -0.35], [-21.5, 1.2, 12.5, 0.1], [-28.6, 1.0, 12.8, 0.05]]) {
@@ -269,9 +269,10 @@ export function buildMap(K) {
     for (let i = 0; i < 10; i++) K.xadd(G.vineCard, M.jVine, mat4(40.2 + i * 1.05 + rr(-0.3, 0.3), rr(5, 7), -95.5 - rr(0, 0.6), rr(-0.4, 0.4), rr(0.8, 1.2), rr(2.2, 4.2), 1), false);
     for (let i = 0; i < 14; i++) { const sd = i % 2 ? 1 : -1, x = 45 + sd * rr(4.2, 8.5), z = rr(-97.2, -94.6); K.rock(x, z, rr(0.3, 0.9), { mat: R() < 0.5 ? 'jCave' : 'jCaveWet' }); }
     const sg = K.std({ map: J.signTex(['DANGER', 'CAVE CLOSED', 'HALVORSEN EXPEDITION'], '#d8c020', '#111', 512, 256, 'bold 44px Helvetica'), roughness: 0.7, side: THREE.DoubleSide });
-    K.mesh(new THREE.PlaneGeometry(1.3, 0.65), sg, 39.3, 1.45, -95.6, 0.2);
-    K.inst(G.pole, M.jPole, mat4(38.8, 0, -95.7, 0, 1, 1.9, 1)); K.inst(G.pole, M.jPole, mat4(39.9, 0, -95.5, 0, 1, 1.9, 1));
-    K.solid(39.35, -95.6, 0.7, 0.12, 0.2, 1.9, 'wood');
+    // (on two posts, the board nailed to their front: clear of the boulders behind it, turned to face the path)
+    K.mesh(new THREE.PlaneGeometry(1.3, 0.65), sg, 39.36, 1.45, -94.92, -0.18);
+    K.inst(G.pole, M.jPole, mat4(38.8, 0, -95.2, 0, 1, 1.9, 1)); K.inst(G.pole, M.jPole, mat4(39.9, 0, -95.0, 0, 1, 1.9, 1));
+    K.solid(39.35, -95.1, 0.7, 0.12, -0.18, 1.9, 'wood');
   }
   // the cable of work lights from the mouth to the lab (small glowing bulbs; only the lab has a real light)
   {
@@ -430,7 +431,7 @@ export function buildMap(K) {
   ropeBridge(-40, 11.5, 2.7, 'N');
   ropeBridge(60, 11.5, 2.7, 'S');
   // a sign nailed to the north bridge's east post
-  { const b = bridges[0]; const sg = K.std({ map: J.signTex(['MAX 2 PEOPLE', 'BOARDS 9 + 14 ROTTEN', '— K.'], '#b89a64', '#2a1a10', 256, 128, 'bold 22px Helvetica'), roughness: 0.8, side: THREE.DoubleSide }); K.mesh(new THREE.PlaneGeometry(0.7, 0.35), sg, b.xb + 2.65, b.yTop + 0.7, -40 - 1.62, 0); notes.push({ x: b.xb + 2.2, z: -40.6, y: b.yTop + 0.5, id: 'bridge' }); K.container('bench', b.xb + 2.2, -40.6, b.yTop + 0.3, 'Kofi\'s pack', 0); }
+  { const b = bridges[0]; const sg = K.std({ map: J.signTex(['MAX 2 PEOPLE', 'BOARDS 9 + 14 ROTTEN', '— K.'], '#b89a64', '#2a1a10', 256, 128, 'bold 22px Helvetica'), roughness: 0.8, side: THREE.DoubleSide }); K.mesh(new THREE.PlaneGeometry(0.7, 0.35), sg, b.xb + 1 + 1.55 + 0.23, b.yTop + 0.7, -40 - 1.55, Math.PI / 2); /* on the post's outer face, toward the trail */ notes.push({ x: b.xb + 2.2, z: -40.6, y: b.yTop + 0.5, id: 'bridge' }); K.container('bench', b.xb + 2.2, -40.6, b.yTop + 0.3, 'Kofi\'s pack', 0); }
   // the ford: stepping stones through the shallows
   for (let i = 0; i < 9; i++) { const z = 100 + rr(-3, 3), x = RIVER_X(z) - 6 + i * 1.5; K.rock(x, z, rr(0.5, 0.8), { flat: 0.6, solid: false }); }
 
@@ -506,9 +507,9 @@ export function buildMap(K) {
     for (let i = 0; i < 16; i++) { const x = rr(-130, 130), z = rr(108, 115); if (Math.abs(x - 40) < 6 || riverD(x, z) < 8) continue; const m = mat4(x, T(x, z) + 0.12, z, R() * 6, rr(1.5, 3.5), 0.25, 0.25); K.xadd(G.log, M.jPalmBark, m, true); K.xadd(G.logEnds, M.jEndGrain, m, false); }
   }
   // a campfire's own look: a bed of glowing embers, charred sticks in a tepee, crossed flame cards that flicker
-  const fires = [];
+  const fires = []; let ashM = null;
   const campfire = (x, z, lit = true) => {
-    K.xadd(new THREE.CircleGeometry(0.6, 16).rotateX(-Math.PI / 2), M.jEmber, mat4(x, 0.03, z), false);
+    K.xadd(new THREE.CircleGeometry(0.6, 16).rotateX(-Math.PI / 2), lit ? M.jEmber : (ashM ||= K.std({ map: M.jEmber.map, color: 0x6a6660, roughness: 1 })), mat4(x, 0.03, z), false);
     for (let i = 0; i < 5; i++) { const a = i / 5 * 6.28 + 0.3; K.wbeam([x + Math.cos(a) * 0.5, 0.05, z + Math.sin(a) * 0.5], [x + Math.cos(a) * 0.06, 0.5, z + Math.sin(a) * 0.06], 0.05, 0.05, K.MAT.burnt || M.jBark, false); }
     if (!lit) return;
     const grp = new THREE.Group(); grp.position.set(x, 0.02, z); K.level.add(grp);
@@ -744,9 +745,10 @@ export function buildMap(K) {
     }
     // a broken wall along the north side with a doorway
     for (let i = 0; i < 5; i++) { const x = 66 + i * 3.1; if (i === 2) continue; const h = rr(1.2, 3.4); K.block(x, 0, -30.5, 1.5, h, 0.5, rr(-0.03, 0.03), 'jStone', 'concrete'); }
-    // the carved heads
+    // the carved heads (weathered grey basalt, a little moss)
+    const headM = K.std({ map: K.MAT.rock && K.MAT.rock.map, normalMap: K.MAT.rock && K.MAT.rock.normalMap, color: 0xd0ccbc, roughness: 0.9 });
     for (const [x, z, yaw] of [[70, -2, 0.4], [96, -4, -0.6]]) {
-      K.xadd(G.head, M.jCliff, mat4(x, -0.25, z, yaw, 1, 1, 1, rr(-0.06, 0.02), rr(-0.05, 0.05)));   // sunk a little, tilted
+      K.xadd(G.head, headM, mat4(x, -0.25, z, yaw, 1, 1, 1, rr(-0.06, 0.02), rr(-0.05, 0.05)));   // sunk a little, tilted
       K.solid(x, z, 1.3, 1.2, yaw, 2.4, 'concrete');
     }
     // THE TEMPLE: three stepped tiers (each one a climb), a steep stair up the south face, the shrine on top

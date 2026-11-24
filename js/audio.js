@@ -131,7 +131,7 @@ function tone(t, f, d, g, type = 'sine', dest = sfxBus, pos = null, a = 0.004) {
 function click(t, f, g, pos, pan = 0) { burst(t, { f, q: 3, d: 0.012, g, pos, pan }); }
 
 // ---------------------------------------------------------------- footsteps, body
-const SURF = { grass: { lp: 3200, rate: 0.85, g: 0.8 }, dirt: { lp: 5200, rate: 0.9, g: 0.95 }, mud: { lp: 1800, rate: 0.75, g: 0.9 }, concrete: { lp: 16000, rate: 1, g: 1 }, asphalt: { lp: 12000, rate: 0.97, g: 1 }, gravel: { lp: 9000, rate: 1.05, g: 1.1 }, metal: { lp: 16000, rate: 1.2, g: 1 }, wood: { lp: 6000, rate: 0.82, g: 1.15 }, carpet: { lp: 1500, rate: 0.8, g: 0.6 }, tile: { lp: 16000, rate: 1.12, g: 1.05 } };
+const SURF = { grass: { lp: 3200, rate: 0.85, g: 0.8 }, dirt: { lp: 5200, rate: 0.9, g: 0.95 }, mud: { lp: 1800, rate: 0.75, g: 0.9 }, concrete: { lp: 16000, rate: 1, g: 1 }, asphalt: { lp: 12000, rate: 0.97, g: 1 }, gravel: { lp: 9000, rate: 1.05, g: 1.1 }, metal: { lp: 16000, rate: 1.2, g: 1 }, wood: { lp: 6000, rate: 0.82, g: 1.15 }, carpet: { lp: 1500, rate: 0.8, g: 0.6 }, tile: { lp: 16000, rate: 1.12, g: 1.05 }, sand: { lp: 2400, rate: 0.78, g: 0.75 }, water: { lp: 1100, rate: 0.7, g: 0.55 } };
 export function step({ speed = 1.4, run = 0, crouch = 0, side = 0, pan = 0, pos = null, surface = 'grass', heavy = 1, mine = false, zombie = false }) {
   if (!ctx || paused) return;
   if (pos && dist(pos) > 45) return;
@@ -142,8 +142,14 @@ export function step({ speed = 1.4, run = 0, crouch = 0, side = 0, pan = 0, pos 
   // the backpack rattling
   if (mine && run > 0.3 && Math.random() < 0.5) burst(t + 0.02, { f: 3200, q: 2, d: 0.04, g: loud * 0.06, pan, pos });
   if (surface === 'wood' && Math.random() < 0.25) creak(t + 0.03, pos, 0.25 * loud);
-  if (pos === null && indoor > 0.5) { const s = ctx.createGain(); s.gain.value = 0; }
   if (surface === 'grass') burst(t, { f: 2600, q: 0.8, d: 0.09, g: loud * 0.12, pan, pos });
+  // sand: a soft dry crunch that slides; shallow water: the foot sloshing in, then droplets splashing off it
+  else if (surface === 'sand') { burst(t, { f: 1500, q: 0.6, a: 0.008, d: 0.12, g: loud * 0.14, pan, pos, sweep: 0.6 }); burst(t + 0.03, { f: 4200, q: 1.2, d: 0.05, g: loud * 0.04, pan, pos }); }
+  else if (surface === 'water') {
+    burst(t, { f: 650, q: 0.9, a: 0.012, d: 0.2, g: loud * 0.45, pan, pos, sweep: 1.8 });
+    burst(t + 0.05, { f: 1800, q: 0.7, a: 0.02, d: 0.25, g: loud * 0.18, pan, pos, sweep: 0.5 });
+    for (let i = 0; i < 3; i++) burst(t + 0.08 + Math.random() * 0.15, { f: 2500 + Math.random() * 2500, q: 4, d: 0.025, g: loud * 0.05, pan, pos });
+  }
   // a shambler doesn't lift its feet: the other foot drags and scuffs along after the heel lands
   if (zombie && run < 0.5) { burst(t + 0.06, { f: 400 + Math.random() * 200, q: 0.7, a: 0.03, d: 0.18, g: loud * 0.15, pan, pos, brown: true }); burst(t + 0.08, { f: 1800 + Math.random() * 600, q: 0.6, a: 0.03, d: 0.14, g: loud * 0.05, pan, pos, sweep: 0.7 }); }
 }
@@ -200,8 +206,9 @@ export function gun(kind, pos = null) {
   const rec = { pistol: 'gun_pistol', shotgun: 'gun_shotgun', sniper: 'gun_rifle' }[kind];
   if (rec && hasReal(rec)) {
     const far = pos ? Math.min(1, d / 120) : 0, delay = pos ? d / 343 : 0;
-    if (!pos) { rs(rec, { gain: 1.0, vary: 0.04, room: indoor * 0.9 }); const fs = ctx.createGain(); fs.gain.value = 0; void fs; }
-    else rs(d > 30 ? 'gun_far' : rec, { pos, gain: 1.2, delay, lp: 20000 * Math.pow(0.1, far), ref: 6, roll: 0.9 });
+    // the recording itself also goes out into the open air and comes back off the houses and hills (none of that indoors)
+    if (!pos) rs(rec, { gain: 1.0, vary: 0.04, room: indoor * 0.9, verb: 0.3 * P.tail * (1 - indoor * 0.7) });
+    else rs(d > 120 || !hasReal(rec) ? 'gun_far' : rec, { pos, gain: 1.2, delay, lp: 20000 * Math.pow(0.12, far), ref: 6, roll: 0.9, verb: 0.2 + far * 0.5 });
     // the punch you feel in your chest, and the street answering back
     const t = nw + 0.004 + delay;
     thump(t, P.lowF * 1.6, P.lowF * 0.4, P.d * 1.6, (pos ? 0.3 : 0.55) * P.low, { pos, ref: 6 });
@@ -362,8 +369,11 @@ export let lastEnv = null, lastDelay = 0;   // the envelope (30 Hz) and start de
 function loadReal() {
   fetchRetry('sounds/r/index.json').then(r => r.json()).then(M => {
     const all = Object.entries(M).flatMap(([cat, names]) => names.map(n => [cat, n]));
-    // the dead and the guns first: they matter most
-    all.sort((a, b) => (/^(z_|gun_)/.test(a[0]) ? 0 : 1) - (/^(z_|gun_)/.test(b[0]) ? 0 : 1));
+    // load in order of need: the dead and the guns, then hits/bodies/doors/fire, then voices; the long beds only used by
+    // the TV bulletin, the stadium and the market crowd (v_news/v_murmur/v_crowd/v_radio, the biggest files) come last,
+    // so the fight sounds are decoded first. (Every map plays the TV/market scenes, so nothing is skipped per map.)
+    const tier = c => /^(z_|gun_)/.test(c) ? 0 : /^(v_news|v_murmur|v_crowd|v_radio)$/.test(c) ? 3 : /^v_/.test(c) ? 2 : 1;
+    all.sort((a, b) => tier(a[0]) - tier(b[0]));
     let i = 0;
     const next = () => { if (i >= all.length) { realReady = true; return; } const [cat, n] = all[i++]; fetchRetry(`sounds/r/${n}.mp3`).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b)).then(buf => { if (/^(v_|z_)/.test(cat)) buf.env = envOf(buf); (R[cat] ||= []).push(buf); }).catch(() => { }).finally(next); };
     for (let k = 0; k < 6; k++) next();
@@ -372,7 +382,7 @@ function loadReal() {
 const lastPick = {}; let rsLastBuf = null, rsLastRate = 1;
 export const hasReal = cat => !!(R[cat] && R[cat].length);
 // play a recording: pos (positional) or pan; rate varies a little each time so repeats don't sound copied
-function rs(cat, { pos = null, gain = 1, rate = 1, vary = 0.08, delay = 0, pan = 0, dest = sfxBus, lp = 0, ref = 3, roll = 1, room = 0, offset = 0, dur = 0 } = {}) {
+function rs(cat, { pos = null, gain = 1, rate = 1, vary = 0.08, delay = 0, pan = 0, dest = sfxBus, lp = 0, ref = 3, roll = 1, room = 0, offset = 0, dur = 0, verb = 0 } = {}) {
   if (!ctx || !R[cat] || !R[cat].length) return 0;
   const L2 = R[cat]; let i; do { i = Math.floor(Math.random() * L2.length); } while (L2.length > 1 && i === lastPick[cat]);
   lastPick[cat] = i;
@@ -383,8 +393,13 @@ function rs(cat, { pos = null, gain = 1, rate = 1, vary = 0.08, delay = 0, pan =
   node.connect(g);
   g.connect(out(pos, dest, pan, ref, roll));
   if (room > 0 && roomVerb) { const rg = ctx.createGain(); rg.gain.value = room; g.connect(rg).connect(roomVerb); }
+  if (verb > 0 && farVerb) { const vg = ctx.createGain(); vg.gain.value = verb; g.connect(vg).connect(at(pos, farVerb, ref, Math.min(roll, 0.6))); }   // outdoor echo off the houses/hills
   const t = ctx.currentTime + 0.005 + delay;
-  s.start(t, offset); if (dur) s.stop(t + dur);
+  // a slice from the middle of a clip (offset) or cut short (dur): short fades so it never starts or stops with a click
+  const off = Math.min(offset, Math.max(0, L2[i].duration - 0.05));
+  if (off > 0) { g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.02); }
+  s.start(t, off);
+  if (dur) { const fo = Math.min(0.08, dur * 0.3); g.gain.setValueAtTime(gain, t + Math.max(0.02, dur - fo)); g.gain.linearRampToValueAtTime(0, t + dur); s.stop(t + dur + 0.01); }
   rsLastBuf = L2[i]; rsLastRate = s.playbackRate.value;
   return L2[i].duration / s.playbackRate.value;
 }
@@ -699,7 +714,51 @@ export function drink() { if (!ctx) return; const t = ctx.currentTime + 0.01; cl
 export function bandage() { if (!ctx) return; const t = ctx.currentTime + 0.01; for (let i = 0; i < 3; i++) { const s = ctx.createBufferSource(); s.buffer = noiseBuf; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 1.2; const am = ctx.createGain(); am.gain.value = 0; const tt = t + i * 0.45; am.gain.setValueAtTime(0, tt); for (let k = 0; k < 12; k++) am.gain.setValueAtTime(k % 2 ? 0.05 : 0.3, tt + k * 0.025); am.gain.setValueAtTime(0, tt + 0.32); s.connect(f).connect(am).connect(sfxBus); s.start(tt, Math.random()); s.stop(tt + 0.35); } }
 export function flashlight(on) { if (!ctx) return; const t = ctx.currentTime + 0.005; click(t, on ? 2600 : 2000, 0.35); thump(t, 400, 200, 0.02, 0.15); }
 export function battery() { if (!ctx) return; const t = ctx.currentTime + 0.01; click(t, 1800, 0.3); click(t + 0.15, 2600, 0.3); click(t + 0.4, 2200, 0.35); }
-export function fireLoop(pos, k = 1) { if (!ctx || paused || dist(pos) > 30) return; if (hasReal('fire')) { rs('fire', { pos, gain: 0.6 * k, dur: 0.5, offset: Math.random() * 2, vary: 0.05 }); return; } const t = ctx.currentTime; burst(t, { f: 500, q: 0.4, d: 0.5, g: 0.1 * k, pos, brown: true }); for (let i = 0; i < 3; i++) click(t + Math.random() * 0.4, 1500 + Math.random() * 3000, 0.08 * k, pos); }
+// A fire is ONE continuous crackling bed per blaze (the real recording looped from a random point), not a string of short
+// slices: fireLoop(pos, k) keeps calling it alive (main.js calls it every ~0.5 s, or now and then); a bed nobody has
+// called for ~3 s fades out and stops. fireStart/fireStop give an explicit handle when a caller wants one.
+const FIRES = new Map(); let fireSweep = 0;
+const fireKey = p => Math.round(p.x / 3) + ',' + Math.round(p.z / 3);
+export function fireStart(pos, k = 1) {
+  if (!ctx || !hasReal('fire')) return null;
+  const b = loopBed('fire', { x: pos.x, y: pos.y ?? 0.5, z: pos.z }, 4); if (!b) return null;
+  b.s.playbackRate.value = 0.95 + Math.random() * 0.1; b.k = k; b.seen = ctx.currentTime; b.pos = { x: pos.x, z: pos.z };
+  b.g.gain.setTargetAtTime(0.6 * k, ctx.currentTime + 0.05, 0.25);
+  if (!fireSweep) fireSweep = setInterval(fireTick, 250);
+  return b;
+}
+export function fireStop(h, fade = 0.4) {
+  if (!h || h.dead || !ctx) return; h.dead = true;
+  const t = ctx.currentTime; h.g.gain.cancelScheduledValues(t); h.g.gain.setTargetAtTime(0, t, fade / 3);
+  try { h.s.stop(t + fade + 0.1); } catch (e) { /* already stopped */ }
+  for (const [key, v] of FIRES) if (v === h) FIRES.delete(key);
+}
+function fireTick() {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  for (const [, h] of FIRES) {
+    const far = Math.hypot(h.pos.x - L.x, h.pos.z - L.z) > 34;
+    if (t - h.seen > 3 || far) fireStop(h);
+    else h.g.gain.setTargetAtTime(paused ? 0 : 0.6 * h.k, t, 0.3);
+  }
+  if (!FIRES.size) { clearInterval(fireSweep); fireSweep = 0; }
+}
+export function fireLoop(pos, k = 1) {
+  if (!ctx || paused || dist(pos) > 30) return;
+  if (hasReal('fire')) {
+    const key = fireKey(pos); let h = FIRES.get(key);
+    if (!h) {
+      if (FIRES.size >= 5) {   // only the nearest few blazes get their own bed
+        let worst = null, wd = dist(pos); for (const [, v] of FIRES) { const dv = Math.hypot(v.pos.x - L.x, v.pos.z - L.z); if (dv > wd) { wd = dv; worst = v; } }
+        if (!worst) return; fireStop(worst, 0.3);
+      }
+      h = fireStart(pos, k); if (!h) return; FIRES.set(key, h);
+    }
+    h.seen = ctx.currentTime; if (Math.abs(h.k - k) > 0.02) { h.k = k; h.g.gain.setTargetAtTime(0.6 * k, ctx.currentTime, 0.3); }
+    return;
+  }
+  const t = ctx.currentTime; burst(t, { f: 500, q: 0.4, a: 0.08, d: 0.5, g: 0.1 * k, pos, brown: true }); for (let i = 0; i < 3; i++) click(t + Math.random() * 0.4, 1500 + Math.random() * 3000, 0.08 * k, pos);
+}
 export function ignite(pos) { if (!ctx) return; const t = ctx.currentTime + 0.01; burst(t, { f: 300, type: 'lowpass', d: 0.8, g: 0.9, pos, brown: true, ref: 4 }); burst(t, { f: 1200, q: 0.5, d: 0.5, g: 0.4, pos, sweep: 0.4 }); }
 // a car alarm, the oldest trick in the book (and every zombie for a block hears it)
 export function carAlarm(pos, dur = 14) {
@@ -791,7 +850,7 @@ export function setRain(k) {
     const bg = ctx.createGain(); bg.gain.value = 0; body.connect(bf).connect(bg).connect(sfxBus);
     rainA = { hg, bg, hp };
     // drips and patter
-    setInterval(() => { if (!rainA || paused || rainA.k < 0.05) return; const t = ctx.currentTime; for (let i = 0; i < 6 * rainA.k; i++) { const tt = t + Math.random() * 0.4; if (indoor > 0.5) thump(tt, 180 + Math.random() * 120, 90, 0.04, 0.03 * rainA.k); else tone(tt, 2500 + Math.random() * 3500, 0.03, 0.01 * rainA.k, 'sine', sfxBus, { x: L.x + (Math.random() - 0.5) * 8, y: 0.2, z: L.z + (Math.random() - 0.5) * 8 }, 0.001); } }, 400);
+    setInterval(() => { if (!rainA || paused || rainA.k < 0.05) return; const t = ctx.currentTime; for (let i = 0; i < 6 * rainA.k; i++) { const tt = t + Math.random() * 0.4; if (indoor > 0.5) thump(tt, 180 + Math.random() * 120, 90, 0.04, 0.03 * rainA.k); else burst(tt, { f: 2800 + Math.random() * 4500, q: 1.5 + Math.random() * 2, a: 0.0008, d: 0.006 + Math.random() * 0.012, g: 0.035 * rainA.k, pan: Math.random() * 1.6 - 0.8 }); } }, 400);   // each drop a tiny tick of filtered noise (stereo-panned: no HRTF panner per drop)
   }
   rainA.k = k;
   const t = ctx.currentTime, inside = indoor;
@@ -932,7 +991,7 @@ export function pause(p) {
 // D minor. Calm: a cold low drone and a lonely, out-of-tune piano. Tension (they're near): a high string
 // tremolo, a slow pulse. Chase (they're on you): pounding low toms, a driving bass ostinato, dissonant brass.
 const hz = m => 440 * Math.pow(2, (m - 69) / 12);
-let droneG, tenseG, chaseG, intensity = 0, intTarget = 0, step16 = 0, nextT = 0, musicOn = true, BPM = 84, SIX = 60 / 84 / 4;
+let droneG, tenseG, chaseG, tenseOn = false, chaseOn = false, intensity = 0, intTarget = 0, step16 = 0, nextT = 0, musicOn = true, BPM = 84, SIX = 60 / 84 / 4;
 const PROG = [[38, [50, 53, 57]], [34, [46, 50, 53]], [36, [48, 51, 55]], [37, [49, 52, 56]]];   // Dm, Bb, Cm(!), C#dim-ish: never settles
 export function setIntensity(x) { intTarget = Math.max(0, Math.min(1, x)); }
 export function musicPlaying(on) { musicOn = on; }
@@ -963,8 +1022,10 @@ function music() {
     const on = musicOn && mode !== 'title' ? 1 : mode === 'title' ? 0.8 : 0;
     const now = ctx.currentTime;
     droneG.gain.setTargetAtTime(paused ? 0.4 : on * (0.9 - intensity * 0.3), now, 0.8);
-    tenseG.gain.setTargetAtTime(paused ? 0 : on * Math.max(0, Math.min(1, (intensity - 0.2) * 2.2)) * (1 - Math.max(0, intensity - 0.75) * 2), now, 0.6);
-    chaseG.gain.setTargetAtTime(paused ? 0 : on * Math.max(0, (intensity - 0.6) * 2.5), now, 0.35);
+    const tg = paused ? 0 : on * Math.max(0, Math.min(1, (intensity - 0.2) * 2.2)) * (1 - Math.max(0, intensity - 0.75) * 2), cg = paused ? 0 : on * Math.max(0, (intensity - 0.6) * 2.5);
+    tenseOn = tg > 0.01; chaseOn = cg > 0.01;
+    tenseG.gain.setTargetAtTime(tg, now, 0.6);
+    chaseG.gain.setTargetAtTime(cg, now, 0.35);
     while (nextT < now + 0.35) { sched(nextT, step16); nextT += SIX; step16++; }
   }, 90);
 }
@@ -975,8 +1036,9 @@ function sched(t, s) {
   if (pos % 4 === 0 && Math.random() < 0.28 + (mode === 'title' ? 0.2 : 0)) piano(t, ch[Math.floor(Math.random() * 3)] + 12 + (Math.random() < 0.3 ? 12 : 0), 0.05 * (1 - intensity * 0.6));
   if (pos === 0 && bar % 4 === 0) piano(t, root + 12, 0.045);
   // tension: a slow heartbeat pulse
-  if ((pos === 0 || pos === 3) && bar % 1 === 0) kick(t, 0.25, tenseG, pos === 0 ? 1 : 0.9);
-  // chase
+  if ((pos === 0 || pos === 3) && (tenseOn || tenseG.gain.value > 0.005)) kick(t, 0.25, tenseG, pos === 0 ? 1 : 0.9);
+  // chase (no nodes at all while its layer is silent: that is most of the time)
+  if (!chaseOn && chaseG.gain.value < 0.005) return;
   const Cg = chaseG;
   if (pos % 2 === 0) bassNote(t, root - 12 + [0, 0, 1, 0, 0, 0, 3, 1][pos / 2], SIX * 1.6, 0.18, Cg);
   if (pos === 0 || pos === 6 || pos === 10) tom(t, 0.55, Cg, 1);

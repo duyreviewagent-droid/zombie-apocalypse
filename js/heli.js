@@ -184,7 +184,7 @@ export function cameraTarget() {
     g.updateMatrixWorld(true);
     if (MODE === 'plane') return { pos: g.localToWorld(V(-0.15, 1.72, -0.55)), look: g.localToWorld(V(6, 1.0, 2.2)), fov: 64, t: 0, inside: true };
     if (MODE === 'boat') return { pos: g.localToWorld(V(-0.35, 1.95, -1.9)), look: g.localToWorld(V(5, 0.9, 1.5)), fov: 62, t: 0, inside: true };
-    return { pos: g.localToWorld(V(0.62, 2.15, 1.3)), look: g.localToWorld(V(-0.4, 1.35, -1.1)), fov: 72, t: 0, inside: true };   // in the cabin by the door: everyone who made it   // in the cabin: the others on the benches, the open door, the crossroads
+    return { pos: g.localToWorld(V(0.2, 2.36, -0.75)), look: g.localToWorld(V(1.8, 1.15, 1.0)), fov: 72, t: 0, inside: true };   // up under the roof at the back: past the crewman, out of the open door (your own seat is off to the left, out of shot)   // in the cabin by the door: everyone who made it   // in the cabin: the others on the benches, the open door, the crossroads
   }
   if ((S.st !== 'liftoff' && S.st !== 'outbound') || S.camT > 16) return null;
   const t = S.camT, p = S.pos;
@@ -465,7 +465,8 @@ function build() {
   }
   // the open left door: a dark cabin behind, the door slid back along its rail, a step, a grab handle
   const sideX = z => rAt(z) * SX;
-  const cabinBox = add(new THREE.BoxGeometry(1.7, dY1 - dY0, dzl), new THREE.MeshStandardMaterial({ color: 0x1b1c18, roughness: 0.95, side: THREE.BackSide, emissive: 0xffc890, emissiveIntensity: 0.06 }), 0, (dY0 + dY1) / 2, dzc); cabinBox.castShadow = false;
+  const cabM = new THREE.MeshStandardMaterial({ map: paintedMetalTexture([40, 42, 34]), roughness: 0.95, side: THREE.BackSide, emissive: 0xffc890, emissiveIntensity: 0.06 });
+  const cabinBox = add(new THREE.BoxGeometry(1.7, dY1 - dY0, dzl), [new THREE.MeshBasicMaterial({ visible: false }), cabM, cabM, cabM, cabM, cabM], 0, (dY0 + dY1) / 2, dzc); cabinBox.castShadow = false;   // (no wall on the door side: from inside you see out)
   for (const z of [dZ0, dZ1]) add(new THREE.BoxGeometry(0.08, dY1 - dY0, 0.08), M.olive, sideX(z) + 0.02, (dY0 + dY1) / 2, z);   // door frame
   add(new THREE.BoxGeometry(0.08, 0.08, dzl), M.olive, sideX(dzc) + 0.02, dY1, dzc);
   add(new THREE.CylinderGeometry(0.03, 0.03, dzl + 2.2, 8).rotateX(Math.PI / 2), M.metal, sideX(dzc) + 0.08, dY1 + 0.08, dzc - 1.0);   // door rail
@@ -649,7 +650,7 @@ function makeDust() {
   geo.setAttribute('aOff', aOff); geo.setAttribute('aDat', aDat); geo.instanceCount = N;
   const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { map: { value: tex }, uCol: { value: new THREE.Color(0.55, 0.47, 0.36) } },
     // (a cloud right in front of the lens fades out and never grows bigger than the view: no brown wall over the screen)
-    vertexShader: 'attribute vec3 aOff; attribute vec3 aDat; varying vec2 vUv; varying float vA; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(aOff, 1.); float dist = -mv.z; vA = aDat.y * smoothstep(2., 8., dist); float sz = min(aDat.x, max(0.4, dist * 0.55)); float c = cos(aDat.z), s = sin(aDat.z); vec2 q = vec2(c * position.x - s * position.y, s * position.x + c * position.y) * sz; mv.xy += q; gl_Position = projectionMatrix * mv; }',
+    vertexShader: 'attribute vec3 aOff; attribute vec3 aDat; varying vec2 vUv; varying float vA; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(aOff, 1.); float dist = -mv.z; vA = aDat.y * smoothstep(2.5, 10., dist); float sz = min(aDat.x, max(0.4, dist * 0.55)); float c = cos(aDat.z), s = sin(aDat.z); vec2 q = vec2(c * position.x - s * position.y, s * position.x + c * position.y) * sz; mv.xy += q; gl_Position = projectionMatrix * mv; }',
     fragmentShader: 'uniform sampler2D map; uniform vec3 uCol; varying vec2 vUv; varying float vA; void main(){ vec4 t = texture2D(map, vUv); float a = t.a * vA; if (a < 0.004) discard; gl_FragColor = vec4(uCol * (0.75 + 0.25 * t.r), a); }' });
   const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.renderOrder = 3;
   const P = []; for (let i = 0; i < N; i++) P.push({ life: 0, max: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, s: 1, g: 1, r: 0, vr: 0 });
@@ -724,7 +725,7 @@ function animate(dt) {
   g.localToWorld(_q.set(1.2, 2.0, 0.25)); H.lamp.position.copy(_q); H.lamp.intensity = 8 * S.door * (0.3 + 0.7 * night);
   H.M.inside.emissiveIntensity = 0.08 + 0.25 * S.door * night;
   // rotor wash: dust below it when it's low, and the trees and grass bend (the lead's hook)
-  const wash = S.rpm * (1 - smooth(4, 26, h)) * (S.st === 'landed' ? 0.75 : 1);
+  const wash = S.rpm * (1 - smooth(4, 26, h)) * (S.st === 'landed' ? (S.passengers.some(isMe) ? 0.3 : 0.75) : 1);   // (from inside: a haze, not a wall)
   H.dust.rate = wash * 110; H.dust.cx = S.pos.x; H.dust.cy = S.gy; H.dust.cz = S.pos.z; H.dust.rad = 1; H.dust.spd = 1;
   const lit = clamp((C.daylight ? C.daylight() : 1) * 0.85 + 0.12 + 0.25 * night, 0.1, 1);
   H.discM.color.setScalar(0.3 + 0.7 * (1 - night)); H.tdiscM.color.copy(H.discM.color);

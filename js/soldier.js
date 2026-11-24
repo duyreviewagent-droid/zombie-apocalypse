@@ -172,6 +172,8 @@ export class Soldier {
     root.traverse(o => {
       if (!o.isMesh) return;
       o.castShadow = true; o.receiveShadow = true;
+      // eyes, teeth, glasses and hair shells are tiny or inside the head: their shadows only cost (and speckle the face)
+      if (/Eye|Teeth|Glasses|HairShell/.test(o.name)) { o.castShadow = false; o.userData.noShadow = true; }
       if (o.morphTargetDictionary) this.morphs.push(o);
     });
     // skinned bodies are culled with one generous sphere round the whole person (standing, lying or thrown about),
@@ -217,7 +219,7 @@ export class Soldier {
   // y: the floor it's put on (0 the ground; 4 to start up on a tower platform)
   place(x, z, yaw = 0, y = 0) {
     this.pos.set(x, y, z); this.yaw = yaw; this.aimYaw = yaw; this.moveA = yaw; this.vel.set(0, 0, 0); this.speed = 0; this.turnRate = 0; this.fly = null;
-    this.jump.st = 'ground'; this.jump.y = 0; this.jump.w = 0; this.jump.fall = false;
+    this.jump.st = 'ground'; this.jump.y = 0; this.jump.w = 0; this.jump.fall = false; this.fallYaw = null;
     this.gy = null; this.gyT = y; this.pos.gy = y; this.mant = null;
     this.pivot.rotation.set(0, yaw, 0);
   }
@@ -283,14 +285,14 @@ export class Soldier {
     // ---- jumping (captured take-off, flight, landing) ----
     const runNow = smooth(k.vw, k.vr, this.speed), TAKE = 0.23;
     if (cmd.jump && !locked && !this.mant && this.crouchW < 0.3 && (J.st === 'ground' || (J.st === 'land' && J.clipL > 0.45))) {
-      J.st = 'prep'; J.t = 0; J.runAt = runNow; J.dip = lerp(0.18, 0.05, runNow); J.from = lerp(0.025, 0.08, runNow);
+      J.st = 'prep'; J.t = 0; J.runAt = runNow; J.dip = lerp(0.07, 0.03, runNow); J.from = lerp(0.04, 0.09, runNow);   // a short crouch, then off (~120 ms)
     }
     const airborne = J.st === 'air' || !!this.fly;
     let jw = 0;
     if (J.st === 'prep') {
       J.t += dt;
       if (J.t < J.dip) { J.clipS = J.from; jw = smooth(0, J.dip, J.t); }
-      else { J.clipS = Math.min(TAKE, J.from + (J.t - J.dip) * (1 + J.runAt * 0.6)); jw = 1; }
+      else { J.clipS = Math.min(TAKE, J.from + (J.t - J.dip) * (2.4 + J.runAt * 0.8)); jw = 1; }
       J.wS = jw; J.wA = 0; J.wL = 0;
       if (J.clipS >= TAKE) { J.st = 'air'; J.t = 0; J.vy0 = J.vy = 3.0 + 0.35 * J.runAt; this.onStep && this.onStep(this, { jump: true, run: J.runAt }); }
     } else if (J.st === 'air') {
@@ -360,6 +362,8 @@ export class Soldier {
     this.turnRate = damp(this.turnRate, turn, 12, dt);
     this.yaw = wrapPi(this.yaw + this.turnRate * dt);
     if (this.dead || this.act) this.turnRate = 0;
+    // dying: the body turns (gently, over the fall) to land the way combat.js picked — clear of walls and furniture
+    if (this.dead && this.fallYaw != null) { this.yaw = dampAngle(this.yaw, this.fallYaw, 3, dt); if (Math.abs(wrapPi(this.yaw - this.fallYaw)) < 0.01) this.fallYaw = null; }
 
     const gk = this.strideK || 1;   // [boss] a body scaled up takes longer strides: its legs move at speed / strideK (1 for everyone else)
     const running = smooth(k.vw, k.vr, this.speed / gk);

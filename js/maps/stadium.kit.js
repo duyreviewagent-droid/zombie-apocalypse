@@ -64,7 +64,9 @@ export function textures(seed = 11) {
   // painted block walls inside (concourse, corridors)
   T.block = canvasTex(256, 256, (g, w, h) => {
     g.fillStyle = '#d6d2c8'; g.fillRect(0, 0, w, h);
-    g.fillStyle = '#b4b0a6'; for (let y = 0; y < h; y += 32) { g.fillRect(0, y, w, 2); for (let x = (y / 32) % 2 ? 0 : 64; x < w; x += 128) g.fillRect(x, y, 2, 32); }
+    // real-size blockwork (the map tiles this every 3.2 m: 200 × 400 mm blocks, half-bond), a little tone per block
+    for (let y = 0; y < h; y += 16) for (let x = (y / 16) % 2 ? -16 : 0; x < w; x += 32) { const v = (r() - 0.5) * 10 | 0; g.fillStyle = `rgb(${214 + v},${210 + v},${200 + v})`; g.fillRect(x + 1, y + 1, 30, 14); }
+    g.fillStyle = '#b4b0a6'; for (let y = 0; y < h; y += 16) { g.fillRect(0, y, w, 1.5); for (let x = (y / 16) % 2 ? 16 : 0; x < w; x += 32) g.fillRect(x, y, 1.5, 16); }
     noise(g, w, h, 2500, 0.06, r);
     g.fillStyle = HOME.col; g.fillRect(0, h - 40, w, 22);   // a claret dado stripe
   });
@@ -148,11 +150,14 @@ export function signAtlas(N = 2048) {
   const cv = document.createElement('canvas'); cv.width = cv.height = N; const g = cv.getContext('2d');
   g.fillStyle = '#222'; g.fillRect(0, 0, N, N);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
-  let x = 0, y = 0, rowH = 0;
+  let x = 0, y = 0, rowH = 0, full = false;
+  const seen = new Map();   // (the same sign twice — every TOILETS, both trucks' liveries — shares one slot)
   function add(lines, bg = '#1a2a4a', fg = '#ffffff', aspect = 4) {
     const w = aspect >= 2 ? 512 : 256, h = Math.max(24, Math.min(256, Math.round(w / aspect)));
+    const key = [].concat(lines).join('|') + '|' + bg + '|' + fg + '|' + w + 'x' + h;
+    if (seen.has(key)) return seen.get(key);
     if (x + w > N) { x = 0; y += rowH + 2; rowH = 0; }
-    if (y + h > N) return null;
+    if (y + h > N) { if (!full) { full = true; console.warn('stadium signs: the atlas is full —', lines); } return null; }
     g.save(); g.translate(x, y);
     g.fillStyle = bg; g.fillRect(0, 0, w, h); g.strokeStyle = 'rgba(255,255,255,0.25)'; g.lineWidth = Math.max(2, h * 0.05); g.strokeRect(g.lineWidth, g.lineWidth, w - 2 * g.lineWidth, h - 2 * g.lineWidth);
     g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -162,6 +167,7 @@ export function signAtlas(N = 2048) {
     const r = [x / N, 1 - (y + h) / N, (x + w) / N, 1 - y / N];
     x += w + 2; rowH = Math.max(rowH, h);
     tex.needsUpdate = true;
+    seen.set(key, r);
     return r;
   }
   // a plane w × h (facing +z) mapped to the rect

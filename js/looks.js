@@ -408,7 +408,7 @@ function clearLook(s) {
 function accMesh(s, geo, mat, name, slot, shadow = true) {
   if (!geo) return null;
   const m = new THREE.Mesh(geo, mat); m.name = name; m.userData.lkAcc = true; m.userData.lkSlot = slot;
-  m.castShadow = shadow && !C.mobile; m.receiveShadow = true;
+  m.castShadow = shadow && !C.mobile; m.receiveShadow = true; if (!m.castShadow) m.userData.noShadow = true;   // (soldier.js's shadow LOD leaves it off)
   s.B.Head.add(m); return m;
 }
 // L: from lookFor. Returns [[mesh, material, visible]...] (what people.js puts back after a body's been borrowed).
@@ -435,7 +435,7 @@ export function applyLook(s, L, { zombie = false } = {}) {
     const over = L.hair === 'swept' || L.hair === 'side' || L.hair === 'curly';
     if (L.hair === 'swept' || L.hair === 'side') { const d = donor(/Wolf3D_Hair/, L.hair === 'swept' ? 0 : 1) || donor(/Wolf3D_Hair/, 0); if (d) accMesh(s, d.geo, donorMat(d, hairHex), 'LookHair', 'hair'); }
     const hg = geoFor(K, 'hair:' + L.hair + ':' + L.facial, () => { const a = hairGeo(F, L.hair), b = facialGeo(F, L.facial), gs = [a, b].filter(g => g && g.index && g.index.count); return gs.length ? (gs.length > 1 ? mergeGeometries(gs) : gs[0]) : null; });
-    if (hg) accMesh(s, hg, shellMat(L.facial !== 'none' && (L.hair === 'bald' || L.hair === 'balding') ? hairHex : hairHex), 'LookHairShell', 'hair');
+    if (hg) accMesh(s, hg, shellMat(L.facial !== 'none' && (L.hair === 'bald' || L.hair === 'balding') ? hairHex : hairHex), 'LookHairShell', 'hair', false);
     // a hat
     if (L.hat === 'cowboy') { const d = donor(/Wolf3D_Headwear|^Mesh$/); if (d) accMesh(s, d.geo, donorMat(d, HATC[L.hatCol], false), 'LookHeadwear', 'cloth'); }
     else if (L.hat !== 'none') accMesh(s, geoFor(K, 'hat:' + L.hat + over, () => hatGeo(F, L.hat, over)), plainMat(HATC[L.hatCol], 0.9, 0, 'LookHeadwear'), 'LookHeadwear', 'cloth');

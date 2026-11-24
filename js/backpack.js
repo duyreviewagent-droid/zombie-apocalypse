@@ -365,7 +365,7 @@ export class Pack {
     const P = this.P, r = P.root;
     if (name === 'mouth') out.set(0, SEAM_Y + 0.05, -D * 0.5 * P.body.scale.z);
     else if (name === 'pull') return P.pullA.getWorldPosition(out);
-    else if (name === 'grip') { const m = P.mounts.children[0]; if (m) return m.getWorldPosition(out); out.set(-W * 0.35, H / 2 + 0.06, -D - 0.03); }
+    else if (name === 'grip') { const m = P.mounts.children[0]; if (m) return m.getWorldPosition(out); this.mountSpec(0, out); }
     else if (name === 'gun') { const m = P.mounts.children.find(o => o.userData.gun); if (m) return m.getWorldPosition(out); out.set(W / 2 + 0.03, H / 2, -D / 2); }
     else if (name === 'side') out.set(side * (W / 2 + 0.02), -H / 2 + 0.16, -D / 2);
     else if (name === 'front') out.set(0, -H / 2 + 0.2, -D * P.body.scale.z - 0.06);
@@ -382,13 +382,12 @@ export class Pack {
     if (key === this.mountKey) return;
     this.mountKey = key;
     const mt = this.P.mounts; while (mt.children.length) mt.remove(mt.children[0]);
-    // the first one goes diagonally across the front, handle up over your right shoulder; a second down the right side
+    // long weapons ride head-up on the back of the pack: the first diagonally (handle low on your right, head up past
+    // your left shoulder), a second up the right side — the handle's end never hangs below the pack's bottom
     const long = melee.filter(id => id !== 'knife');
     long.slice(0, 2).forEach((id, i) => {
       const w = makeMeleeMesh(id); w.userData.id = id; w.traverse(o => { if (o.isMesh) { o.castShadow = true; } });
-      const L = w.userData.tip || 0.5;
-      if (i === 0) { w.position.set(-W * 0.34, H / 2 + 0.05, -D - 0.035); w.rotation.set(0, 0, Math.PI + 0.62); }   // handle up behind your right shoulder, head down across to the left
-      else { w.position.set(-W / 2 - 0.035, H / 2 + 0.03, -D * 0.55); w.rotation.set(0.06, 0, Math.PI); }
+      this.mountSpec(i, w.position, w.rotation);
       mt.add(w);
     });
     if (melee.includes('knife')) { const w = makeMeleeMesh('knife'); w.userData.id = 'knife'; w.position.set(-W / 2 - 0.02, -H / 2 + 0.2, -D / 2); w.rotation.set(0, 0, Math.PI); mt.add(w); }   // handle up out of the right pocket
@@ -415,7 +414,14 @@ export class Pack {
   // where a strapped weapon's handle is (null: not on the pack)
   mountPos(id, out) { const m = this.P.mounts.children.find(o => o.userData.id === id || o.userData.gun === id); return m ? m.getWorldPosition(out) : null; }
   // where the n-th strapped melee weapon goes (for putting one away before its strap exists)
-  slotPos(i, out) { if (i === 0) out.set(-W * 0.34, H / 2 + 0.05, -D - 0.035); else out.set(-W / 2 - 0.035, H / 2 + 0.03, -D * 0.55); return this.P.root.localToWorld(out); }
+  slotPos(i, out) { this.mountSpec(i, out); return this.P.root.localToWorld(out); }
+  // the n-th long weapon's grip (pack space) and turn: head-up, the butt of the handle (0.13 m below the grip) at the pack's bottom
+  mountSpec(i, pos, rot = null) {
+    const k = this.k || 1, tilt = i === 0 ? -0.42 : -0.05, butt = 0.13 / k * Math.cos(tilt);
+    if (i === 0) pos.set(-W * 0.3, -H / 2 + 0.035 + butt, -D - 0.035); else pos.set(-W / 2 - 0.035, -H / 2 + 0.05 + butt, -D * 0.55);
+    if (rot) rot.set(i === 0 ? 0 : -0.06, 0, tilt);
+    return pos;
+  }
   hideMount(id, hide) { for (const o of this.P.mounts.children) if (o.userData.id === id || o.userData.gun === id) o.visible = !hide; }
   // st: { fill 0..1 } · this.swing (0 on your back … 1 held in front), this.zip (0 shut … 1 open) are driven by the caller
   update(dt, fill) {

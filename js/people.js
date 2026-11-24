@@ -12,6 +12,7 @@ import { slotOf, adoptZombie, wake, Z, vestOn, dressZombie, startTurning, turnAm
 import { Melee, MELEE } from './melee.js';
 import { refreshHitShapes } from './combat.js';
 import * as HELI from './heli.js';
+import * as DRIVE from './drive.js';
 import * as LOOKS from './looks.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -41,6 +42,7 @@ const pend = [];
 const BODIES = ['coach', 'butler', 'human', 'michelle', 'michelle', 'coach', 'butler', 'michelle', 'michelle', 'butler', 'michelle', 'michelle', 'coach', 'michelle', 'human', 'michelle', 'butler', 'michelle', 'coach'];
 export async function makePeople(ctx, n = 19, tick = null) {
   X = ctx;
+  if (tier() === 0) n += 8;   // a desktop can take a busier town: eight more out walking (they all become walkers in castCalm)
   for (let i = 0; i < n; i++) {
     makeOne(i);
     if (tick && i % 4 === 3) await tick();
@@ -94,7 +96,7 @@ function restore(u) {
 const LINES = [['x', -5.1, -98, -9], ['x', -5.1, 9, 34], ['x', 5.1, -98, -9], ['x', 5.1, 9, 98], ['z', -5.1, -98, -9], ['z', 5.1, 9, 98], ['z', -5.1, 9, 98], ['z', 5.1, -98, -9], ['x', -5.1, 36, 98], ['x', 5.1, -60, -9]];
 const linePos = (L, a) => L[0] === 'x' ? [a, L[1]] : [L[1], a];
 const GREET = ['Morning!', 'Beautiful day, huh?', 'Hey, neighbour.', 'Nice out today.', 'Hi there!', 'You hear the Quick Stop\'s doing burgers today?', 'Lovely weather for November.', 'Morning. Em and the kids away?'];
-const SMALL = [['Raj gets the meat cheap from some new supplier. Two-dollar burgers, can you believe it?', 'Don\'t tell my doctor.'], ['Saw a truck I didn\'t recognise outside the Quick Stop this morning. No markings on it.', 'Probably nothing.'], ['My kid\'s got a game at two. You should come watch.'], ['Have a good one!'], ['I\'m off to get a burger before they run out.']];
+const SMALL = [['Raj gets the meat cheap from some new supplier. Two-dollar burgers, can you believe it?', 'Don\'t tell my doctor.'], ['Saw a truck I didn\'t recognise outside the Quick Stop this morning. No markings on it.', 'Probably nothing.'], ['My kid\'s got a game at two. You should come watch.'], ['I\'m off to get a burger before they run out.']];
 const PANIC = ['RUN!', 'Get inside! GET INSIDE!', 'Oh God, oh God...', 'Somebody help!', 'They\'re eating him!', 'Don\'t let it bite you!', 'Call 911!', 'Where do we go?!'];
 const DALE = ['Morning, Sam! Em and the kids get off to Ridgefield all right?', 'Linda walked down to the Quick Stop — Raj fires up the grill on Saturdays. Two-dollar burgers. I\'m holding out for one.', 'This old girl\'s running on fumes. There\'s a can of gas in the Hendersons\' shed — I\'ll fill her up after lunch.'];
 export const SURVIVOR_LINES = {
@@ -252,14 +254,29 @@ function camMesh() {
   add(new THREE.BoxGeometry(0.03, 0.05, 0.12), body, 0, 0.11, -0.03);                               // the handle
   add(new THREE.BoxGeometry(0.11, 0.09, 0.05), M(0x1d1d1d, 0.7), 0, -0.01, -0.19);                  // the battery
   add(new THREE.SphereGeometry(0.008, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2020 }), 0.066, 0.06, 0.15);   // tally light: live
+  const logo = new THREE.MeshStandardMaterial({ map: stationTex(), roughness: 0.45 });   // the station's sticker on both sides
+  for (const sx of [1, -1]) { const o = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.105), logo); o.position.set(0.0655 * sx, 0, -0.02); o.rotation.y = sx * Math.PI / 2; g.add(o); }
   return g;
 }
 function micMesh() {
   const g = new THREE.Group(), add = (geo, m, y) => { const o = new THREE.Mesh(geo, m); o.position.y = y; o.castShadow = true; g.add(o); return o; };
   add(new THREE.CylinderGeometry(0.014, 0.011, 0.2, 12), new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.4 }), 0.02);
   add(new THREE.SphereGeometry(0.027, 14, 10), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 }), 0.135);   // the foam
-  add(new THREE.BoxGeometry(0.055, 0.045, 0.055), new THREE.MeshStandardMaterial({ color: 0xd8dde3, roughness: 0.5 }), 0.085);   // the station flag
+  add(new THREE.BoxGeometry(0.055, 0.045, 0.055), new THREE.MeshStandardMaterial({ map: stationTex(), roughness: 0.5 }), 0.085);   // the station flag: WMHX 7 on all four sides
   return g;
+}
+// the station's logo (a red 7 in a circle, WMHX under it), on the mic flag and the side of the camera
+let STN = null;
+function stationTex() {
+  if (STN) return STN;
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 104; const g = cv.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 104); gr.addColorStop(0, '#f4f6f8'); gr.addColorStop(1, '#c9ced4'); g.fillStyle = gr; g.fillRect(0, 0, 128, 104);
+  g.fillStyle = '#1b2a48'; g.fillRect(0, 0, 128, 10); g.fillRect(0, 94, 128, 10);
+  g.fillStyle = '#c8161a'; g.beginPath(); g.arc(64, 44, 25, 0, 7); g.fill();
+  g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = 'bold 34px Helvetica, Arial, sans-serif'; g.fillText('7', 64, 46);
+  g.fillStyle = '#1b2a48'; g.font = 'bold 19px Helvetica, Arial, sans-serif'; g.fillText('WMHX', 64, 82, 120);
+  STN = new THREE.CanvasTexture(cv); STN.colorSpace = THREE.SRGBColorSpace; STN.anisotropy = 4;
+  return STN;
 }
 export function newsCrew() {
   if (!X || PPL.cast.danny) return;
@@ -809,6 +826,7 @@ function sayOn(u) {
   u.say = (text, dur = 3) => {
     if (Array.isArray(text)) text = pickU(u, text);
     if (!text) return;
+    dur = Math.max(dur, 1.4 + text.length * 0.07);   // long enough to read every word of it
     u.lastText = text; u.bubble = { text: text.replace(/^\((\w+)\)\s*/, '*$1* '), t: dur }; u.s.talkT = Math.min(dur, 0.5 + text.length * 0.06); u.s.talkK = /!/.test(text) ? 1 : 0.65;   // the mouth moves while the words are up
     speak(u, text);   // and a real recorded voice says it (or a fitting sound of one)
     if (u.active && !u.gone) PPL.voices.push({ x: u.s.pos.x, z: u.s.pos.z, loud: /!/.test(text) ? 16 : 9, by: u, voice: true });   // and heads turn to the voice
@@ -832,11 +850,11 @@ function talkLine(u) {
     u.tag = !u.tag; if (u.s.act && u.st === 'search') { u.s.stopAct(0.2); u.reserve && (u.reserve.taken = null); }
     u.st = u.tag ? 'tag' : 'idle'; u.t = rnd(2, 4); u.path = null; u.enter = null; u.home = null;
     const ln = u.tag ? pick(['Okay — I\'m with you.', 'Alright. Lead the way.', 'Okay. Right behind you.']) : pick(['Okay. I\'ll find my own way. Good luck.', 'Alright — I\'m staying here. Be careful.']);
-    if (first && u.tag) { u.more = 1.5; later2(() => u.alive && !u.gone && u.say(ln, 2.6), 5.2); } else u.say(ln, 2.6);
+    if (first && u.tag) { const t1 = (u.bubble ? u.bubble.t : 5) + 0.3; u.more = t1 - (u.bubble ? u.bubble.t : 5) + Math.max(2.6, 1.4 + ln.length * 0.07); later2(() => u.alive && !u.gone && u.say(ln, 2.6), t1); } else u.say(ln, 2.6);
     return 'surv';
   }
   if (PPL.phase === 'calm' && u.pers && Math.random() < 0.55) { u.say(sayLines(u, 'small'), 4); return 'small'; }
-  if (PPL.phase === 'calm') { const L = pickU(u, SMALL.map(l => l[0])), L1 = (SMALL.find(l => l[0] === L) || [])[1]; u.say(L, 4); if (L1) { u.more = 2.7; later2(() => u.alive && !u.gone && u.say(L1, 2.5), 4.2); } return 'small'; }
+  if (PPL.phase === 'calm') { const L = pickU(u, SMALL.map(l => l[0])), L1 = (SMALL.find(l => l[0] === L) || [])[1]; u.say(L, 4); if (L1) { const t1 = (u.bubble ? u.bubble.t : 4) + 0.3; u.more = 0.3 + Math.max(2.5, 1.4 + L1.length * 0.07); later2(() => u.alive && !u.gone && u.say(L1, 2.5), t1); } return 'small'; }
   u.say(u.pers && Math.random() < 0.6 ? sayLines(u, u.pers.brave > 0.6 ? 'panicB' : 'panicS') : PANIC, 2.5); return 'panic';
 }
 export function talkable(px, pz) {
@@ -859,8 +877,9 @@ export function findPath(x0, z0, x1, z1, maxExp = 60000) {
   const sk = s0[1] * nx + s0[0], gk = g0[1] * nx + g0[0];
   const h = k => { const i = k % nx, j = (k / nx) | 0, dx = Math.abs(i - g0[0]), dz = Math.abs(j - g0[1]); return Math.max(dx, dz) + 0.414 * Math.min(dx, dz); };
   let n = 0;
-  const push = (d, k) => { if (n >= hD.length) return; let i = n++; hD[i] = d; hK[i] = k; while (i > 0) { const p = (i - 1) >> 1; if (hD[p] <= hD[i]) break; [hD[p], hD[i]] = [hD[i], hD[p]]; [hK[p], hK[i]] = [hK[i], hK[p]]; i = p; } };
-  const pop = () => { const k = hK[0]; n--; if (n > 0) { hD[0] = hD[n]; hK[0] = hK[n]; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < n && hD[l] < hD[m]) m = l; if (r < n && hD[r] < hD[m]) m = r; if (m === i) break; [hD[m], hD[i]] = [hD[i], hD[m]]; [hK[m], hK[i]] = [hK[i], hK[m]]; i = m; } } return k; };
+  // a binary heap (sift with temporaries: no throwaway arrays in the hot loop)
+  const push = (d, k) => { if (n >= hD.length) return; let i = n++; while (i > 0) { const p = (i - 1) >> 1; if (hD[p] <= d) break; hD[i] = hD[p]; hK[i] = hK[p]; i = p; } hD[i] = d; hK[i] = k; };
+  const pop = () => { const k = hK[0]; n--; if (n > 0) { const d = hD[n], kk = hK[n]; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = -1, md = d; if (l < n && hD[l] < md) { m = l; md = hD[l]; } if (r < n && hD[r] < md) m = r; if (m < 0) break; hD[i] = hD[m]; hK[i] = hK[m]; i = m; } hD[i] = d; hK[i] = kk; } return k; };
   stampA[sk] = stampN; gS[sk] = 0; par[sk] = -1; oS[sk] = 0; push(h(sk), sk);
   const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
   let found = false, exp = 0;
@@ -884,7 +903,7 @@ export function findPath(x0, z0, x1, z1, maxExp = 60000) {
   // straighten it: from each point, jump to the furthest one you can walk to in a line
   const clear = (a, b) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1]), m = Math.ceil(L / 0.25); for (let q = 1; q < m; q++) { const x = a[0] + (b[0] - a[0]) * q / m, z = a[1] + (b[1] - a[1]) * q / m; for (const o of [0, 0.22, -0.22]) { const [i, j] = cell(x + (b[1] - a[1]) / (L || 1) * o, z - (b[0] - a[0]) / (L || 1) * o); if (!free(i, j)) return false; } } return true; };
   const out = [pts[0]]; let i0 = 0;
-  while (i0 < pts.length - 1) { let j = pts.length - 1; while (j > i0 + 1 && !clear(pts[i0], pts[j])) j--; out.push(pts[j]); i0 = j; }
+  while (i0 < pts.length - 1) { let j = Math.min(pts.length - 1, i0 + 40); while (j > i0 + 1 && !clear(pts[i0], pts[j])) j--; out.push(pts[j]); i0 = j; }   // (40 cells ahead at most: the check is the costly part)
   return out.slice(1);
 }
 
@@ -909,7 +928,7 @@ const CAST_P = {
 };
 const FIRST = { f: ['Nora', 'Ellie', 'Beth', 'Joan', 'Tess', 'Hannah', 'Lucy', 'Carol', 'Megan', 'Ruth'], m: ['Mike', 'Paul', 'Hank', 'Rob', 'Ed', 'Walt', 'Joe', 'Carl', 'Phil', 'Doug'] };
 const titleCase = n => n ? n[0] + n.slice(1).toLowerCase() : n;
-function firstOf(u) { if (u.name && u.name !== 'PARAMEDIC') return titleCase(u.name.replace(/ .*/, '')); const L = u.body === 'michelle' ? FIRST.f : FIRST.m; return L[(u.i * 7 + 3) % L.length]; }
+export function firstOf(u) { if (u.name && u.name !== 'PARAMEDIC') return titleCase(u.name.replace(/ .*/, '')); const L = u.body === 'michelle' ? FIRST.f : FIRST.m; return L[(u.i * 7 + 3) % L.length]; }
 // a line nobody's just heard from them (never the same one twice in a row)
 function pickU(u, a) {
   if (!a || !a.length) return '';
@@ -931,10 +950,10 @@ const L_ = {
   },
   small: {
     cheerful: ['Raj gets the meat cheap from some new supplier. Two-dollar burgers, can you believe it?', 'My kid\'s got a game at two. You should come watch!', 'Finally some sun! I\'m doing nothing all day.', 'I\'m off to get a burger before they run out.'],
-    grumpy: ['Two-dollar burgers. You know what\'s in a two-dollar burger? Nothing good.', 'They\'re digging up Main Street again next week. Again.', 'Somebody keeps parking across my driveway.', 'Have a good one.'],
-    tired: ['I could sleep for a week.', 'Coffee. Then burgers. Then a nap.', 'Kids had me up at five. On a Saturday.', 'Have a good one.'],
-    anxious: ['Saw a truck I didn\'t recognise outside the Quick Stop this morning. No markings on it.', 'The radio cut out twice this morning. Weird, right?', 'They closed the road out to Ridgefield. Nobody\'ll say why.', 'Probably nothing. Probably.'],
-    easy: ['Have a good one!', 'Raj\'s burgers at noon. You going?', 'Nice to just stand in the sun for once.', 'I\'m off to get a burger before they run out.'],
+    grumpy: ['Two-dollar burgers. You know what\'s in a two-dollar burger? Nothing good.', 'They\'re digging up Main Street again next week. Again.', 'Somebody keeps parking across my driveway.', 'Kids on bikes, right down the middle of the road. Every Saturday.'],
+    tired: ['I could sleep for a week.', 'Coffee. Then burgers. Then a nap.', 'Kids had me up at five. On a Saturday.', 'If I sit down, I\'m not getting back up.'],
+    anxious: ['Saw a truck I didn\'t recognise outside the Quick Stop this morning. No markings on it.', 'The radio cut out twice this morning. Weird, right?', 'They closed the road out to Ridgefield. Nobody\'ll say why.', 'My dog won\'t stop barking at the fence. Hasn\'t eaten all morning.'],
+    easy: ['Raj\'s burgers at noon. You going?', 'Nice to just stand in the sun for once.', 'I\'m off to get a burger before they run out.'],
   },
   stare: ['...Can I help you?', 'Something on my face?', 'Hi?', 'Um... hello?', 'You okay there?'], stareG: ['Take a picture, it lasts longer.', 'What are you looking at?', 'Help you with something?'],
   space: ['Oh — excuse me.', 'Whoa — personal space!', 'Sorry, I\'ll just...', 'Oh! Hi. Bit close there.'], spaceG: ['Do you mind?', 'Back up a little, pal.'],
@@ -1214,12 +1233,14 @@ function chatLife(u, dt) {
   u.h.chatT = rnd(9, 15) * (1.4 - (a.pers.chatty + b.pers.chatty) * 0.35);
   a.say(c[0], 3.2); if (!a.s.up) a.s.playUp('Interact', { rate: rnd(0.7, 0.95), fade: 0.25, fadeAt: 1.4 });
   setPose(b, 'nod', 1.6);
-  later2(() => { if (!b.alive || b.gone || PPL.phase !== 'calm' || b.st !== 'chat') return; b.say(c[1], 2.6); if (!b.s.up) b.s.playUp('Interact', { rate: 0.8, fade: 0.25, fadeAt: 1.2 }); setPose(a, 'nod', 1.4); }, 3.4);
+  const tR = (a.bubble ? a.bubble.t : 3.2) + 0.3, tL = tR + Math.max(2.6, 1.4 + String(c[1] || '').length * 0.07) + 0.4;   // the reply once the first line is read; the laugh once the reply is
+  u.h.chatT = Math.max(u.h.chatT, tL + 1);
+  later2(() => { if (!b.alive || b.gone || PPL.phase !== 'calm' || b.st !== 'chat') return; b.say(c[1], 2.6); if (!b.s.up) b.s.playUp('Interact', { rate: 0.8, fade: 0.25, fadeAt: 1.2 }); setPose(a, 'nod', 1.4); }, tR);
   if (c[2]) later2(() => {   // the reply lands: the teller cracks up, and it gets the other one going
     if (!a.alive || a.gone || !b.alive || b.gone || PPL.phase !== 'calm' || b.st !== 'chat' || Math.random() > 0.8) return;
     setPose(a, 'laugh', 1.4); setPose(b, 'laugh', 1.2); vox(a, 'laugh', { pri: 1 }); if (!a.bubble) a.say(L_.laugh, 1.8);   // (the laugh first: the line then rides on it)
     later2(() => b.alive && vox(b, 'laugh', { gain: 0.8 }), 0.4);
-  }, 6.4);
+  }, tL);
   return true;
 }
 // somebody tripped: a brave one nearby goes back for them
@@ -1405,10 +1426,23 @@ const POSES = {
 const HEAD_ONLY = new Set(['laugh', 'nod']), LEFT_ONLY = new Set(['phoneL', 'browL', 'scratchL']);
 PPL.setPose = (u, k, dur, data) => { u.h ||= newH(u); setPose(u, k, dur, data); };   // (tests and main.js can pose somebody)
 // a phone in the hand (made once per person, shown only while it's out)
+// what's on their phone: a lock screen with the time and a couple of notifications
+let PHS = null;
+function phoneScreenTex() {
+  if (PHS) return PHS;
+  const cv = document.createElement('canvas'); cv.width = 64; cv.height = 134; const g = cv.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 64, 134); gr.addColorStop(0, '#2b4f8a'); gr.addColorStop(0.55, '#6a5aa8'); gr.addColorStop(1, '#d88a6a'); g.fillStyle = gr; g.fillRect(0, 0, 64, 134);
+  g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = 'bold 17px Helvetica, Arial, sans-serif'; g.fillText('10:31', 32, 34);
+  g.font = '6px Helvetica, Arial, sans-serif'; g.fillText('Saturday', 32, 43);
+  for (const y of [58, 80]) { g.fillStyle = 'rgba(255,255,255,0.32)'; g.fillRect(5, y, 54, 17); g.fillStyle = 'rgba(255,255,255,0.85)'; g.fillRect(9, y + 4, 26, 3); g.fillRect(9, y + 10, 40, 2); }
+  g.fillStyle = 'rgba(255,255,255,0.8)'; g.fillRect(22, 126, 20, 2);
+  PHS = new THREE.CanvasTexture(cv); PHS.colorSpace = THREE.SRGBColorSpace;
+  return PHS;
+}
 function phoneMesh() {
   const g = new THREE.Group();
   const b = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.148, 0.009), new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.35, metalness: 0.4 })); g.add(b);
-  const s = new THREE.Mesh(new THREE.PlaneGeometry(0.064, 0.134), new THREE.MeshStandardMaterial({ color: 0x0a1a2a, emissive: 0x6a9ad8, emissiveIntensity: 0.55, roughness: 0.2 })); s.position.z = 0.0048; g.add(s);
+  const s = new THREE.Mesh(new THREE.PlaneGeometry(0.064, 0.134), new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: phoneScreenTex(), emissiveIntensity: 0.8, roughness: 0.2 })); s.position.z = 0.0048; g.add(s);   // a lit screen: the time, a few messages
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   return g;
 }
@@ -1542,7 +1576,12 @@ export function peopleStep(dt, focus) {
     S.update(ddt, cmd);
     wounds(u, ddt);
     W.collide(S.pos, 0.3);
-    if (HELI.blocks(S.pos.x, S.pos.z, 0.3) && !HELI.blocks(ox, oz, 0.3)) { S.pos.x = ox; S.pos.z = oz; }   // the parked helicopter is solid
+    // pushed somewhere nobody can stand (into a wall, through a fence): back to the last good spot, and a new route
+    if (S.pos.x !== ox || S.pos.z !== oz) {
+      if (deepBlocked(S.pos.x, S.pos.z)) { const o = u.okP; if (o && Math.hypot(o.x - S.pos.x, o.z - S.pos.z) < 2.5) { S.pos.x = o.x; S.pos.z = o.z; } else { S.pos.x = ox; S.pos.z = oz; } if (u.path && C.t > (u.repathAt || 0)) { u.repathAt = C.t + 1; u.path = null; } }
+      else (u.okP ||= { x: 0, z: 0 }, u.okP.x = S.pos.x, u.okP.z = S.pos.z);
+    }
+    if (HELI.blocks(S.pos.x, S.pos.z, 0.3)) { if (HELI.blocks(ox, oz, 0.3)) HELI.pushOut(S.pos, 0.3); else { S.pos.x = ox; S.pos.z = oz; } }   // the parked helicopter is solid (and if it came down on them, out to its edge)
     if (PPL.ambs && PPL.ambs.length) offAmbs(S.pos);
     W.keepSide(u.safe ||= { x: S.pos.x, z: S.pos.z, set: true }, S.pos);
     if (S.visible && d < 40) body(u, ddt); else if (u.phone && u.phone.visible) u.phone.visible = false;
@@ -1552,7 +1591,9 @@ export function peopleStep(dt, focus) {
     }
     if (u.mel && u.weapon) { u.mel.pose(S.visible); const ev = u.mel.update(ddt); if (ev === 'hit') landBlow(u); }
     if (u.doorsOpen.length) closeBehind(u);
-    if (S.visible && u.alive) refreshHitShapes(u);   // where a shot or a swing can hit them, kept on the body as it moves
+    // where a shot, a swing, a blast or a zombie's hands can find them: kept on the body four times a second, or every
+    // frame with one of the dead in reach (shots and the player's swings refresh it themselves when they test it)
+    if (S.visible && u.alive && (C.t - (u.sphT ?? -9) > 0.25 || zNear(u, 3))) refreshHitShapes(u);
   }
   if (changed) syncList();
 }
@@ -1563,22 +1604,51 @@ function nearestZombie(u, r) {
   for (const z of Z.list) { if (!z.active || !z.alive) continue; const d = z.s.pos.distanceTo(u.s.pos); if (d < bd) { bd = d; best = z; } }
   return best ? { z: best, d: bd } : null;
 }
+const CARS = [DRIVE.others, DRIVE.cars];   // (read only: what's moving on the roads)
+function zNear(u, r) { const x = u.s.pos.x, z = u.s.pos.z; for (const q of Z.list) { if (!q.active || !q.alive) continue; const p = q.s.pos; if (Math.abs(p.x - x) < r && Math.abs(p.z - z) < r) return true; } return false; }
+// a spot nobody could be standing in: blocked on the route grid there and all round it (not just brushing a wall)
+function deepBlocked(x, z) {
+  const N = X.world.NAV; if (!N || !N.blocked) return false;
+  const c = N.cell, bl = N.blocked, at = (px, pz) => { const i = clamp(Math.round((px - N.x0) / c), 0, N.nx - 1), j = clamp(Math.round((pz - N.z0) / c), 0, N.nz - 1); return bl[j * N.nx + i] === 1; };
+  return at(x, z) && at(x + 0.3, z) && at(x - 0.3, z) && at(x, z + 0.3) && at(x, z - 0.3);
+}
 const sideOf = (D, x, z) => (x - D.x) * Math.sin(D.yaw) + (z - D.z) * Math.cos(D.yaw);
 function steer(u, gx, gz, speed, cmd, dt = 1 / 60) {
   const S = u.s, dx = gx - S.pos.x, dz = gz - S.pos.z, d = Math.hypot(dx, dz);
   if (d < 0.35) return true;
   cmd.move = Math.atan2(dx, dz); cmd.speed = speed * clamp(d / 1.2, 0.45, 1);
   // somebody in the way, coming at you: keep to the right and pass them (not shove through)
-  const fx = Math.sin(cmd.move), fz = Math.cos(cmd.move), P = X.P();
-  for (const v of C.npcs.concat(P.alive ? [P] : [])) {
-    if (v === u) continue; const ox = v.s.pos.x - S.pos.x, oz = v.s.pos.z - S.pos.z, od = Math.hypot(ox, oz);
-    if (od > 1.6 || od < 1e-3 || (ox * fx + oz * fz) / od < 0.7) continue;
-    cmd.move -= 0.5 * clamp((1.9 - od) / 0.8, 0.4, 1); break;
+  const fx = Math.sin(cmd.move), fz = Math.cos(cmd.move), P = X.P(), x = S.pos.x, z = S.pos.z;
+  let dodge = 0;
+  const ahead = (v) => { if (v === u || !v.s) return false; const ox = v.s.pos.x - x, oz = v.s.pos.z - z; if (Math.abs(ox) > 1.6 || Math.abs(oz) > 1.6) return false; const od = Math.hypot(ox, oz); if (od > 1.6 || od < 1e-3 || (ox * fx + oz * fz) / od < 0.7) return false; dodge = -0.5 * clamp((1.9 - od) / 0.8, 0.4, 1); return true; };
+  if (C.npcs) for (const v of C.npcs) if (ahead(v)) break;
+  if (!dodge && P && P.alive) ahead(P);
+  // one of the dead in the way: give it a wide berth, to whichever side it isn't
+  if (PPL.phase !== 'calm') for (const q of Z.list) {
+    if (!q.active || !q.alive) continue; const ox = q.s.pos.x - x, oz = q.s.pos.z - z; if (Math.abs(ox) > 2.4 || Math.abs(oz) > 2.4) continue;
+    const od = Math.hypot(ox, oz); if (od > 2.4 || od < 1e-3 || (ox * fx + oz * fz) / od < 0.5) continue;
+    dodge = (ox * fz - oz * fx > 0 ? 1 : -1) * 0.9 * clamp((2.6 - od) / 1.2, 0.4, 1); break;
   }
-  // stuck on something: try sideways a moment
-  const moved = Math.hypot(S.pos.x - u.lastP.x, S.pos.z - u.lastP.z);
-  u.stuckT = moved < speed * dt * 0.25 ? u.stuckT + dt : Math.max(0, u.stuckT - dt * 2);
-  if (u.stuckT > 0.7) { cmd.move += u.side ?? (u.side = Math.random() < 0.5 ? 1.1 : -1.1); if (u.stuckT > 2.2) { u.stuckT = 0; u.side = null; u.path = null; } }
+  // a moving car or bike coming at them: step sideways out of its line
+  for (const L of CARS) for (const Q of L) {
+    const v = Q.v || 0; if (Math.abs(v) < 1) continue; const ox = Q.x - x, oz = Q.z - z; if (Math.abs(ox) > 9 || Math.abs(oz) > 9) continue;
+    const hx = Math.sin(Q.yaw) * Math.sign(v), hz = Math.cos(Q.yaw) * Math.sign(v), od = Math.hypot(ox, oz) || 1;
+    if ((-ox * hx - oz * hz) / od < 0.55) continue;   // not heading at them
+    const lat = Math.abs(ox * hz - oz * hx); if (lat > 2.4) continue;   // it'll pass by
+    const side = (ox * hz - oz * hx) > 0 ? -1 : 1;   // away from its line
+    cmd.move = Math.atan2(side * hz, -side * hx); cmd.speed = Math.max(cmd.speed, speed); dodge = 0; break;
+  }
+  cmd.move += dodge;
+  // stuck: no headway toward where they're going for a second and a half: try sideways; three seconds: a new route
+  const pr = u.prog ||= { gx: 0, gz: 0, best: 0, t: 0, at: -9, px: 0, pz: 0 };
+  if (C.t - pr.at > 0.5 || Math.abs(pr.gx - gx) + Math.abs(pr.gz - gz) > 0.5) {   // a new goal (or the first step in a while)
+    if (C.t - pr.at > 0.5 || Math.hypot(x - pr.px, z - pr.pz) > 0.6) { pr.t = 0; u.side = null; }   // (a moving target they're keeping up with isn't stuck)
+    pr.gx = gx; pr.gz = gz; pr.best = d; pr.px = x; pr.pz = z;
+  }
+  pr.at = C.t;
+  if (d < pr.best - 0.25) { pr.best = d; pr.t = 0; pr.px = x; pr.pz = z; u.side = null; } else pr.t += dt;
+  u.stuckT = pr.t;
+  if (pr.t > 1.5) { cmd.move += u.side ?? (u.side = Math.random() < 0.5 ? 1.1 : -1.1); if (pr.t > 3) { pr.t = 0; pr.best = d; u.side = null; u.path = null; } }
   u.lastP.copy(S.pos);
   // a closed door in the way: open it (a locked one stays shut: somebody's hiding in there)
   u.doorT = (u.doorT || 0) - dt;
@@ -1621,12 +1691,13 @@ function follow(u, speed, cmd, dt = 1 / 60) {
 }
 function go(u, x, z, maxExp) { u.path = findPath(u.s.pos.x, u.s.pos.z, x, z, maxExp) || [[x, z]]; }
 // on foot across town the way people do it: straight over the street, from kerb to kerb, after a look each way
+const ERRAND_EXP = 20000;
 function goWalk(u, x, z) {
   const S = u.s, a = [S.pos.x, S.pos.z], cross = [];
   if (Math.sign(a[1]) !== Math.sign(z) && Math.abs(a[1]) > 4 && Math.abs(z) > 4 && Math.abs(a[0]) > 8) { const cx = clamp(a[0], -98, 98); cross.push([cx, Math.sign(a[1]) * 5.2, 'look'], [cx, -Math.sign(a[1]) * 5.2]); }
   else if (Math.sign(a[0]) !== Math.sign(x) && Math.abs(a[0]) > 4 && Math.abs(x) > 4 && Math.abs(a[1]) > 8) { const cz = clamp(a[1], -98, 98); cross.push([Math.sign(a[0]) * 5.2, cz, 'look'], [-Math.sign(a[0]) * 5.2, cz]); }
-  if (!cross.length) { go(u, x, z); return; }
-  const p1 = findPath(a[0], a[1], cross[0][0], cross[0][1]) || [], p2 = findPath(cross[1][0], cross[1][1], x, z) || [[x, z]];
+  if (!cross.length) { go(u, x, z, ERRAND_EXP); return; }   // (an errand on a calm morning: no need to search the whole town)
+  const p1 = findPath(a[0], a[1], cross[0][0], cross[0][1], ERRAND_EXP) || [], p2 = findPath(cross[1][0], cross[1][1], x, z, ERRAND_EXP) || [[x, z]];
   if (p1.length) p1[p1.length - 1] = cross[0]; else p1.push(cross[0]);
   u.path = p1.concat([cross[1]], p2);
 }

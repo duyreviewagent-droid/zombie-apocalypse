@@ -47,6 +47,15 @@ function mats() {
 }
 const box = (w, h, d, m, x, y, z, r = 0.004) => { const o = new THREE.Mesh(r > 0 ? new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2.1, h / 2.1, d / 2.1)) : new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); return o; };
 const cyl = (r1, r2, l, m, x, y, z, seg = 14) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, l, seg).rotateX(Math.PI / 2), m); o.position.set(x, y, z); return o; };
+// a 12-gauge shell for the loading hand: red ribbed plastic hull, brass head (lying along the gun's barrel)
+function makeShell(scene) {
+  const K = mats(), g = new THREE.Group();
+  const hullM = K.hull || (K.hull = new THREE.MeshStandardMaterial({ color: 0x9c1c16, roughness: 0.5, metalness: 0.05, roughnessMap: K.steel.roughnessMap }));
+  g.add(cyl(0.0093, 0.0093, 0.052, hullM, 0, 0, 0.004, 10));
+  g.add(cyl(0.0099, 0.0099, 0.016, K.brass, 0, 0, -0.026, 10));
+  g.add(cyl(0.0108, 0.0108, 0.002, K.brass, 0, 0, -0.034, 10));
+  g.visible = false; scene.add(g); return g;
+}
 
 // ---------------------------------------------------------------- models
 function buildModel(id) {
@@ -310,7 +319,7 @@ export class Arms {
         else if (a.mag >= W.mag || (a.res <= 0 && !this.infinite) || this.reloadT >= this.reloadDur) { this.reloadT = -1; this.relN = 0; this.cycleT = 0; this.pumpOff = 0; this.spent = false; this.events('pump', {}); }
       } else {
         const ev = (t, n) => { if (k >= t && !this.relEvents[n]) { this.relEvents[n] = true; this.events(n, { id: this.cur }); } };
-        if (k >= 0.18 && !this.relEvents.magOut) this.dropMag();
+        if (k >= 0.18 && !this.relEvents.magOut && this.relEmpty) this.dropMag();   // an empty one is dumped; a part-used one goes back in the pouch
         ev(0.18, 'magOut'); ev(0.62, 'magIn'); if (W.id !== 'rpg' && this.relEmpty) ev(0.84, 'charge');
         if (k >= 1) {
           const wasEmpty = a.mag === 0;
@@ -441,7 +450,8 @@ export class Arms {
     const d = g.userData;
     let magInHand = false;
     if (d.magMesh && relK >= 0 && !W.shellReload) {
-      if (relK > 0.18 && relK < 0.62) { d.magMesh.visible = relK > 0.36; magInHand = relK > 0.36; } else d.magMesh.visible = true;
+      // empty: the old one fell out, the new one comes from the pouch; tactical: the old one rides the hand to the pouch and the new one back
+      if (relK > 0.18 && relK < 0.62) { const inH = this.relEmpty ? relK > 0.36 : true; d.magMesh.visible = inH; magInHand = inH; } else d.magMesh.visible = true;
       if (!magInHand) d.magMesh.position.copy(d.magHome);
     } else if (d.magMesh) { d.magMesh.visible = true; d.magMesh.position.copy(d.magHome); }
     const pumpK = this.cycleT >= 0 && W.pump ? pumpTravel(this.cycleT - (this.pumpOff || 0)) : 0;
@@ -474,6 +484,13 @@ export class Arms {
     if (magInHand && d.magMesh) {   // the fresh magazine travels in the left hand
       const local = g.worldToLocal(L.p.clone().addScaledVector(L.f, 0.03));
       d.magMesh.position.copy(local);
+    }
+    // a shotgun shell: in the fingers on its way from the pouch to the loading port
+    const shellOn = W.shellReload && this.reloadT > 0.2 && ((this.reloadT - 0.2) % W.reload) / W.reload > 0.45 && this.sol.visible;
+    if (shellOn || this.shellMesh) {
+      const sm = this.shellMesh || (this.shellMesh = makeShell(this.scene));
+      sm.visible = shellOn;
+      if (shellOn) { sm.position.copy(L.p).addScaledVector(L.f, 0.035); sm.quaternion.copy(g.quaternion); }
     }
     const wR = throwing ? 0 : 1, wL = 1;
     sol.reach(1, T.R, wR * (1 - sol.upW * (throwing ? 1 : 0.6)));

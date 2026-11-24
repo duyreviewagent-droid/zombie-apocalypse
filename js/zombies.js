@@ -257,6 +257,10 @@ export function makeZombie(kind, scene, variant, onStep) {
   // everyone their own look (looks.js), the same rules as the living: nobody's twin (then made dead below)
   applyLook(s, lookFor('z' + MADE, kindName(kind.root)), { zombie: true });
   dressZombie(s, variant);
+  // anything only the player's own body should have (tagged userData.playerOnly) doesn't come along in the clone
+  const po = []; s.root.traverse(o => { if (o.userData && o.userData.playerOnly) po.push(o); }); for (const o of po) o.removeFromParent();
+  // phones and tablets: only the skinned body throws a shadow (hair, hats, vests and the like cost a draw each for a speck)
+  if (C.mobile) s.pivot.traverse(o => { if (o.isMesh && !o.isSkinnedMesh) { o.castShadow = false; o.userData.noShadow = true; } });
   const u = { s, team: 1, hp: 100, maxHp: 100, alive: false, active: false, zombie: true, name: 'ZOMBIE', id: NEXT++, kills: 0, deaths: 0, hurtT: 99, deadT: 0, variant };
   s.setVisible(false);
   Z.pool.push(u); C.units.push(u);
@@ -459,6 +463,7 @@ export function zombieThink(u, dt, P, G) {
     return cmd;
   }
   if (Zb.getUp) { if (!S.act || S.act !== 'LayToIdle') Zb.getUp = false; else return cmd; }
+  if (Zb.stunT > 0) { Zb.stunT -= dt; if (!Zb.hold) return cmd; }   // a hard hit: it stalls a moment, swaying, before it comes on again
   // who it's after: you, or one of the living around town
   if (Zb.tgt && Zb.tgt !== P && (!Zb.tgt.alive || Zb.tgt.gone)) { const v = Zb.tgt; Zb.tgt = null; if (Zb.state === 'chase') { if (v.downAt && !v.gone && S.pos.distanceTo(v.s.pos) < 6) { Zb.state = 'feed'; Zb.feedOn = v; Zb.t = rnd(5, 9) * (C.feedK || 1); } else { Zb.state = 'investigate'; Zb.goal = Zb.lastSeen.clone(); Zb.t = 5; } } }
   const T = Zb.tgt && Zb.tgt !== P ? Zb.tgt : P;
@@ -716,6 +721,32 @@ export function zombiePose(u, P, dt) {
   // its own stoop, and a flinch forward when hit from behind
   Zb.flinchF = damp(Zb.flinchF || 0, 0, 5, dt);
   addTurn(B.Spine1, lft, (Zb.lean || 0) * 0.8 + Zb.flinchF);
+  // running: pitched forward from the waist, chin up to keep its eyes on you, the shoulders rolling with each stride
+  const runW = S.speed > S.vw ? clamp((S.speed - S.vw) / Math.max(0.5, (S.vr || 3) - S.vw), 0, 1) : 0;
+  if (runW > 0.02 && B.Spine2) {
+    addTurn(B.Spine2, lft, 0.2 * runW); addTurn(B.Neck, lft, -0.16 * runW);
+    addTurn(B.Spine1, tv2, Math.sin((S.phase || 0) * Math.PI * 2) * 0.09 * runW);
+  }
+  // staggered by a hard hit: the upper body rocks off to the side it was knocked
+  if (Zb.stunT > 0) addTurn(B.Spine1, tv2, -(Zb.stagS || 1) * Math.sin(Math.min(1, Zb.stunT / 0.4) * Math.PI) * 0.22);
+  // holding on to you: both hands clamp your shoulders and it lunges in to bite, jaw wide, again and again
+  Zb.holdW = damp(Zb.holdW || 0, Zb.hold ? 1 : 0, 8, dt);
+  if (Zb.holdW > 0.02 && P && P.s && P.s.B && P.s.B.LeftArm) {
+    const w = Zb.holdW;
+    for (const side of ['Left', 'Right']) {
+      const sh = B[side + 'Arm'].getWorldPosition(tv), to = P.s.B[(side === 'Left' ? 'Right' : 'Left') + 'Arm'].getWorldPosition(hA);
+      fwd.subVectors(to, sh).normalize();
+      aimBone(B[side + 'Arm'], B[side + 'ForeArm'], fwd, 0.9 * w);
+      aimBone(B[side + 'ForeArm'], B[side + 'Hand'], fwd, 0.75 * w);
+    }
+    S.curlFingers(1, 0.85, w); S.curlFingers(-1, 0.85, w);
+    Zb.holdT = (Zb.holdT || 0) + dt;
+    const lunge = Math.pow(Math.max(0, Math.sin(Zb.holdT * 5.2)), 3) * w;
+    addTurn(B.Spine2, lft, 0.18 * lunge); addTurn(B.Neck, lft, 0.3 * lunge);
+    S.setMorph(['jawOpen', 'mouthOpen'], 0.35 + 0.65 * lunge);
+    Zb.sway += dt * 0.7;
+    return;
+  } else Zb.holdT = 0;
   if (u.limp && B.Hips) { Zb.limpP = (Zb.limpP || 0) + dt * S.speed * 3.2; addTurn(B.Hips, tv2, Math.sin(Zb.limpP) * 0.12 * Math.min(1, S.speed)); }
   Zb.reachW = damp(Zb.reachW || 0, (Zb.reach || 0) * (S.up ? 0 : 1), 4, dt);
   if (Zb.reachW > 0.02 && P) {
@@ -756,6 +787,12 @@ export function zombieHurt(u, dmg, by, info) {
   }
   Zb.atkT = Math.max(Zb.atkT, 0.6 + knock);   // it takes them a moment to come again
   if (Zb.swing) Zb.swing = null;
+  // a hard hit (20+): it stalls on the spot and staggers half a step sideways, off its line (not on the boss ones)
+  if (dmg >= 20 && !u.heavy && Zb.down <= 0 && !S.act) {
+    Zb.stunT = Math.max(Zb.stunT || 0, 0.3 + Math.min(0.45, dmg / 160));
+    const sd = Math.random() < 0.5 ? 1 : -1, st = 0.6 + Math.min(0.7, dmg / 90);
+    S.vel.x += -dir.z * sd * st; S.vel.z += dir.x * sd * st; Zb.stagS = sd;
+  }
   // which way the hit came from: from behind it lurches forward, not back toward the shooter
   const rel = wrapPi(Math.atan2(dir.x, dir.z) - S.yaw);
   if (Math.abs(rel) < Math.PI / 2) { Zb.flinchF = 0.35 + Math.min(0.2, dmg / 200); if (!S.act && Zb.down <= 0) S.vel.addScaledVector(dir, 0.6); }   // lurches a step forward
