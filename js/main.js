@@ -275,17 +275,21 @@ let LDZ = null;
 function startLoadZombie() {
   try {
     const kind = zombieKind(KINDS.human), ls = new THREE.Scene();
-    ls.add(new THREE.HemisphereLight(0xcfd6ff, 0x2a1410, 1.3));
-    const key = new THREE.SpotLight(0xffe6cc, 110, 20, 0.6, 0.5); key.position.set(1.4, 4.5, 3); key.target.position.set(0, 1, 0); ls.add(key, key.target);
+    ls.add(new THREE.HemisphereLight(0x8a96b8, 0x1a0c08, 0.7));
+    const key = new THREE.SpotLight(0xd8dcff, 120, 20, 0.5, 0.6); key.position.set(1.2, 4.8, 2.4); key.target.position.set(0, 0.9, 0); key.castShadow = true; key.shadow.mapSize.set(512, 512); key.shadow.bias = -0.0005; ls.add(key, key.target);   // a cold street-lamp from above
     const rim = new THREE.DirectionalLight(0xff3020, 2.2); rim.position.set(-3, 2.5, -2.5); ls.add(rim);
     const s2 = new Soldier(kind, ls, { clone: true });
-    LOOKS.applyLook(s2, LOOKS.lookFor('loadz', 'human'), { zombie: true }); dressZombie(s2, 5);
+    LOOKS.applyLook(s2, LOOKS.lookFor('loadz', 'human'), { zombie: true }); dressZombie(s2, 11);   // look 11: the bloodiest, dirtiest, palest of the dead
+    s2.pivot.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    // wet asphalt under it, catching its shadow, fading off into the dark
+    { const gc = document.createElement('canvas'); gc.width = gc.height = 256; const gx = gc.getContext('2d'); const gr = gx.createRadialGradient(128, 128, 10, 128, 128, 128); gr.addColorStop(0, '#2a2622'); gr.addColorStop(0.55, '#15120f'); gr.addColorStop(1, 'rgba(9,5,5,0)'); gx.fillStyle = gr; gx.fillRect(0, 0, 256, 256); for (let i = 0; i < 2500; i++) { gx.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '90,84,76'},${Math.random() * 0.18})`; gx.fillRect(Math.random() * 256, Math.random() * 256, 1.5, 1.5); } gx.fillStyle = 'rgba(90,10,6,.55)'; gx.beginPath(); gx.ellipse(150, 140, 22, 9, 0.4, 0, 7); gx.fill();
+      const gt = new THREE.CanvasTexture(gc); gt.colorSpace = THREE.SRGBColorSpace; const gm = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshStandardMaterial({ map: gt, transparent: true, roughness: 0.35, metalness: 0.1 })); gm.rotation.x = -Math.PI / 2; gm.receiveShadow = true; ls.add(gm); }
     s2.place(0, 0, 0); s2.pivot.updateMatrixWorld(true);
     const mx = s2.mixer; mx.stopAllAction();
     const A = n => kind.clips[n] ? mx.clipAction(kind.clips[n]) : null;
     const moves = [['Dance_Simple', 7], ['Zombie_Scratch', 2.4], ['Dance_Simple', 7], ['Zombie_Idle', 2.6]].map(([n, d]) => [A(n), d]).filter(m => m[0]);
     if (!moves.length) return;
-    const cam = new THREE.PerspectiveCamera(28, 1, 0.1, 30); cam.position.set(0, 1.0, 4.6); cam.lookAt(0, 0.9, 0);
+    const cam = new THREE.PerspectiveCamera(28, 1, 0.1, 30); cam.position.set(0, 0.95, 4.4); cam.lookAt(0, 0.88, 0);
     let i = 0, cur = moves[0][0], t = 0, last = performance.now(); cur.play();
     $('load').classList.add('ldz');
     const tick2 = now => {
@@ -294,10 +298,11 @@ function startLoadZombie() {
       if (t > moves[i][1]) { t = 0; i = (i + 1) % moves.length; const nx = moves[i][0]; if (nx !== cur) { nx.reset().play(); cur.crossFadeTo(nx, 0.4, false); cur = nx; } }
       s2.pivot.rotation.y = Math.sin(now / 1000 * 0.5) * 0.5;
       mx.update(dt);
-      const W = renderer.domElement.clientWidth, H = renderer.domElement.clientHeight, bw = Math.min(360, W * 0.6), bh = Math.min(380, H * 0.36);
+      const W = renderer.domElement.clientWidth, H = renderer.domElement.clientHeight, bw = Math.min(360, W * 0.6), bh = Math.min(300, H * 0.34);
+      const bar = $('loadbar').parentNode.getBoundingClientRect(), by = H - bar.top + 14;   // its feet 14 px above the bar
       cam.aspect = bw / bh; cam.updateProjectionMatrix();
       renderer.setScissorTest(false); renderer.setClearColor(0x090505, 1); renderer.clear();
-      renderer.setViewport((W - bw) / 2, H - bh - 8, bw, bh); renderer.setScissor((W - bw) / 2, H - bh - 8, bw, bh); renderer.setScissorTest(true);
+      renderer.setViewport((W - bw) / 2, by, bw, bh); renderer.setScissor((W - bw) / 2, by, bw, bh); renderer.setScissorTest(true);
       renderer.render(ls, cam);
       renderer.setScissorTest(false); renderer.setViewport(0, 0, W, H);
       LDZ.raf = requestAnimationFrame(tick2);

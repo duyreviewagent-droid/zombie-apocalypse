@@ -68,8 +68,8 @@
   #load { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; text-align: center; background: #000; transition: opacity 1.2s; z-index: 20; }
   body.ready #load { opacity: 0; pointer-events: none; }
   #load.ldz { background: transparent !important; }   /* the real zombie dances on the game canvas behind, top middle */
-  #load.ldz .ldlogo { margin-top: min(38vh, 400px); }
-  @media (max-height: 560px) { #load.ldz .ldlogo { margin-top: 30vh; font-size: 40px !important; } #load.ldz { gap: 8px !important; } }
+  #load.ldz .bar { margin-top: calc(min(300px, 34vh) + 22px); }   /* room for the zombie, dancing just above the bar */
+  @media (max-height: 560px) { #load.ldz .ldlogo { font-size: 34px !important; } #load.ldz { gap: 6px !important; } }
   #load .bar { width: 220px; height: 2px; background: #1a1a1a; }
   #loadbar { height: 2px; width: 0; background: #8a1a14; transition: width .2s; }
   #loadtext { font-size: 11px; letter-spacing: .3em; color: #777; text-transform: uppercase; }
