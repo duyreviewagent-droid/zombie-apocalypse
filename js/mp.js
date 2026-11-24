@@ -53,7 +53,7 @@ export function init(ctx) {
     onOpen: () => { X.keys.clear(); X.G.mouse.left = X.G.mouse.right = false; },
     distTo: id => { const r = remote(id), P = X.getP(); return r && P ? Math.hypot(r.s.pos.x - P.s.pos.x, r.s.pos.z - P.s.pos.z) : null; },
     project: id => { const r = remote(id); if (!r) return null; proj.set(r.s.pos.x, (r.s.pivot ? r.s.pivot.position.y : 0) + 2.25, r.s.pos.z).project(X.camera); if (proj.z > 1) return null; return { x: (proj.x * 0.5 + 0.5) * innerWidth, y: (-proj.y * 0.5 + 0.5) * innerHeight }; },
-    bottom: X.touch ? '46vh' : '214px',
+    bottom: X.touch ? '52vh' : '214px',
   });
   VOICE.initVoice({
     send: (to, d) => NET.send({ t: 'rtc', to, d }),
@@ -68,15 +68,16 @@ export function init(ctx) {
     toast: t => X.toast(t, ''),
     askMic: (yes, no) => X.ask('Use your microphone?', 'Your friends in this room will hear you when you hold B (on a touch screen: tap the mic button). People near you in the game hear you louder. Your browser will ask for permission too.', 'Turn it on', yes, 'Not now', no),
     touch: !!X.touch,
-    bottom: X.touch ? 'calc(46vh - 44px)' : '178px',
+    bottom: X.touch ? 'calc(100dvh - 150px)' : '178px',   // touch: up under the top-right buttons, clear of the thumb buttons
   });
   CHAT.setVisible(false); VOICE.setVisible(false);
   if (X.touch) {   // a chat button for thumbs (Enter on a keyboard)
     chatBtn = document.createElement('button'); chatBtn.id = 'mpChatBtn'; chatBtn.textContent = 'CHAT';
-    chatBtn.style.cssText = 'position:fixed;left:max(14px,env(safe-area-inset-left));top:46vh;z-index:31;display:none;padding:8px 14px;background:rgba(14,13,12,.72);border:1px solid rgba(232,176,74,.55);color:#e8b04a;font:12px Oswald,sans-serif;letter-spacing:.25em;border-radius:3px;touch-action:manipulation';
+    chatBtn.style.cssText = 'position:fixed;left:max(22px,env(safe-area-inset-left));bottom:calc(52vh - 38px);z-index:31;display:none;padding:8px 14px;background:rgba(14,13,12,.72);border:1px solid rgba(232,176,74,.55);color:#e8b04a;font:12px Oswald,sans-serif;letter-spacing:.25em;border-radius:3px;touch-action:manipulation';
     chatBtn.addEventListener('pointerdown', e => e.stopPropagation());
     chatBtn.onclick = e => { e.stopPropagation(); CHAT.open(); };
     document.body.appendChild(chatBtn);
+    const st = document.createElement('style'); st.textContent = '#zcChat .hint { display: none !important; }'; document.head.appendChild(st);   // (no Enter key on a touch screen: the CHAT button)
   }
   addEventListener('pagehide', () => { if (NET.isOnline() && !reloading) NET.leave(); });
 }

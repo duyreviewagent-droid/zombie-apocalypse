@@ -11,7 +11,7 @@
 //   · outside: the gatehouse, staff car park, the sally-port road, the warden's helipad, the river and the sewer
 //     outfall, the woods and the water tower
 // Everything axis-aligned is built from merged boxes; bars and razor wire are instanced. Story: prison.story.js.
-import { prisonMats, geos, frame, decal, bunk, toiletSink, messTable, hospitalBed, washer, workbench, weightBench, desk, lockers, sign, strip, rng } from './prison.kit.js';
+import { prisonMats, prisonDecor, geos, frame, decal, bunk, toiletSink, messTable, hospitalBed, washer, workbench, weightBench, desk, lockers, sign, strip, rng } from './prison.kit.js';
 
 import { ITEMS } from '../loot.js';
 const hasItem = id => !!(ITEMS && ITEMS[id]);
@@ -47,6 +47,7 @@ export function buildMap(K) {
   K.preset('prison');
   prisonMats(K);
   const G = geos(), R = rng(1931), W = K.W;
+  const { D, PA } = prisonDecor(K);   // designed fronts: kitchens, vending machines, shelves, the Control console
   const notes = [];
   W.spots = SPOTS; W.gates = [];
   // the few real point lights (cell blocks, laundry, sewer, infirmary, Control): kept so the failing power can dim them
@@ -336,6 +337,7 @@ export function buildMap(K) {
     bx(-30, 2.55, 36.6, -8, 2.6, 36.7, 'alu');   // the back rail
     // the handball wall
     bs(14, 0, 42, 26, 4.6, 42.5, 'concrete', 'concrete');
+    D.board(PA, 'gym', 8.5, 1.6, 9.6, 0, 1.2, 1.0, 'pBars'); K.xadd(G.pipe, MAT.pBars, K.mat4(8.0, 0, 9.55, 0, 0.04, 2.2, 0.04)); K.xadd(G.pipe, MAT.pBars, K.mat4(9.0, 0, 9.55, 0, 0.04, 2.2, 0.04)); K.solid(8.5, 9.55, 0.6, 0.06, 0, 2.2, 'metal');
     for (let i = 0; i < 6; i++) bx(14.5 + i * 2, 1.2, 41.98, 15 + i * 2, 1.25, 42, 'white');
     K.xadd(G.plane, MAT.pGraffiti, K.mat4(20, 2.6, 41.975, Math.PI, 10.5, 3.4, 1), false);   // years of tags on the yard side
     K.slab(14, 36, 26, 42, 'drive', 'concrete');
@@ -457,13 +459,10 @@ export function buildMap(K) {
     // the serving line: a wall with a long hatch over a steel counter with a sneeze guard
     const kz = z - 4;
     K.wall(x - w / 2 + 0.15, kz, x + w / 2 - 0.15, kz, { h: 4.4, t: 0.25, mat: 'pTile', inMat: 'pCinder', capMat: 'pCinder', openings: [{ at: -2, w: 14, sill: 1.0, top: 2.2 }, { at: 15, w: 1.0, door: true, col: 0xc8ccd0, dir: -1 }] });
-    bs(x - 9, 0, kz + 0.15, x + 5, 0.95, kz + 0.9, 'pSteel', 'metal');
-    bx(x - 9, 1.3, kz + 0.75, x + 5, 1.33, kz + 0.95, 'glass');
-    for (let i = 0; i < 7; i++) bx(x - 8.6 + i * 2, 0.95, kz + 0.25, x - 7.2 + i * 2, 1.02, kz + 0.75, 'chrome');
-    for (const px of [x - 9, x + 5]) bx(px - 0.03, 0.95, kz + 0.85, px + 0.03, 1.33, kz + 0.9, 'chrome');
+    D.servery(x - 2, kz + 0.525, 0, { w: 14, d: 0.75 });   // steam wells full of food, a sneeze guard, a tray slide
     // the tray stand at the head of the line: compartment trays stacked high, a rack of cups
-    bs(x - 10.5, 0, kz + 0.3, x - 9.3, 0.9, kz + 0.95, 'pSteel', 'metal', { vault: true });
-    for (let k = 0; k < 9; k++) bx(x - 10.4, 0.9 + k * 0.03, kz + 0.38, x - 9.85, 0.925 + k * 0.03, kz + 0.88, k % 2 ? 'pCopper' : 'pSteel');
+    D.abox(D.A, { pz: 'steelDoor', side: 'steel', top: 'steel' }, x - 9.9, 0, kz + 0.625, 0.6, 0.9, 0.325, 0); K.solid(x - 9.9, kz + 0.625, 0.6, 0.325, 0, 0.9, 'metal', 0, { vault: true });
+    D.trays(x - 10.12, 0.9, kz + 0.63, Math.PI / 2, 10);
     for (let k = 0; k < 6; k++) K.xadd(G.pipe, MAT.pRail, K.mat4(x - 9.65, 0.9, kz + 0.42 + k * 0.08, 0, 0.035, 0.09, 0.035));
     // the hall: four rows of mess tables
     for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) messTable(K, x - 15 + i * 6, z + 0.5 + j * 2.9, 0);
@@ -475,10 +474,18 @@ export function buildMap(K) {
     sign(K, x - 12, 2.4, kz + 0.17, 0, 'sMenu', 1.6, 0.7); note('menu', x - 12, kz + 0.4, 1.1);
     // the kitchen (north of the line): stoves, steam kettles, prep tables, the walk-in, dry stores
     const kz0 = z - d / 2 + 0.15;
-    for (let i = 0; i < 4; i++) { const px = x - 14 + i * 2.2; bs(px - 1, 0, kz0, px + 1, 0.92, kz0 + 0.95, 'pSteel', 'metal'); bx(px - 0.95, 0.92, kz0 + 0.05, px + 0.95, 0.95, kz0 + 0.9, 'black'); }
-    bx(x - 15.2, 2.2, kz0, x - 4.4, 2.9, kz0 + 1.2, 'pSteel');   // the hood
-    for (const px of [x - 1.5, x + 1]) { K.xadd(G.pipe, MAT.pSteel, K.mat4(px, 0.3, kz0 + 1.2, 0, 0.6, 0.7, 0.6)); K.solid(px, kz0 + 1.2, 0.6, 0.6, 0, 1.0, 'metal'); }
-    for (const px of [x - 10, x - 3]) { bs(px - 1.4, 0.85, z - 7, px + 1.4, 0.9, z - 6, 'pSteel', 'metal', { vault: true }); bx(px - 1.35, 0, z - 6.95, px + 1.35, 0.15, z - 6.05, 'pSteel'); }
+    // the cooking line: two six-burner ranges, a griddle-top range, a double fryer, under a canopy hood
+    for (let i = 0; i < 4; i++) { const px = x - 14 + i * 2.2; if (i === 3) { D.fryer(px - 0.45, kz0 + 0.475, 0); D.fryer(px + 0.45, kz0 + 0.475, 0); K.solid(px, kz0 + 0.475, 1, 0.475, 0, 0.98, 'metal'); continue; }
+      D.range(px - 0.5, kz0 + 0.475, 0, { w: 1.0, d: 0.95, h: 0.92, front: 'oven', big: true, guard: 0.3, solid: false }); D.range(px + 0.5, kz0 + 0.475, 0, { w: 1.0, d: 0.95, h: 0.92, front: 'oven', guard: 0.3, solid: false }); K.solid(px, kz0 + 0.475, 1, 0.475, 0, 0.97, 'metal'); }
+    D.hood(x - 9.8, 2.2, kz0 + 0.6, 0, 10.8, 1.2, 0.7);
+    bx(x - 15.2, 0.92, kz0, x - 4.4, 2.2, kz0 + 0.02, 'pTile');   // tiled wall behind the line
+    D.kitchenRun(x - w / 2 + 0.15 + 0.32, z - 8.1, Math.PI / 2, [{ k: 'steelDoor', w: 1.2 }, { k: 'sink', w: 1.2 }, { k: 'dishwasher', w: 0.6 }, { k: 'sink', w: 1.2 }, { k: 'steelDoor', w: 1.2 }], { steel: true, top: 'dzSteel', splash: 'pTile', splashH: 1.2, d: 0.64 });   // the pot wash
+    D.board(D.A, 'notice', x - w / 2 + 0.17, 1.9, z - 4.9, Math.PI / 2, 1.0, 0.7);
+    for (const px of [x - 1.5, x + 1]) {   // steam kettles: a tilting pot on a pedestal, a hand wheel, a draw-off tap
+      K.xadd(G.pipe, MAT.pSteel, K.mat4(px, 0, kz0 + 1.2, 0, 0.18, 0.3, 0.18)); K.xadd(G.ball, MAT.pSteel, K.mat4(px, 0.72, kz0 + 1.2, 0, 0.6, 0.42, 0.6)); K.xadd(G.pipe, MAT.pSteel, K.mat4(px, 0.7, kz0 + 1.2, 0, 0.6, 0.3, 0.6));
+      K.xadd(G.pipe, MAT.black, K.mat4(px, 0.99, kz0 + 1.2, 0, 0.54, 0.02, 0.54), false); K.xadd(G.ring, MAT.chrome, K.mat4(px + 0.68, 0.8, kz0 + 1.2, 0, 0.6, 0.6, 0.6, 0, Math.PI / 2), false);
+      K.xadd(G.pipe, MAT.chrome, K.mat4(px, 0.35, kz0 + 1.85, 0, 0.03, 0.18, 0.03, Math.PI / 2, 0), false); K.solid(px, kz0 + 1.2, 0.6, 0.6, 0, 1.0, 'metal'); }
+    for (const px of [x - 10, x - 3]) { D.prepTable(px, z - 6.5, 0, { w: 2.8, d: 1.0, upstand: false }); }
     loot('kitchen', x - 10, z - 6.5, 0.9, 'Prep table', 0, H, { fixed: [['knife', 1]] });
     loot('kitchen2', x - 3, z - 6.5, 0.9, 'Prep table drawers', 0, H);
     loot('kitchen', x - 12, kz0 + 0.5, 0.95, 'Range cupboards', Math.PI, H);
@@ -486,7 +493,9 @@ export function buildMap(K) {
     K.room(x + 13.5, z - 8.2, 5.6, 6.2, 0, { h: 2.7, t: 0.15, mat: 'pSteel', inMat: 'pSteel', floor: 'pTread', roof: 'flat', parapet: false, name: 'walk-in cooler', home: false, doors: [{ side: 'w', at: 1.5, w: 0.95, col: 0xc8ccd0 }] });
     loot('fridge', x + 15.6, z - 8.2, 1.0, 'Walk-in cooler shelves', -Math.PI / 2);
     bs(x + 15.6, 0, z - 10.6, x + 16.2, 2.0, z - 5.8, 'shelfMetal', 'metal');
-    for (const px of [x + 5, x + 8]) { bs(px - 0.3, 0, z - 11.6, px + 0.3, 2.1, z - 8.5, 'shelfMetal', 'metal'); loot('pantry', px + 0.45, z - 10, 1.0, 'Dry stores', -Math.PI / 2, H); for (let s2 = 0; s2 < 4; s2++) bx(px - 0.28, 0.3 + s2 * 0.5, z - 11.5, px + 0.28, 0.5 + s2 * 0.5, z - 8.6, s2 % 2 ? 'pCopper' : 'cabinet'); }
+    for (const px of [x + 5, x + 8]) { K.solid(px, z - 10.05, 0.3, 1.55, 0, 2.1, 'metal'); loot('pantry', px + 0.45, z - 10, 1.0, 'Dry stores', -Math.PI / 2, H);
+      for (const sz of [z - 10.825, z - 9.275]) D.abox(PA, { px: 'drystock', nx: 'drystock', side: 'steel', top: 'steel' }, px, 0, sz, 0.3, 2.1, 0.77, 0);
+      for (const sz of [z - 11.6, z - 10.05, z - 8.5]) for (const sx of [-0.28, 0.28]) K.box(px + sx, 0, sz, 0.02, 2.12, 0.02, 0, 'pSteel'); }
     // out back: the dumpsters and a pallet stack — the way onto the roof
     const rz = z - d / 2 - 1.3;
     bs(x + 10, 0, rz - 0.9, x + 12.2, 1.35, rz + 0.9, 'greenPaint', 'metal'); K.deck(x + 11.1, rz, 1.1, 0.9, 0, 1.35, { draw: false, climb: true });
@@ -508,8 +517,8 @@ export function buildMap(K) {
     for (let i = 0; i < 8; i++) {
       const bxx = x - 13 + i * 3.6; hospitalBed(K, bxx, z - d / 2 + 1.5, Math.PI / 2, i === 0);
       bx(bxx + 1.7, 2.55, z - d / 2 + 0.3, bxx + 1.74, 2.6, z - d / 2 + 2.9, 'chrome');
-      if (i % 3 === 1) bs(bxx + 1.69, 0.3, z - d / 2 + 0.3, bxx + 1.75, 2.55, z - d / 2 + 1.6, 'pWool', 'cloth');
-      if (i % 2) loot('medicine', bxx + 1.2, z - d / 2 + 0.5, 0.75, 'Bedside cabinet', 0, H);
+      if (i % 3 === 1) bs(bxx + 1.69, 0.3, z - d / 2 + 0.3, bxx + 1.75, 2.55, z - d / 2 + 1.6, 'dzCurtain', 'cloth');
+      if (i % 2) { loot('medicine', bxx + 1.2, z - d / 2 + 0.5, 0.75, 'Bedside cabinet', 0, H); D.abox(D.A, { pz: 'drawers3', side: 'white', top: 'white' }, bxx + 1.2, 0, z - d / 2 + 0.5, 0.22, 0.75, 0.2, 0); K.solid(bxx + 1.2, z - d / 2 + 0.5, 0.22, 0.2, 0, 0.75, 'wood', 0, { vault: true }); }
     }
     // patient zero's bed: the cuffs are still locked to the rail
     bx(x - 13.5, 0.8, z - d / 2 + 2.0, x - 13.3, 0.86, z - d / 2 + 2.05, 'chrome');
@@ -525,10 +534,13 @@ export function buildMap(K) {
     note('hale', x + 9.5, z + 6.7, 0.78);
     lockers(K, x + 13, z + 10.5, Math.PI, 3);
     // pharmacy: shelving, a locked med cart
-    for (const px of [x - 13, x - 10, x - 7]) { bs(px - 0.3, 0, z + 2, px + 0.3, 2.1, z + 9, 'shelfMetal', 'metal'); for (let s2 = 0; s2 < 4; s2++) bx(px - 0.28, 0.4 + s2 * 0.45, z + 2.2, px + 0.28, 0.55 + s2 * 0.45, z + 8.8, s2 % 2 ? 'white' : 'pCinderB'); loot('pharmacy', px + 0.5, z + 5.5, 1.0, 'Pharmacy shelf', -Math.PI / 2, H); }
+    for (const px of [x - 13, x - 10, x - 7]) { K.solid(px, z + 5.5, 0.3, 3.5, 0, 2.1, 'metal'); for (let k = 0; k < 3; k++) D.abox(PA, { px: 'pharm', nx: 'pharm', side: 'steel', top: 'steel' }, px, 0, z + 2 + 7 / 6 * (2 * k + 1), 0.3, 2.1, 7 / 6, 0); loot('pharmacy', px + 0.5, z + 5.5, 1.0, 'Pharmacy shelf', -Math.PI / 2, H); }
+    D.medCabinet(x - 15.6, z + 2.5, Math.PI / 2, { w: 1.2 }); D.medCabinet(x + 15.6, z - 7.5, -Math.PI / 2, { w: 1.2 });
+    D.face(PA, 'eyechart', x - 3.88, 1.6, z + 8, Math.PI / 2, 0.5, 0.8);
     loot('medicine', x - 11.5, z + 10.5, 0.9, 'Medication cart', 0, H, { fixed: [['bandage', 2]] });
     // exam room: the table, a lamp, a sink
-    bs(x - 1.2, 0, z + 5, x + 1.2, 0.85, z + 5.8, 'pSteel', 'metal', { vault: true }); bx(x - 1.15, 0.85, z + 5.05, x + 1.15, 0.95, z + 5.75, 'pMat');
+    bs(x - 1.2, 0, z + 5, x + 1.2, 0.85, z + 5.8, 'pSteel', 'metal', { vault: true }); bx(x - 1.15, 0.85, z + 5.05, x + 1.15, 0.95, z + 5.75, 'pMat'); bx(x - 1.0, 0.95, z + 5.1, x + 1.0, 0.955, z + 5.7, 'white');   // exam table with its paper roll
+    D.kitchenRun(x + 4.59, z + 8, -Math.PI / 2, [{ k: 'cab', w: 0.8 }, { k: 'sink', w: 0.8 }, { k: 'drawers3', w: 0.6 }], { top: 'dzLaminate', props: false });   // the exam room sink
     loot('medicine', x + 3.5, z + 10.8, 1.0, 'Exam room cupboard', Math.PI, H);
     for (let i = 0; i < 4; i++) strip(K, x - 12 + i * 8, 3.58, z - 6, 0, 1.4);
     lt(x - 6, 3.3, z - 7, 0xd8f0ff, 5, 14); lt(x + 8, 3.3, z - 7, 0xd8f0ff, 4, 14); lt(x + 9, 3.3, z + 6, 0xd8f0ff, 3, 10);   // the ward (both ends), Dr. Hale's office
@@ -557,7 +569,8 @@ export function buildMap(K) {
     desk(K, x + 12, cz2 + 0.2, 0);
     loot('garage', x + 12, cz2 + 0.6, 0.75, 'Tool crib desk', Math.PI, H, { fixed: fixed(['keycardGreen', 1], ['crowbar', 1]) });
     loot('shed', x + 7.5, cz2 - 1.5, 1.0, 'Tool crib shelves', 0, H, { fixed: [['axe', 1]] });
-    bs(x + 6.3, 0, cz2 - 2.6, x + 9, 2.2, cz2 - 2.1, 'pegboard', 'wood');
+    bs(x + 6.3, 0, cz2 - 2.6, x + 9, 2.2, cz2 - 2.1, 'pegboard', 'wood'); D.face(PA, 'tools', x + 7.65, 1.3, cz2 - 2.09, 0, 2.6, 1.7);
+    D.face(PA, 'tools', x - 1, 2.2, z + d / 2 - 0.16, Math.PI, 3.6, 2.6);
     for (let i = 0; i < 4; i++) strip(K, x - 10 + i * 6.5, 5.38, z, 0, 1.6);
     lt(x - 2, 5.0, z, 0xe8f0ff, 7, 22);
   }
@@ -609,12 +622,13 @@ export function buildMap(K) {
     so(vx - 0.3, vz0, vx + 0.3, vz1, 2.4, 'glass', 0, { window: true });
     for (let i = 0; i < 5; i++) { const bz = iz0 + 1.6 + i * 2.8; for (const sd of [-1, 1]) { K.xadd(G.pipe, MAT.pSteel, K.mat4(vx + sd * 0.8, 0, bz, 0, 0.2, 0.46, 0.2)); bx(vx + sd * 0.33, 1.2, bz - 0.06, vx + sd * 0.36, 1.45, bz + 0.06, 'black'); } }
     for (const [tx, tz] of [[x - 9, z - 5], [x - 9, z + 1], [x - 9, z + 6]]) messTable(K, tx, tz, 0);
-    loot('cooler', x - 21.2, z + 7.5, 1.0, 'Vending machine', Math.PI / 2, HAd); bs(x - 21.85, 0, z + 6.9, x - 20.9, 1.9, z + 8.1, 'redPaint', 'metal');
-    loot('cooler', x - 21.2, z + 5.8, 1.0, 'Snack machine', Math.PI / 2, HAd, { fixed: [['chips', 1]] }); bs(x - 21.85, 0, z + 5.2, x - 20.9, 1.9, z + 6.4, 'bluePaint', 'metal');
+    loot('cooler', x - 21.2, z + 7.5, 1.0, 'Vending machine', Math.PI / 2, HAd); K.solid(x - 21.375, z + 7.5, 0.475, 0.6, 0, 1.9, 'metal'); D.abox(PA, { px: 'soda', side: 'grey', top: 'grey' }, x - 21.375, 0, z + 7.5, 0.475, 1.9, 0.6, 0);
+    loot('cooler', x - 21.2, z + 5.8, 1.0, 'Snack machine', Math.PI / 2, HAd, { fixed: [['chips', 1]] }); K.solid(x - 21.375, z + 5.8, 0.475, 0.6, 0, 1.9, 'metal'); D.abox(PA, { px: 'snack', side: 'grey', top: 'grey' }, x - 21.375, 0, z + 5.8, 0.475, 1.9, 0.6, 0);
     note('visit', x - 9, z - 5, 0.8);
     // ---- Control: consoles under a wall of CCTV, the key board, the gun locker, Sgt. Okafor's desk ----
     bx(x + 21.6, 0.9, z - 7, x + 21.84, 2.9, z + 7, f => f === 'nx' ? 'pScreen' : 'black');
     bs(x + 19.6, 0, z - 7, x + 21.6, 0.95, z + 7, 'darkMetal', 'metal'); bx(x + 19.55, 0.95, z - 7.05, x + 21.65, 1.0, z + 7.05, 'black');
+    for (let k = 0; k < 7; k++) D.top(PA, 'console', x + 20.1, 1.003, z - 6 + k * 2, -Math.PI / 2, 1.9, 0.9);
     for (let i = 0; i < 6; i++) bx(x + 20.6, 1.0, z - 6 + i * 2.4 - 0.4, x + 20.7, 1.45, z - 6 + i * 2.4 + 0.4, 'pScreen');
     desk(K, x + 12, z + 1, -Math.PI / 2);
     loot('cabinet', x + 11.6, z + 1, 0.75, 'Sgt. Okafor\'s desk', Math.PI / 2, HAd, { fixed: fixed(['keycardBlue', 1], ['battery', 2]) });
@@ -648,7 +662,7 @@ export function buildMap(K) {
     K.xadd(G.pipe, MAT.chrome, K.mat4(ox - 3.6, UY, oz + 3.6, 0, 0.02, 2.3, 0.02)); K.xadd(G.pipe, MAT.darkMetal, K.mat4(ox - 3.6, UY, oz + 3.6, 0, 0.2, 0.06, 0.2)); K.xadd(G.ball, MAT.yellowPaint, K.mat4(ox - 3.6, UY + 2.34, oz + 3.6, 0, 0.05, 0.05, 0.05));
     for (let k = 0; k < 5; k++) { const fx = ox - 3.56 + k * 0.065, fz = oz + 3.6 + (k % 2 ? 0.035 : -0.035); bx(fx, UY + 1.0 + k * 0.04, fz - 0.006, fx + 0.07, UY + 2.2, fz + 0.006, k === 0 ? 'bluePaint' : k % 2 ? 'white' : 'redPaint'); }
     // records: filing cabinets (searchable), a conference table
-    for (let i = 0; i < 6; i++) { const fz = z - 8.8 + i * 1.0; bs(x - 21.8, UY, fz - 0.4, x - 21.2, UY + 1.35, fz + 0.4, 'shelfMetal', 'metal'); if (i % 2 === 0) loot('cabinet', x - 21, fz, 0.9, 'Filing cabinet', Math.PI / 2, HAd, { floorY: UY }); }
+    for (let i = 0; i < 6; i++) { const fz = z - 8.8 + i * 1.0; K.solid(x - 21.5, fz, 0.3, 0.4, 0, UY + 1.35, 'metal', UY); for (const s3 of [-0.2, 0.2]) D.abox(D.A, { px: 'filing', side: 'steel', top: 'steel' }, x - 21.5, UY, fz + s3, 0.3, UY + 1.35, 0.2, 0); if (i % 2 === 0) loot('cabinet', x - 21, fz, 0.9, 'Filing cabinet', Math.PI / 2, HAd, { floorY: UY }); }
     bs(x - 16, UY, z - 1, x - 10, UY + 0.76, z + 1.4, 'darkWood', 'wood', { vault: true });
     for (let i = 0; i < 4; i++) { strip(K, x - 16 + i * 10, UY - 0.26, z - 4, 0, 1.4); strip(K, x - 16 + i * 10, 7.58, z + 4, 0, 1.4); }
     lt(ox, 7.2, oz, 0xfff0d8, 4, 13);   // the warden's office

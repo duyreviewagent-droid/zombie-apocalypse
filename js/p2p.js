@@ -13,10 +13,16 @@
 const APP_ID = 'zombie-apocalypse-game-v1';
 const NOSTR = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://relay.nostr.net', 'wss://nostr.sathoarder.com', 'wss://relay.snort.social', 'wss://relay.damus.io'];
 const TRACKERS = ['wss://tracker.openwebtorrent.com', 'wss://tracker.webtorrent.dev'];
-const MAX = 4;
+const MAX = 4, NAME_MAX = 30;   // players in a room; characters in a name
 const JOIN_WAIT = 25000, REJOIN_WAIT = 50000;   // ms to find the host (a rejoin after a reload waits longer)
-const SILENT = 40000, RELOAD_KEEP = 60000;       // a peer that says nothing this long is gone (a closed connection is noticed
-                                                 // sooner, by Trystero); a reloading one is kept a minute
+// When is somebody really gone? Phones and iPads pause a page that isn't on screen, Wi-Fi hiccups, a slow device
+// freezes for a few seconds loading the map — none of that is "leaving". So:
+//  - a closed connection only counts after AWAY_KEEP with no way back (Trystero reconnects by itself meanwhile, and
+//    the same player on a new connection carries straight on, with no message)
+//  - silence (no messages at all, connection still open): the host after HOST_SILENT (the game can't wait for ever
+//    for the dead to move), anybody else after SILENT; a page that was itself frozen doesn't count that time
+//  - someone who said they're reloading (to load the host's map) is kept RELOAD_KEEP
+const AWAY_KEEP = 30000, HOST_SILENT = 30000, SILENT = 120000, RELOAD_KEEP = 60000;
 const now = () => Date.now();
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';      // no I / O (they look like 1 / 0)
 export const newCode = () => Array.from({ length: 5 }, () => LETTERS[Math.floor(Math.random() * LETTERS.length)]).join('');
@@ -87,7 +93,7 @@ export class P2PSocket {
     const R = this.room;
     switch (m.t) {
       case 'hello': {
-        if (m.name) this.name = String(m.name).slice(0, 16);
+        if (m.name) this.name = String(m.name).slice(0, NAME_MAX);
         if (!this.welcomed) { this.welcomed = true; this._emit({ t: 'welcome', id: this.id, name: this.name, ver: 'p2p', rooms: [] }); }
         else if (R && R.joined) this._hiAll(true);
         break;
@@ -158,7 +164,7 @@ export class P2PSocket {
     let net;
     try {
       net = await joinAll(code, {
-        join: peer => { if (this.room !== R) return; this._to(peer, this._hi()); },
+        join: peer => { if (this.room !== R) return; const q = R.peers.get(peer); if (q) q.awayT = 0; this._to(peer, this._hi()); },
         leave: peer => { if (this.room !== R) return; this._lost(peer, false); },
         data: (d, peer) => { if (this.room !== R || !d || typeof d !== 'object') return; try { this._msg(d, peer); } catch (e) { console.error('p2p msg', d && d.x, e); } },
       });
@@ -208,16 +214,17 @@ export class P2PSocket {
       for (const [k, q] of R.peers) if (q.id === id && k !== peer) { R.peers.delete(k); p = p || { ...q, peer }; }
       const fresh = !p || !p.ok;
       if (!p) p = { id, name: 'Survivor', peer };
-      p.peer = peer; p.id = id; p.name = String(d.name || 'Survivor').slice(0, 16); p.last = now(); p.reload = 0;
+      p.peer = peer; p.id = id; p.name = String(d.name || 'Survivor').slice(0, NAME_MAX); p.last = now(); p.reload = 0; p.awayT = 0;
       R.peers.set(peer, p);
       // the host turns away a 5th player
       if (fresh && R.hostId === this.id && R.joined && this._count() >= (R.meta.max || MAX) && !p.ok) { this._to(peer, { x: 'full' }); R.peers.delete(peer); return; }
       const wasOk = p.ok; p.ok = true;
       if (d.room && d.host === id) {   // they say they're the host
         if (R.hostId === this.id && R.joined && id !== this.id) {
-          // two hosts (we lost touch for a while and both took over): whoever has been host longest keeps it
+          // two hosts (we lost touch for a while and someone took over): the one who took over last keeps it — their
+          // game kept the world going for the others while we were away (the one coming back goes along with it)
           const theirs = d.room.since || 0, mine = R.since || 0;
-          if (theirs < mine || (theirs === mine && id < this.id)) { R.meta = d.room.meta || R.meta; this._setHost(id); } else { this._to(peer, this._hi()); }
+          if (theirs > mine || (theirs === mine && id < this.id)) { R.meta = d.room.meta || R.meta; this._setHost(id); } else { this._to(peer, this._hi()); }
         } else {
           R.meta = d.room.meta || R.meta;
           if (!R.joined) { R.hostId = id; this._joined(); this._hiAll(true); return; }
@@ -229,7 +236,7 @@ export class P2PSocket {
     }
     if (d.x === 'who') { this._to(peer, this._hi()); return; }
     if (!p || !p.ok) { this._to(peer, { x: 'who' }); this._to(peer, this._hi()); return; }   // not introduced (or we'd given up on them): introduce again
-    p.last = now(); p.reload = 0;
+    p.last = now(); p.reload = 0; p.awayT = 0;
     switch (d.x) {
       case 'st': this._emit({ t: 'state', from: p.id, d: d.d }); break;
       case 'ev': this._emit({ t: 'event', from: p.id, d: d.d }); break;
@@ -244,11 +251,11 @@ export class P2PSocket {
       case 'pg': break;
     }
   }
-  // a connection closed: gone, unless they said they were reloading (then they get a minute to come back)
-  _lost(peer, silent) {
+  // a connection closed: not gone yet — they get AWAY_KEEP to come back (the heartbeat decides)
+  _lost(peer) {
     const R = this.room, p = R && R.peers.get(peer); if (!p) return;
-    if (p.reload && now() - p.reload < RELOAD_KEEP) { p.away = true; return; }
-    this._drop(peer, silent ? 'lost' : 'lost');
+    if (!p.ok) { R.peers.delete(peer); return; }
+    p.awayT = p.awayT || now();
   }
   _drop(peer, why) {
     const R = this.room, p = R && R.peers.get(peer); if (!p) return;
@@ -267,12 +274,13 @@ export class P2PSocket {
     const t = now();
     // this page was frozen for a while (loading a map, a slow frame, a background tab): their messages are still queued
     // up behind it, so nobody counts as silent for that time
-    if (this._hbT && t - this._hbT > 5000) for (const p of R.peers.values()) p.last = Math.max(p.last || 0, t);
+    if (this._hbT && t - this._hbT > 5000) for (const p of R.peers.values()) { p.last = Math.max(p.last || 0, t); if (p.awayT) p.awayT = Math.max(p.awayT, t); }
     this._hbT = t;
     for (const [peer, p] of [...R.peers]) {
       if (!p.ok) continue;
       if (p.reload) { if (t - p.reload > RELOAD_KEEP) this._drop(peer, 'lost'); continue; }
-      if (t - (p.last || t) > SILENT) this._drop(peer, 'lost');
+      if (p.awayT && t - p.awayT > AWAY_KEEP) { this._drop(peer, 'lost'); continue; }
+      if (t - (p.last || t) > (p.id === R.hostId ? HOST_SILENT : SILENT)) this._drop(peer, 'lost');
     }
   }
   _leave(quiet) {

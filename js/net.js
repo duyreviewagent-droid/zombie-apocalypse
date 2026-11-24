@@ -26,6 +26,9 @@ const now = () => performance.now();
 const DELAY = 110;          // ms: remote players are shown this far in the past (two 20 Hz snapshots, plus jitter)
 const DELAYW = 220;         // ms: the host's world (zombies, townspeople) comes at 10 Hz: two of those, plus jitter
 const MAXP = 4;
+export const NAME_MAX = 30;
+// no name typed: one of these, with 7 random digits (prefilled in the name box, and remembered like a typed one)
+export function defaultName() { const k = ['ZombieHunter', 'Trustpasser', 'ZombieSlayer'][Math.floor(Math.random() * 3)]; return k + '_' + String(Math.floor(Math.random() * 1e7)).padStart(7, '0'); }   // player names: up to 30 characters (p2p.js clips at the same length)
 const DIFF_LIST = [['easy', 'Easy'], ['medium', 'Medium'], ['hard', 'Hard'], ['extreme', 'Extreme'], ['apocalypse', 'Apocalypse'], ['zombiex', 'ZombieX']];
 const HOLD = new Set(['Death_D', 'Hit_Knockback']), LOOP = new Set(['Fixing_Kneeling']);
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { } } };
@@ -82,7 +85,8 @@ export function init(ctx) {
   X = ctx;
   for (const k in cb) if (ctx[k]) cb[k] = ctx[k];
   css(); dom();
-  S.name = store.get('za_name') || '';
+  S.name = (store.get('za_name') || '').trim().slice(0, NAME_MAX) || defaultName();
+  store.set('za_name', S.name);
   if (X.diffDefault) S.diff = X.diffDefault();
   if (X.mapDefault) S.map = X.mapDefault();
 }
@@ -233,7 +237,7 @@ function addPlayer(id, name, quiet) {
   let p = PL.get(id);
   if (!p) { p = { id, name, ready: false, body: 'human', R: null }; PL.set(id, p); }
   p.name = name || p.name;
-  if (p.R) { p.R.u.name = p.name; p.R.tagName.textContent = p.name; }
+  if (p.R) { p.R.u.name = p.name; p.R.tagName.textContent = p.name; p.R.tag.classList.toggle('long', p.name.length > 16); }
   return p;
 }
 function dropPlayer(id, why, quiet) {
@@ -318,12 +322,12 @@ function nearAny(x, z, r) {
 }
 let shareJ = '', shareT = 0;
 function worldSnap() {
-  const G = X.G, w = { h: [r2(G.hour || 0), G.day || 1, G.phase || '', G.stage || 0], z: [], n: [] };
+  const G = X.G, W = X.world, w = { h: [r2(G.hour || 0), G.day || 1, G.phase || '', G.stage || 0, r2(G.rainTarget || 0), r2(W.rain || 0), G.phase === 'outbreak' ? r1(G.t - (G.obT || 0)) : -1], z: [], n: [] };   // + the weather (rain on the way, rain now) and how long since the outbreak (daylight fading, the town coming apart)
   for (const u of Z.list) {
     if (!u.active) continue;
     const s = u.s; if (!nearAny(s.pos.x, s.pos.z, 140)) continue;
     const f = (u.alive ? 1 : 0) | (u.big ? 2 : 0) | (u.runner ? 4 : 0) | (u.z && u.z.down > 0 ? 8 : 0) | (u.crawl ? 16 : 0) | (u.limp ? 32 : 0) | (u.z && u.z.state === 'chase' ? 64 : 0) | (u.turned ? 128 : 0);
-    w.z.push([nid(u), r2(s.pos.x), r2(s.pos.z), r2(s.yaw), r2(s.vel.x), r2(s.vel.z), f, ...actPack(s), Z.pool.indexOf(u), u.variant || 0, r2(s.root.scale.x), Math.round(u.hp)]);
+    w.z.push([nid(u), r2(s.pos.x), r2(s.pos.z), r2(s.yaw), r2(s.vel.x), r2(s.vel.z), f, ...actPack(s), Z.pool.indexOf(u), u.variant || 0, r2(s.root.scale.x), Math.round(u.hp), u.bossT || 0]);   // [13]: boss type (bosses.js)
   }
   const ppl = X.people ? X.people() : [];
   for (let i = 0; i < ppl.length; i++) {
@@ -442,7 +446,7 @@ function makePuppet(p, body) {
   const tag = document.createElement('div'); tag.className = 'ntag';
   tag.innerHTML = `<b>${X.speakerIcon || ''}<span></span></b><i><s></s></i><u>DOWN · HELP THEM UP</u>`; netTags.appendChild(tag);
   const R = { p, u, s, body, buf: [], mel, guns: {}, weap: null, tag, tagName: tag.querySelector('b span'), tagHp: tag.querySelector('s'), losT: 0, seen: true, veh: null, lastYaw: null };
-  R.tagName.textContent = p.name;
+  R.tagName.textContent = p.name; tag.classList.toggle('long', p.name.length > 16);
   return R;
 }
 function killPuppet(R) {
@@ -553,8 +557,11 @@ const ZM = new Map();                // host's netId -> our zombie unit
 function worldIn(ts, w) {
   const G = X.G;
   if (w.h) {
-    const [hour, day, phase, stage] = w.h, ph0 = G.phase, st0 = G.stage;
+    const [hour, day, phase, stage, rainT, rain, obAge] = w.h, ph0 = G.phase, st0 = G.stage;
     G.hour = hour; G.day = day; G.stage = stage;
+    // the host's weather: the same rain (and no rolls of our own: main.js weather() won't re-roll while wxT is huge)
+    if (rainT != null) { G.rainTarget = rainT; G.wxT = 1e9; const W = X.world; if (Math.abs((W.rain || 0) - rain) > 0.15) W.rain = rain; }
+    if (obAge != null && obAge >= 0 && G.phase === 'outbreak') G.obT = (G.t || 0) - obAge;
     if (phase && phase !== ph0) { G.phase = phase; emitEv({ k: 'phase', phase, prev: ph0 }); }
     if (stage !== st0) emitEv({ k: 'stage', stage, prev: st0 });
   }
@@ -574,13 +581,13 @@ function worldIn(ts, w) {
 // a zombie we haven't got yet: the same body from the pool if it's free (the pools are made in the same order, so it
 // looks the same), else any free one with the same look, else any free one at all
 function adopt(e) {
-  const [id, x, z, yaw, , , f, , , pi, variant, sc, hp] = e;
+  const [id, x, z, yaw, , , f, , , pi, variant, sc, hp, boss] = e;
   const free = u => u && !u.active && !u.netId;
   let u = !(f & 128) && free(Z.pool[pi]) ? Z.pool[pi] : Z.pool.find(q => free(q) && q.variant === variant) || Z.pool.find(free);
   if (!u && X.makeZombie) u = X.makeZombie();
   if (!u) return null;
-  wake(u, x, z, { yaw, big: !!(f & 2), runner: !!(f & 4), hp });
-  u.s.root.scale.setScalar(sc || 1);
+  wake(u, x, z, { yaw, big: !!(f & 2), runner: !!(f & 4), hp, boss: boss || null, force: true });   // the host's boss type, or none (no rolls here)
+  u.s.root.scale.setScalar(sc || 1); if (u.bossT) u.sizeK = (sc || 1) * 1.05;
   u.netId = id; u.puppet = true; u.nbuf = []; u.crawl = !!(f & 16); u.limp = !!(f & 32);
   if (!(f & 1)) { u.alive = false; u.s.dead = true; u.s.play('Death_D', { hold: true, snap: true, from: 3 }); u.deadT = 6; }
   ZM.set(id, u);
@@ -739,7 +746,7 @@ export function update(dt) {
 // chat on the right with a microphone button. Only #mpMain is rebuilt on changes: the chat (and what you're typing) stays.
 let root, main, side, btns, chatLog, chatIn, micBtn, netTags, toastBox, pillEl;
 const lobbyLines = [];
-function myName() { return (S.name || '').trim() || 'Survivor'; }
+function myName() { if (!(S.name || '').trim()) { S.name = defaultName(); store.set('za_name', S.name); } return S.name.trim(); }
 export function openLobby() {
   if (!root) return;
   if (S.code) S.view = 'room'; else if (S.view === 'room' || S.view === 'wait') S.view = 'home';
@@ -796,8 +803,8 @@ function act(a, el) {
   }
 }
 function nameOk() {
-  const i = root.querySelector('#mpName'); if (i) { S.name = i.value.trim().slice(0, 16); store.set('za_name', S.name); }
-  if (!S.name.trim()) { S.err = 'Type your name first — it shows over your head.'; render(); setTimeout(() => root.querySelector('#mpName')?.focus(), 30); return false; }
+  const i = root.querySelector('#mpName'); if (i) { S.name = i.value.trim().slice(0, NAME_MAX); store.set('za_name', S.name); }
+  if (!S.name.trim()) { S.name = defaultName(); store.set('za_name', S.name); if (i) i.value = S.name; }
   return true;
 }
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -818,7 +825,7 @@ function render() {
   } else if (S.view === 'home') {
     h = `<div class="eyebrow">play together · up to ${MAXP} survivors</div><h2>MULTIPLAYER</h2>
       <div class="sub mptext">Make a room and send your friends the code — or type theirs.</div>
-      <label class="mprow"><span>YOUR NAME</span><input id="mpName" maxlength="16" autocomplete="off" spellcheck="false" value="${esc(S.name)}" placeholder="type your name" data-in="name" data-enter="create"></label>
+      <label class="mprow"><span>YOUR NAME</span><input id="mpName" maxlength="${NAME_MAX}" autocomplete="off" spellcheck="false" value="${esc(S.name)}" placeholder="type your name" data-in="name" data-enter="create"></label>
       <div class="mpgrid2">
         <button class="dbtn mpbig" data-a="create"><div class="top"><b>CREATE ROOM</b></div><small>You're the host: you pick the map, how bad it is and how many can play.</small></button>
         <button class="dbtn mpbig" data-a="joinview"><div class="top"><b>JOIN ROOM</b></div><small>Type the 5-letter code a friend gives you.</small></button>
@@ -896,7 +903,7 @@ function dom() {
   root.addEventListener('click', e => { const b = e.target.closest('[data-a]'); if (b && !b.disabled) { e.stopPropagation(); act(b.dataset.a, b); } });
   root.addEventListener('mouseover', e => { const b = e.target.closest('[data-a=char]'); if (b && S.peek !== b.dataset.c && !matchMedia('(pointer:coarse)').matches) { S.peek = b.dataset.c; const c = charList().find(c => c.name === S.peek), box = root.querySelector('#whoInfo'); if (c && box && X.whoInfo) box.innerHTML = X.whoInfo(c); else render(); } });
   root.addEventListener('input', e => {
-    if (e.target.dataset.in === 'name') { S.name = e.target.value.slice(0, 16); store.set('za_name', S.name); clearTimeout(dom.t); dom.t = setTimeout(() => S.connected && send({ t: 'hello', name: myName() }), 500); }
+    if (e.target.dataset.in === 'name') { S.name = e.target.value.slice(0, NAME_MAX); store.set('za_name', S.name); clearTimeout(dom.t); dom.t = setTimeout(() => S.connected && send({ t: 'hello', name: myName() }), 500); }
     if (e.target.id === 'mpCode') e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5);
   });
   // typing in the lobby must not move you / open the bag (main.js listens on window)
@@ -962,7 +969,7 @@ function css() {
   #mp .mpplayer.me { border-left-color: var(--red, #c62a1e); }
   #mp .mpplayer.empty { opacity: .4; } #mp .mpplayer.empty b { font-weight: 300; font-style: italic; font-size: 14px; }
   #mp .mpwho { flex: 1; min-width: 0; }
-  #mp .mpwho b { display: block; font: 500 16px/1.25 'Oswald', sans-serif; letter-spacing: .03em; overflow-wrap: anywhere; }
+  #mp .mpwho b { display: block; font: 500 16px/1.25 'Oswald', sans-serif; letter-spacing: .03em; overflow-wrap: break-word; word-break: normal; }
   #mp .mpwho b em { font: normal 9px 'Oswald', sans-serif; letter-spacing: .2em; color: #c9a24a; margin-left: 4px; vertical-align: middle; }
   #mp .mpwho small { display: block; font: 300 12px 'Oswald', sans-serif; color: var(--muted, #9b9486); overflow-wrap: anywhere; }
   #mp .mpst { flex: none; font: 9px 'Oswald', sans-serif; letter-spacing: .14em; color: var(--dim, #8a8478); width: 62px; }
@@ -975,7 +982,7 @@ function css() {
   #mp .mpchar { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px 7px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.1); border-radius: 2px; color: var(--bone, #ece6d8); cursor: pointer; min-width: 0; font: inherit; }
   #mp .mpchar img, #mp .mpchar i { width: 52px; height: 64px; object-fit: cover; border-radius: 2px; background: rgba(255,255,255,.05); display: block; }
   #mp .mpchar b { font: 400 20px/1 'Bebas Neue', sans-serif; letter-spacing: .08em; }
-  #mp .mpchar small { font: 300 10.5px/1.25 'Oswald', sans-serif; color: var(--muted, #9b9486); text-align: center; overflow-wrap: anywhere; }
+  #mp .mpchar small { font: 300 10.5px/1.25 'Oswald', sans-serif; color: var(--muted, #9b9486); text-align: center; overflow-wrap: break-word; max-width: 100%; }
   #mp .mpchar.on { border-color: #d8c27a; box-shadow: inset 0 0 0 1px #d8c27a; background: rgba(216,194,122,.1); }
   #mp .mpchar.taken { opacity: .4; }
   #mp .mpinfo { margin-top: 8px; }
@@ -985,7 +992,7 @@ function css() {
   #mp .mpmaps .dbtn, #mp .mpdiffs .dbtn, #mp .mpmax .dbtn { padding: 8px 10px !important; }
   #mp .mppick { display: flex; flex-wrap: wrap; gap: 8px 28px; font: 11px 'Oswald', sans-serif; letter-spacing: .3em; color: var(--muted, #9b9486); margin: 12px 0 4px; }
   #mp .mppick b { display: block; font: 400 28px 'Bebas Neue', sans-serif; letter-spacing: .06em; color: var(--bone, #ece6d8); }
-  #mp .mpchatlog { flex: 1; min-height: 160px; max-height: 46vh; overflow-y: auto; padding: 8px 10px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.08); font: 14px/1.4 'Oswald', sans-serif; overflow-wrap: anywhere; }
+  #mp .mpchatlog { flex: 1; min-height: 160px; max-height: 46vh; overflow-y: auto; padding: 8px 10px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.08); font: 14px/1.4 'Oswald', sans-serif; overflow-wrap: break-word; }
   #mp .mpchatlog .ln { padding: 2px 0; } #mp .mpchatlog .ln b { color: #e8b04a; font-weight: 500; } #mp .mpchatlog .ln.sys { color: var(--muted, #9b9486); font-style: italic; }
   #mp .mpsay { display: flex; gap: 6px; } #mp .mpsay input { font-size: 15px; padding: 7px 9px; flex: 1 1 auto; }
   #mp .mpsay button.m { width: auto !important; margin: 0 !important; padding: 7px 12px !important; letter-spacing: .15em !important; flex: none; }
@@ -1001,18 +1008,19 @@ function css() {
   @media (max-width: 640px) { #mp.room #mpBody { grid-template-columns: minmax(0, 1fr); } #mpSide { border-left: 0; padding-left: 0; border-top: 1px solid rgba(255,255,255,.08); padding-top: 8px; margin-top: 12px; } #mp .mpchatlog { min-height: 110px; max-height: 30vh; } }
   @media (max-width: 520px), (max-height: 520px) { #mp .mpcodebox b { font-size: 36px; } #mp .mpcode { font-size: 44px !important; } #mp .mpplayers { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } #mp .dbtn.mpbig .top b { font-size: 24px !important; } }
   #netTags { position: fixed; inset: 0; pointer-events: none; z-index: 8; overflow: hidden; }
-  #netTags .ntag { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; text-align: center; white-space: nowrap; will-change: transform; }
-  #netTags .ntag b { display: inline-flex; align-items: center; gap: 4px; font: 400 22px 'Bebas Neue', 'Oswald', sans-serif; letter-spacing: .1em; color: #ece6d8; text-shadow: 0 0 4px #000, 0 1px 2px #000; }
+  #netTags .ntag { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; text-align: center; width: max-content; max-width: 210px; will-change: transform; }
+  #netTags .ntag b { display: inline-flex; align-items: center; justify-content: center; gap: 4px; line-height: 1; overflow-wrap: break-word; font: 400 22px 'Bebas Neue', 'Oswald', sans-serif; letter-spacing: .1em; color: #ece6d8; text-shadow: 0 0 4px #000, 0 1px 2px #000; }
   #netTags .ntag b svg { width: 16px; height: 16px; display: none; color: #7fe08a; filter: drop-shadow(0 0 2px #000); }
   #netTags .ntag.talk b svg { display: inline-block; }
+  #netTags .ntag.long b { font-size: 16px; letter-spacing: .06em; }   /* long names (up to 30): smaller, never cut */
   #netTags .ntag i { display: block; width: 56px; height: 4px; margin: 2px auto 0; background: rgba(0,0,0,.55); border: 1px solid rgba(0,0,0,.6); }
   #netTags .ntag s { display: block; height: 100%; background: #c62a1e; text-decoration: none; transition: width .2s; }
   #netTags .ntag.down b { color: #ff6a4a; } #netTags .ntag.down i { display: none; }
   #netTags .ntag u { display: none; text-decoration: none; font: 11px 'Oswald', sans-serif; letter-spacing: .2em; color: #ffb09a; text-shadow: 0 0 3px #000; } #netTags .ntag.down u { display: block; }
   #netToast { position: fixed; top: 74px; left: 50%; transform: translateX(-50%); z-index: 61; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
-  #netToast .nt { padding: 7px 16px; background: rgba(14,13,12,.86); border-left: 2px solid #6e685e; color: #ece6d8; font: 13px 'Oswald', sans-serif; letter-spacing: .08em; opacity: 0; transform: translateY(-6px); transition: all .3s; }
+  #netToast .nt { max-width: min(560px, 92vw); text-align: center; overflow-wrap: break-word; padding: 7px 16px; background: rgba(14,13,12,.86); border-left: 2px solid #6e685e; color: #ece6d8; font: 13px 'Oswald', sans-serif; letter-spacing: .08em; opacity: 0; transform: translateY(-6px); transition: all .3s; }
   #netToast .nt.on { opacity: 1; transform: none; } #netToast .nt.good { border-left-color: #6f9a5c; } #netToast .nt.bad { border-left-color: #c62a1e; }
-  #netPill { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 9; display: none; padding: 3px 12px; background: rgba(14,13,12,.6); border: 1px solid rgba(255,255,255,.08); font: 11px 'Oswald', sans-serif; letter-spacing: .25em; color: #9b9486; pointer-events: none; }
+  #netPill { position: fixed; top: 92px; left: 50%; transform: translateX(-50%); z-index: 9; display: none; padding: 3px 12px; background: rgba(14,13,12,.6); border: 1px solid rgba(255,255,255,.08); font: 11px 'Oswald', sans-serif; letter-spacing: .25em; color: #9b9486; pointer-events: none; }
   body.playing #netPill.show { display: block; } #netPill b { color: #ece6d8; font-weight: 500; }
   `;
   document.head.appendChild(st);

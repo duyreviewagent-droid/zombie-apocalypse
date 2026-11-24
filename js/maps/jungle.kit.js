@@ -615,3 +615,74 @@ export function jungleKit(K) {
   KIT = { K, M, G, signTex, merge };
   return KIT;
 }
+
+// ---------------------------------------------------------------- designed fronts (decor.js): the expedition's own cells
+// lab bench cupboards, reagent shelves, supply shelves, an olive footlocker, stencilled crates, a steel gun cabinet,
+// a topo map, a two-burner camp stove, a canvas cot. One atlas → one material for all of them.
+import { decor, P2 as S, XCELLS } from './decor.js';
+const JCELLS = [
+  ['olive', (g, w, h, r) => { g.fillStyle = '#4e5a38'; g.fillRect(0, 0, w, h); S.speck(g, 0, 0, w, h, 1500, ['rgba(0,0,0,0.12)', 'rgba(255,255,255,0.06)'], r, 2); }, { rough: 0.7, metal: 0.2 }],
+  ['labBench', (g, w, h, r) => {   // grey lab cupboards: two doors, a drawer row, hazard labels
+    g.fillStyle = '#b8bcbc'; g.fillRect(0, 0, w, h);
+    S.bevel(g, 3, 3, w - 6, h * 0.22 - 4, 2, 0.3); S.bar(g, w * 0.35, h * 0.1, w * 0.3, 5);
+    for (const x0 of [0, w / 2]) { S.bevel(g, x0 + 3, h * 0.24, w / 2 - 6, h * 0.74, 2, 0.3); S.bar(g, x0 + (x0 ? 10 : w / 2 - 16), h * 0.3, h * 0.2, 5, true); }
+    g.fillStyle = '#f0d020'; g.beginPath(); g.moveTo(w * 0.25, h * 0.45); g.lineTo(w * 0.33, h * 0.6); g.lineTo(w * 0.17, h * 0.6); g.fill(); S.text(g, '!', w * 0.25, h * 0.56, h * 0.08, '#111');
+    g.fillStyle = '#fff'; g.fillRect(w * 0.6, h * 0.45, w * 0.28, h * 0.12); S.text(g, 'SOLVENTS', w * 0.74, h * 0.51, h * 0.05, '#a01010');
+    S.speck(g, 0, 0, w, h, 400, ['rgba(60,50,30,0.15)'], r, 4);
+  }, { rough: 0.5, metal: 0.3 }],
+  ['reagents', (g, w, h, r) => {   // a shelf bay of reagent bottles, specimen jars, boxes of gloves
+    g.fillStyle = '#5a5e5a'; g.fillRect(0, 0, w, h);
+    for (let j = 0; j < 4; j++) { const y1 = (j + 1) * h / 4; g.fillStyle = '#9aa09a'; g.fillRect(0, y1 - 5, w, 5);
+      let x = 3; while (x < w - 12) { const k = r(); let bw, bh;
+        if (k < 0.4) { bw = 12; bh = h / 4 * 0.55; g.fillStyle = r() < 0.5 ? '#7a3a10' : '#2a5a2a'; g.fillRect(x, y1 - 5 - bh, bw, bh); g.fillStyle = '#111'; g.fillRect(x + 3, y1 - 5 - bh - 6, bw - 6, 7); g.fillStyle = '#f4f0e0'; g.fillRect(x + 1, y1 - 5 - bh * 0.6, bw - 2, bh * 0.3); }
+        else if (k < 0.65) { bw = 20; bh = h / 4 * 0.6; g.fillStyle = 'rgba(200,220,200,0.6)'; g.fillRect(x, y1 - 5 - bh, bw, bh); g.fillStyle = ['#8aa040', '#c8a060', '#6a8a6a'][(r() * 3) | 0]; g.fillRect(x + 2, y1 - 5 - bh * 0.7, bw - 4, bh * 0.68); g.fillStyle = '#ddd'; g.fillRect(x, y1 - 5 - bh - 4, bw, 5); }
+        else { bw = 28; bh = h / 4 * 0.4; g.fillStyle = ['#2a6ac8', '#f0f0f0', '#e8b020'][(r() * 3) | 0]; g.fillRect(x, y1 - 5 - bh, bw, bh); g.fillStyle = 'rgba(255,255,255,0.7)'; g.fillRect(x + 3, y1 - 5 - bh * 0.6, bw - 6, bh * 0.2); }
+        x += bw + 2; } }
+  }, { rough: 0.35, metal: 0.1 }],
+  ['supplies', (g, w, h, r) => {   // expedition supplies: ration boxes, rice sacks, water bottles, rope, fuel cans
+    g.fillStyle = '#3a3a34'; g.fillRect(0, 0, w, h);
+    for (let j = 0; j < 4; j++) { const y1 = (j + 1) * h / 4; g.fillStyle = '#7a7e70'; g.fillRect(0, y1 - 6, w, 6);
+      let x = 3; while (x < w - 12) { const k = r(); let bw, bh;
+        if (k < 0.35) { bw = 34; bh = h / 4 * 0.6; g.fillStyle = '#b89a68'; g.fillRect(x, y1 - 6 - bh, bw, bh); g.fillStyle = 'rgba(40,30,20,0.8)'; g.font = 'bold 8px Helvetica'; g.textAlign = 'center'; g.fillText('RATIONS', x + bw / 2, y1 - 6 - bh * 0.5); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x, y1 - 6 - bh * 0.85, bw, 2); }
+        else if (k < 0.55) { bw = 30; bh = h / 4 * 0.7; g.fillStyle = '#e0d4b0'; g.beginPath(); g.moveTo(x, y1 - 6); g.lineTo(x + 4, y1 - 6 - bh); g.lineTo(x + bw - 4, y1 - 6 - bh); g.lineTo(x + bw, y1 - 6); g.fill(); g.fillStyle = '#2a6a3a'; g.fillRect(x + 6, y1 - 6 - bh * 0.6, bw - 12, 6); }
+        else if (k < 0.8) { bw = 10; bh = h / 4 * 0.6; g.fillStyle = 'rgba(160,200,230,0.8)'; g.fillRect(x, y1 - 6 - bh, bw, bh); g.fillStyle = '#2a6ac8'; g.fillRect(x, y1 - 6 - bh * 0.6, bw, bh * 0.2); g.fillStyle = '#eee'; g.fillRect(x + 3, y1 - 6 - bh - 4, bw - 6, 5); }
+        else { bw = 24; bh = h / 4 * 0.5; g.fillStyle = '#c8a040'; g.beginPath(); g.ellipse(x + bw / 2, y1 - 6 - bh / 2, bw / 2, bh / 2, 0, 0, 7); g.fill(); g.strokeStyle = '#8a6a20'; g.lineWidth = 1.5; for (let q = 3; q < bw / 2; q += 3) { g.beginPath(); g.ellipse(x + bw / 2, y1 - 6 - bh / 2, q, q * bh / bw, 0, 0, 7); g.stroke(); } }
+        x += bw + 2; } }
+  }, { rough: 0.85, metal: 0 }],
+  ['footlocker', (g, w, h, r) => {   // an olive-drab trunk: stencils, latches, corner caps, a name tape
+    g.fillStyle = '#4e5a38'; g.fillRect(0, 0, w, h); S.speck(g, 0, 0, w, h, 1500, ['rgba(0,0,0,0.15)', 'rgba(255,255,255,0.06)'], r, 2); S.bevel(g, 0, 0, w, h, 5, 0.35);
+    g.fillStyle = 'rgba(0,0,0,0.4)'; g.fillRect(0, h * 0.22, w, 3);
+    for (const x of [w * 0.2, w * 0.8]) { g.fillStyle = '#b8b8a8'; g.fillRect(x - 10, h * 0.16, 20, 24); g.fillStyle = '#333'; g.fillRect(x - 4, h * 0.24, 8, 8); }
+    g.fillStyle = '#a8a898'; for (const [x, y] of [[0, 0], [w - 20, 0], [0, h - 20], [w - 20, h - 20]]) g.fillRect(x, y, 20, 20);
+    S.text(g, 'HALVORSEN EXP.', w / 2, h * 0.5, h * 0.11, 'rgba(230,226,200,0.85)', 'center', 'bold', 'Impact, Arial Black, sans-serif', w * 0.85);
+    S.text(g, 'RIO VERDE · FIELD 3', w / 2, h * 0.68, h * 0.07, 'rgba(230,226,200,0.7)', 'center', 'bold', undefined, w * 0.8);
+  }, { rough: 0.7, metal: 0.2 }],
+  ['crate', (g, w, h, r) => {   // a stencilled wooden supply crate side
+    S.grain(g, 0, 0, w, h, r, [168, 132, 84], false); for (let i = 1; i < 5; i++) { g.fillStyle = 'rgba(60,40,20,0.6)'; g.fillRect(0, i * h / 5, w, 2); }
+    g.fillStyle = '#7a5a34'; g.fillRect(0, 0, w, 14); g.fillRect(0, h - 14, w, 14); g.fillRect(0, 0, 14, h); g.fillRect(w - 14, 0, 14, h);
+    g.save(); g.translate(w / 2, h / 2); g.rotate(-0.6); g.fillStyle = '#7a5a34'; g.fillRect(-w * 0.7, -7, w * 1.4, 14); g.restore();
+    S.text(g, 'FRAGILE', w / 2, h * 0.3, h * 0.12, 'rgba(160,20,10,0.8)', 'center', 'bold', 'Impact, Arial Black, sans-serif');
+    S.text(g, 'LAB GLASS · THIS SIDE UP', w / 2, h * 0.7, h * 0.06, 'rgba(20,20,20,0.75)', 'center', 'bold', undefined, w * 0.8);
+  }, { rough: 0.85, metal: 0 }],
+  ['gunCab', (g, w, h, r) => {   // a steel gun cabinet: two doors with vents, a combination dial, a ranger badge
+    g.fillStyle = '#3e4a3a'; g.fillRect(0, 0, w, h);
+    for (const x0 of [0, w / 2]) { S.bevel(g, x0 + 3, 3, w / 2 - 6, h - 6, 2, 0.35); for (let k = 0; k < 6; k++) { g.fillStyle = '#141814'; g.fillRect(x0 + w * 0.12, h * (0.08 + k * 0.025), w * 0.26, h * 0.012); } }
+    S.knob(g, w / 2, h * 0.5, w * 0.06, '#222'); S.bar(g, w / 2 + 14, h * 0.45, h * 0.12, 6, true);
+    g.fillStyle = '#c8a040'; g.beginPath(); g.arc(w * 0.25, h * 0.35, w * 0.07, 0, 7); g.fill(); S.text(g, 'PARK RANGER', w * 0.25, h * 0.45, h * 0.035, '#e8e0c0');
+  }, { rough: 0.45, metal: 0.5 }],
+  ['map', (g, w, h, r) => {   // a topographic map pinned up, the route marked in red
+    g.fillStyle = '#e8e0c4'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 18; i++) { g.strokeStyle = `rgba(150,100,50,${0.3 + r() * 0.3})`; g.lineWidth = 1; g.beginPath(); const cx = w * (0.3 + r() * 0.4), cy = h * (0.3 + r() * 0.4), rad = 10 + i * 6; g.ellipse(cx, cy, rad, rad * 0.7, r(), 0, 7); g.stroke(); }
+    g.strokeStyle = '#3a7ac8'; g.lineWidth = 5; g.beginPath(); g.moveTo(0, h * 0.8); g.bezierCurveTo(w * 0.3, h * 0.6, w * 0.5, h * 0.9, w, h * 0.4); g.stroke();
+    g.strokeStyle = '#c81a1a'; g.lineWidth = 3; g.setLineDash([8, 6]); g.beginPath(); g.moveTo(w * 0.15, h * 0.9); g.lineTo(w * 0.4, h * 0.55); g.lineTo(w * 0.7, h * 0.25); g.stroke(); g.setLineDash([]);
+    g.fillStyle = '#c81a1a'; g.beginPath(); g.arc(w * 0.7, h * 0.25, 7, 0, 7); g.fill(); S.text(g, 'CAVE?', w * 0.7, h * 0.17, 14, '#c81a1a');
+    g.strokeStyle = '#333'; g.lineWidth = 3; g.strokeRect(2, 2, w - 4, h - 4); S.text(g, 'RIO VERDE  1:25 000', w / 2, h * 0.06, 13, '#333');
+  }, { rough: 0.9, metal: 0 }],
+  ['stove', (g, w, h, r) => {   // a two-burner camp stove seen from above, a kettle ring
+    g.fillStyle = '#2a5a2a'; g.fillRect(0, 0, w, h); S.bevel(g, 0, 0, w, h, 6, 0.35); g.fillStyle = '#1a1a1a'; g.fillRect(w * 0.06, h * 0.1, w * 0.88, h * 0.8);
+    for (const cx of [0.28, 0.72]) { g.strokeStyle = '#606060'; g.lineWidth = 4; g.beginPath(); g.arc(w * cx, h / 2, w * 0.16, 0, 7); g.stroke(); g.fillStyle = '#3a3a3a'; g.beginPath(); g.arc(w * cx, h / 2, w * 0.07, 0, 7); g.fill(); for (let k = 0; k < 4; k++) { g.save(); g.translate(w * cx, h / 2); g.rotate(k * Math.PI / 2); g.fillStyle = '#707070'; g.fillRect(-3, -w * 0.2, 6, w * 0.12); g.restore(); } }
+  }, { rough: 0.5, metal: 0.4 }],
+  ['tools', ...XCELLS.tools],
+];
+let JD = null;
+export function jungleDecor(K) { const D = decor(K); if (!JD || JD.D !== D) JD = { D, JA: D.atlas('jungle', JCELLS) }; return JD; }

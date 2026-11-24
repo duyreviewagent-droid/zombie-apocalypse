@@ -782,3 +782,362 @@ export function sandTexture() {
   for (let k = 0; k < 120; k++) { const x = r() * N, y = r() * N, s = 1 + r() * 2.2; g.fillStyle = 'rgba(40,30,20,0.3)'; g.beginPath(); g.ellipse(x + 0.6, y + 0.8, s, s * 0.6, 0, 0, 7); g.fill(); g.fillStyle = `rgba(${150 + r() * 60 | 0},${130 + r() * 50 | 0},${100 + r() * 40 | 0},0.9)`; g.beginPath(); g.ellipse(x, y, s, s * 0.7, r() * 3, 0, 7); g.fill(); }
   return (_sand = tex(c));
 }
+
+// ================================================================ interior design pass (Maple Hollow houses, store)
+// Every generator below is cached by its arguments (one texture per look, shared by every house) and is 512 px or
+// smaller. Height fields go through withNormal (desktop only), so phones pay for the colour map alone.
+const DCACHE = new Map();
+const once = (key, fn) => { if (!DCACHE.has(key)) DCACHE.set(key, fn()); return DCACHE.get(key); };
+const rgb = (c, f = 1, a = 1) => `rgba(${Math.min(255, c[0] * f) | 0},${Math.min(255, c[1] * f) | 0},${Math.min(255, c[2] * f) | 0},${a})`;
+// draw flowing wood grain into a rect (vertical grain), with an optional knot pushing the lines aside
+function woodGrain(g, x0, y0, w, h, col, r, { lines = 0.5, knots = 0, contrast = 1, horizontal = false } = {}) {
+  g.save(); g.beginPath(); g.rect(x0, y0, w, h); g.clip();
+  if (horizontal) { g.translate(x0 + w, y0); g.rotate(Math.PI / 2); [w, h] = [h, w]; x0 = 0; y0 = 0; }
+  g.fillStyle = rgb(col); g.fillRect(x0, y0, w, h);
+  const ks = []; for (let k = 0; k < knots; k++) ks.push([x0 + w * (0.2 + r() * 0.6), y0 + h * (0.15 + r() * 0.7), 3 + r() * 5]);
+  // soft wide bands (early/late wood), then thin dark grain lines bending round the knots
+  const n = Math.max(6, (w * lines) | 0);
+  for (let i = 0; i < n; i++) {
+    const bx = x0 + (i + r() * 0.8) / n * w, dark = r() < 0.5;
+    g.strokeStyle = dark ? `rgba(70,40,18,${(0.05 + r() * 0.12) * contrast})` : `rgba(255,236,200,${(0.03 + r() * 0.05) * contrast})`;
+    g.lineWidth = dark ? 0.6 + r() * 1.4 : 1 + r() * 3;
+    g.beginPath();
+    const ph = r() * 6, amp = 0.6 + r() * 1.6;
+    for (let y = y0 - 4; y <= y0 + h + 4; y += 4) {
+      let x = bx + Math.sin(y * 0.02 + ph) * amp + Math.sin(y * 0.071 + ph * 2) * amp * 0.4;
+      for (const [kx, ky, kr] of ks) { const dy = (y - ky) / (kr * 3.2), dx = x - kx; const push = Math.exp(-dy * dy) * kr * 2.6 / (1 + Math.abs(dx) / (kr * 2)); x += Math.sign(dx || 1) * push; }
+      y === y0 - 4 ? g.moveTo(x, y) : g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  for (const [kx, ky, kr] of ks) {   // the knot itself: a dark eye with rings round it
+    const gr = g.createRadialGradient(kx, ky, 0, kx, ky, kr * 1.6); gr.addColorStop(0, `rgba(50,24,8,${0.75 * contrast})`); gr.addColorStop(0.5, `rgba(80,44,18,${0.45 * contrast})`); gr.addColorStop(1, 'rgba(80,44,18,0)');
+    g.fillStyle = gr; g.beginPath(); g.ellipse(kx, ky, kr * 1.1, kr * 1.7, 0, 0, 7); g.fill();
+    g.strokeStyle = `rgba(60,30,10,${0.22 * contrast})`; g.lineWidth = 0.8; for (let q = 1; q < 5; q++) { g.beginPath(); g.ellipse(kx, ky, kr * (1 + q * 0.5), kr * (1.6 + q * 1.1), 0, 0, 7); g.stroke(); }
+  }
+  for (let k = 0; k < w * h / 60; k++) { g.fillStyle = `rgba(40,20,8,${0.05 + r() * 0.08})`; g.fillRect(x0 + r() * w, y0 + r() * h, 1, 1 + r() * 3); }   // pores
+  g.restore();
+}
+// solid wood with a clear grain and knots (tables, chairs, legs, the dresser, the bookshelf): one tile = 1 m
+export function woodGrainTexture(col = [128, 88, 58], seed = 14) {
+  return once('wood' + col + seed, () => {
+    const N = 512, r = rng(seed), [c, g] = cv(N);
+    woodGrain(g, 0, 0, N, N, col, r, { lines: 0.22, knots: 3, contrast: 1.2 });
+    // a few board joints (a glued-up top): faint vertical seams
+    for (const x of [N * 0.25, N * 0.62]) { g.fillStyle = 'rgba(40,20,8,0.18)'; g.fillRect(x | 0, 0, 1, N); }
+    return withNormal(tex(c), c, 0.8);
+  });
+}
+// a cupboard door / drawer front painted or stained, with real panel moulding:
+//  style 'shaker' (frame + flat recessed panel), 'raised' (bevelled raised panel), 'louvre' (closet slats),
+//  'drawer' (slab with a routed edge), 'slab'. The face is UV-mapped 0..1 (RoundedBox), so `aspect` (w/h) keeps
+//  the frame the same width on wide and tall doors.
+export function cabinetDoorTexture(style = 'shaker', col = [226, 214, 190], aspect = 1, painted = true, seed = 3) {
+  const a = Math.round(aspect * 4) / 4;
+  return once('door' + style + col + a + painted + seed, () => {
+    const H = a < 0.75 ? 512 : 256, W = Math.max(64, Math.min(512, Math.round(H * a / 32) * 32)), r = rng(seed), [c, g] = cv(W, H);
+    const hc = document.createElement('canvas'); hc.width = W; hc.height = H; const hg = hc.getContext('2d');   // height field (white = proud)
+    const fill = (x, y, w, h) => painted ? (g.fillStyle = rgb(col), g.fillRect(x, y, w, h), (() => { for (let k = 0; k < w * h / 25; k++) { g.fillStyle = `rgba(${r() < 0.5 ? '0,0,0' : '255,255,255'},0.025)`; g.fillRect(x + r() * w, y + r() * h, 1 + r() * 3, 1); } })()) : woodGrain(g, x, y, w, h, col, r, { lines: 0.3, knots: r() < 0.4 ? 1 : 0, contrast: 1 });
+    fill(0, 0, W, H); hg.fillStyle = '#bbb'; hg.fillRect(0, 0, W, H);
+    const px = H / 0.75 * 0.065 / (H / 256 * 1.33);   // ~6.5 cm stiles at a 0.75 m door
+    const fr = Math.max(10, Math.min(W, H) * 0.14), e = 3;
+    const bevel = (x, y, w, h, inset, light = 1) => {   // a recessed groove round a rectangle: dark top/left, light bottom/right
+      g.lineWidth = inset; g.strokeStyle = `rgba(0,0,0,${0.28 * light})`; g.beginPath(); g.moveTo(x, y + h); g.lineTo(x, y); g.lineTo(x + w, y); g.stroke();
+      g.strokeStyle = `rgba(255,255,255,${0.22 * light})`; g.beginPath(); g.moveTo(x + w, y); g.lineTo(x + w, y + h); g.lineTo(x, y + h); g.stroke();
+      hg.lineWidth = inset; hg.strokeStyle = '#222'; hg.strokeRect(x, y, w, h);
+    };
+    // the routed outer edge every door has
+    g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 2; g.strokeRect(1, 1, W - 2, H - 2); g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 1.5; g.strokeRect(e, e, W - 2 * e, H - 2 * e);
+    if (style === 'shaker' || style === 'raised') {
+      const x = fr, y = fr, w = W - 2 * fr, h = H - 2 * fr;
+      if (!painted) { woodGrain(g, x, y, w, h, col.map(v => v * 0.96), r, { lines: 0.35, contrast: 0.9 }); }   // a panel of its own wood
+      // the stiles run the full height: a faint joint where the rails meet them
+      g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(fr - 1, 0, 1, fr); g.fillRect(W - fr, 0, 1, fr); g.fillRect(fr - 1, H - fr, 1, fr); g.fillRect(W - fr, H - fr, 1, fr);
+      hg.fillStyle = style === 'raised' ? '#ddd' : '#555'; hg.fillRect(x, y, w, h);
+      bevel(x, y, w, h, 3);
+      if (style === 'raised') {   // the bevelled field: a lighter inner flat with sloped edges
+        const b = Math.min(w, h) * 0.12; g.fillStyle = 'rgba(255,255,255,0.07)'; g.fillRect(x + b, y + b, w - 2 * b, h - 2 * b);
+        g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 1; g.beginPath(); for (const [p, q] of [[[x, y], [x + b, y + b]], [[x + w, y], [x + w - b, y + b]], [[x, y + h], [x + b, y + h - b]], [[x + w, y + h], [x + w - b, y + h - b]]]) { g.moveTo(...p); g.lineTo(...q); } g.stroke();
+        g.strokeStyle = 'rgba(0,0,0,0.15)'; g.strokeRect(x + b, y + b, w - 2 * b, h - 2 * b);
+        const gr = hg.createLinearGradient(0, 0, 0, 1); hg.fillStyle = '#fff'; hg.fillRect(x + b, y + b, w - 2 * b, h - 2 * b); hg.strokeStyle = '#999'; hg.lineWidth = b * 0.8; hg.strokeRect(x + b * 0.45, y + b * 0.45, w - b * 0.9, h - b * 0.9);
+      } else { g.fillStyle = 'rgba(0,0,0,0.05)'; g.fillRect(x, y, w, h); }
+    } else if (style === 'louvre') {   // a closet door: stiles and rails framing two banks of slanted slats
+      const x = fr * 0.9, w = W - 2 * fr * 0.9, mid = H * 0.5, banks = [[fr, mid - fr * 0.4], [mid + fr * 0.4, H - fr]];
+      for (const [ya, yb] of banks) {
+        g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(x, ya, w, yb - ya); hg.fillStyle = '#333'; hg.fillRect(x, ya, w, yb - ya);
+        const sp = Math.max(7, H / 46);
+        for (let y = ya + 1; y < yb - sp * 0.4; y += sp) {
+          const gr = g.createLinearGradient(0, y, 0, y + sp * 0.85); gr.addColorStop(0, rgb(col, 1.08)); gr.addColorStop(0.75, rgb(col, 0.92)); gr.addColorStop(1, rgb(col, 0.6));
+          g.fillStyle = gr; g.fillRect(x, y, w, sp * 0.85); const hgr = hg.createLinearGradient(0, y, 0, y + sp * 0.85); hgr.addColorStop(0, '#fff'); hgr.addColorStop(1, '#777'); hg.fillStyle = hgr; hg.fillRect(x, y, w, sp * 0.85);
+        }
+        bevel(x, ya, w, yb - ya, 2, 0.8);
+      }
+    } else if (style === 'drawer') {   // a slab drawer front: a routed groove a little in from the edge
+      const m = Math.min(W, H) * 0.12; bevel(m, m, W - 2 * m, H - 2 * m, 2, 0.9);
+    }
+    // wear: the painted edges rub through a touch near where hands go; a bit of grime at the bottom
+    if (painted) for (let k = 0; k < 40; k++) { g.fillStyle = `rgba(150,120,90,${0.04 + r() * 0.05})`; g.fillRect(r() < 0.5 ? r() * 4 : W - r() * 4, r() * H, 1, 2 + r() * 6); }
+    const gb = g.createLinearGradient(0, H * 0.8, 0, H); gb.addColorStop(0, 'rgba(60,50,40,0)'); gb.addColorStop(1, 'rgba(60,50,40,0.1)'); g.fillStyle = gb; g.fillRect(0, H * 0.8, W, H * 0.2);
+    const t = tex(c, { repeat: false }); if (!isLow()) t.userData.normal = normalFromHeight(hc, 2.2); return t;
+  });
+}
+// a stone/composite worktop: 'granite' (salt-and-pepper speckle), 'butcher' (end-joined maple strips), 'laminate'
+// (a speckled formica with a faint pattern), 'marble' (white with grey veins). One tile = 1.5 m.
+export function counterTexture(kind = 'granite', seed = 21) {
+  return once('ctr' + kind + seed, () => {
+    const N = 512, r = rng(seed), [c, g] = cv(N);
+    if (kind === 'granite') {
+      paintNoise(g, N, [[54, 52, 50], [92, 88, 84], [70, 66, 62], [120, 112, 104]], valueNoise(N, [8, 32, 128], seed), 26, r);
+      for (let k = 0; k < 9000; k++) { const s = r(), v = s < 0.45 ? 20 + r() * 30 : s < 0.8 ? 170 + r() * 70 : 0; g.fillStyle = s < 0.8 ? `rgba(${v},${v},${v - 4},${0.5 + r() * 0.5})` : `rgba(${140 + r() * 60 | 0},${70 + r() * 30 | 0},${50 + r() * 20 | 0},0.7)`; g.beginPath(); g.ellipse(r() * N, r() * N, 0.6 + r() * 2.4, 0.5 + r() * 1.6, r() * 3, 0, 7); g.fill(); }
+      for (let k = 0; k < 600; k++) { g.fillStyle = `rgba(255,255,255,${0.2 + r() * 0.4})`; g.fillRect(r() * N, r() * N, 1, 1); }   // mica glints
+    } else if (kind === 'butcher') {
+      const sw = N / 12;
+      for (let i = 0; i < 12; i++) { let y = -r() * 200; while (y < N) { const L = 120 + r() * 260, v = 0.86 + r() * 0.26; woodGrain(g, i * sw, y, sw, L, [196 * v, 150 * v, 98 * v], r, { lines: 0.25, contrast: 0.9, knots: 0 }); g.fillStyle = 'rgba(60,30,10,0.35)'; g.fillRect(i * sw, y, sw, 1.5); y += L; } g.fillStyle = 'rgba(60,30,10,0.3)'; g.fillRect(i * sw, 0, 1.2, N); }
+      for (let k = 0; k < 30; k++) { g.strokeStyle = `rgba(60,36,20,${0.08 + r() * 0.1})`; g.lineWidth = 0.6; const x = r() * N, y = r() * N, a = r() * 3; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * 30, y + Math.sin(a) * 30); g.stroke(); }   // knife marks
+    } else if (kind === 'marble') {
+      paintNoise(g, N, [[226, 224, 220], [238, 236, 232], [246, 245, 242]], valueNoise(N, [4, 16], seed), 4, r);
+      for (let k = 0; k < 14; k++) { g.strokeStyle = `rgba(110,110,116,${0.12 + r() * 0.25})`; g.lineWidth = 0.6 + r() * 2.2; let x = r() * N, y = r() * N, a = r() * 6; g.beginPath(); g.moveTo(x, y); for (let s = 0; s < 40; s++) { a += (r() - 0.5) * 0.6; x += Math.cos(a) * 9; y += Math.sin(a) * 9; g.lineTo(x, y); } g.stroke(); }
+    } else {   // laminate: a warm speckled formica
+      paintNoise(g, N, [[208, 200, 184], [218, 210, 194], [226, 220, 204]], valueNoise(N, [4, 16, 64], seed), 5, r);
+      for (let k = 0; k < 7000; k++) { const d = r(); g.fillStyle = d < 0.5 ? 'rgba(90,70,50,0.22)' : d < 0.8 ? 'rgba(150,120,90,0.18)' : 'rgba(255,255,255,0.35)'; g.fillRect(r() * N, r() * N, 1 + r(), 1 + r()); }
+    }
+    return withNormal(tex(c), c, kind === 'butcher' ? 0.8 : 0.35);
+  });
+}
+// brushed stainless: fine horizontal streaks over a soft cloudy sheen (fridges, the stove, the store's coolers)
+export function brushedSteelTexture(seed = 31, vertical = false) {
+  return once('steel' + seed + vertical, () => {
+    const N = 256, r = rng(seed), [c, g] = cv(N);
+    paintNoise(g, N, [[176, 178, 180], [196, 198, 200], [214, 216, 218]], valueNoise(N, [2, 6], seed), 0, r);
+    for (let k = 0; k < 1400; k++) { const y = r() * N, v = r() < 0.5 ? 150 + r() * 30 : 225 + r() * 30; g.fillStyle = `rgba(${v},${v},${v + 3},${0.12 + r() * 0.2})`; g.fillRect(r() * N - 40, y, 30 + r() * 220, r() < 0.8 ? 0.6 : 1.2); }
+    for (let k = 0; k < 6; k++) { g.fillStyle = 'rgba(120,120,124,0.06)'; g.beginPath(); g.ellipse(r() * N, r() * N, 6 + r() * 10, 4 + r() * 8, 0, 0, 7); g.fill(); }   // a fingerprint smudge or two
+    if (vertical) { const [c2, g2] = cv(N); g2.translate(N, 0); g2.rotate(Math.PI / 2); g2.drawImage(c, 0, 0); return tex(c2); }
+    return tex(c);
+  });
+}
+// a fridge door (UV 0..1 on the door's face): brushed steel, the freezer split, a badge, an ice dispenser recess
+export function fridgeDoorTexture() {
+  return once('fridgeDoor', () => {
+    const W = 256, H = 512, r = rng(37), [c, g] = cv(W, H);
+    g.drawImage(brushedSteelTexture(31).image, 0, 0, W, H / 2); g.drawImage(brushedSteelTexture(31).image, 0, H / 2, W, H / 2);
+    const gy = H * 0.36;   // the split between the freezer (top) and the fridge (below)
+    g.fillStyle = 'rgba(20,20,22,0.9)'; g.fillRect(0, gy - 2, W, 5); g.fillStyle = 'rgba(255,255,255,0.4)'; g.fillRect(0, gy + 3, W, 1);
+    // the dispenser: a dark recess with a paddle, a little display over it
+    const dx = W * 0.3, dw = W * 0.4, dy = gy + 26, dh = 110;
+    g.fillStyle = '#2a2c30'; g.fillRect(dx, dy, dw, dh); g.fillStyle = '#16181a'; g.fillRect(dx + 8, dy + 30, dw - 16, dh - 40);
+    g.fillStyle = '#4a4e54'; g.fillRect(dx + dw / 2 - 10, dy + 34, 20, 40);
+    g.fillStyle = '#0e2a3a'; g.fillRect(dx + 10, dy + 6, dw - 20, 16); g.fillStyle = '#6ad0ff'; g.font = 'bold 11px Helvetica'; g.textAlign = 'center'; g.fillText('37°F   ICE', dx + dw / 2, dy + 18);
+    g.strokeStyle = 'rgba(255,255,255,0.25)'; g.lineWidth = 1; g.strokeRect(dx + 0.5, dy + 0.5, dw - 1, dh - 1);
+    g.fillStyle = 'rgba(40,40,44,0.75)'; g.font = 'bold 14px Helvetica'; g.fillText('FROSTLINE', W / 2, gy - 18);
+    // edge shading (rounded door edges), a soft reflection band
+    const ed = g.createLinearGradient(0, 0, W, 0); ed.addColorStop(0, 'rgba(0,0,0,0.25)'); ed.addColorStop(0.06, 'rgba(0,0,0,0)'); ed.addColorStop(0.94, 'rgba(0,0,0,0)'); ed.addColorStop(1, 'rgba(0,0,0,0.25)'); g.fillStyle = ed; g.fillRect(0, 0, W, H);
+    const rf = g.createLinearGradient(0, 0, W, H * 0.4); rf.addColorStop(0.3, 'rgba(255,255,255,0)'); rf.addColorStop(0.45, 'rgba(255,255,255,0.12)'); rf.addColorStop(0.6, 'rgba(255,255,255,0)'); g.fillStyle = rf; g.fillRect(0, 0, W, H);
+    return tex(c, { repeat: false });
+  });
+}
+// the appliance faces in one atlas (one material for all of them):
+//   [0, 0.5]x[0.5, 1]  microwave front     [0.5, 1]x[0.5, 1]  oven door window
+//   [0, 0.5]x[0.25, 0.5] stove backguard    [0.5, 1]x[0, 0.5]  a TV screen (dark glass with a sheen)
+//   [0, 0.5]x[0, 0.25]  dishwasher control strip
+export const APPL_UV = { micro: [0, 0.5, 0.5, 1], oven: [0.5, 0.5, 1, 1], panel: [0, 0.25, 0.5, 0.5], tv: [0.5, 0, 1, 0.5], dish: [0, 0, 0.5, 0.25] };
+export function applianceAtlas() {
+  return once('applAtlas', () => {
+    const W = 1024, H = 512, r = rng(41), [c, g] = cv(W, H);
+    const steel = brushedSteelTexture(31).image;
+    // microwave (0,0)-(512,256): a glass door with the perforated screen, a handle edge, the keypad and clock
+    g.fillStyle = '#d8dadc'; g.drawImage(steel, 0, 0, 512, 256);
+    g.fillStyle = '#121416'; g.fillRect(14, 16, 340, 224);
+    g.fillStyle = '#1e2226'; g.fillRect(34, 34, 300, 188);
+    g.fillStyle = 'rgba(80,90,96,0.5)'; for (let y = 38; y < 220; y += 5) for (let x = 38; x < 332; x += 5) g.fillRect(x, y, 2, 2);   // the mesh in the glass
+    const sh = g.createLinearGradient(14, 16, 300, 240); sh.addColorStop(0, 'rgba(255,255,255,0.12)'); sh.addColorStop(0.35, 'rgba(255,255,255,0.02)'); sh.addColorStop(0.5, 'rgba(255,255,255,0.1)'); sh.addColorStop(0.55, 'rgba(255,255,255,0)'); g.fillStyle = sh; g.fillRect(14, 16, 340, 224);
+    g.fillStyle = '#9a9ea2'; g.fillRect(354, 16, 10, 224);   // the door edge / pull
+    g.fillStyle = '#1a1c1e'; g.fillRect(378, 20, 120, 216);   // control panel
+    g.fillStyle = '#082a12'; g.fillRect(388, 30, 100, 34); g.fillStyle = '#5aff8a'; g.font = 'bold 26px Courier New, monospace'; g.textAlign = 'center'; g.fillText('12:00', 438, 57);
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '+30', '0', 'STOP'];
+    g.font = 'bold 12px Helvetica';
+    keys.forEach((k, i) => { const x = 392 + (i % 3) * 32, y = 78 + Math.floor(i / 3) * 30; g.fillStyle = '#34383c'; g.fillRect(x, y, 28, 24); g.fillStyle = '#d8dcdf'; g.fillText(k, x + 14, y + 16); });
+    g.fillStyle = '#2a7a3a'; g.fillRect(392, 200, 92, 26); g.fillStyle = '#fff'; g.font = 'bold 14px Helvetica'; g.fillText('START', 438, 218);
+    // oven door window (512,0)-(1024,256): a steel frame, a dark glass window with the rack inside, a reflection
+    g.drawImage(steel, 512, 0, 512, 256);
+    g.fillStyle = '#0c0d0e'; g.fillRect(560, 40, 416, 176); g.fillStyle = '#1a1612'; g.fillRect(572, 52, 392, 152);
+    g.strokeStyle = 'rgba(120,110,100,0.35)'; g.lineWidth = 2; for (let x = 580; x < 960; x += 14) { g.beginPath(); g.moveTo(x, 140); g.lineTo(x + 6, 190); g.stroke(); } g.beginPath(); g.moveTo(572, 140); g.lineTo(964, 140); g.stroke();
+    const ov = g.createLinearGradient(560, 40, 900, 216); ov.addColorStop(0, 'rgba(255,255,255,0.14)'); ov.addColorStop(0.3, 'rgba(255,255,255,0.03)'); ov.addColorStop(0.42, 'rgba(255,255,255,0.12)'); ov.addColorStop(0.48, 'rgba(255,255,255,0)'); g.fillStyle = ov; g.fillRect(560, 40, 416, 176);
+    g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 3; g.strokeRect(560, 40, 416, 176);
+    // stove backguard (0,256)-(512,384): knob dials printed round where the knobs sit, a clock in the middle
+    g.drawImage(steel, 0, 256, 512, 128); g.fillStyle = 'rgba(0,0,0,0.08)'; g.fillRect(0, 256, 512, 128);
+    g.fillStyle = '#0a0a0a'; g.fillRect(196, 286, 120, 50); g.fillStyle = '#ff6a2a'; g.font = 'bold 30px Courier New, monospace'; g.fillText('10:30', 256, 322);
+    g.fillStyle = '#2a2c2e'; g.font = 'bold 10px Helvetica';
+    for (const kx of [56, 132, 380, 456]) { g.strokeStyle = 'rgba(30,30,30,0.6)'; g.lineWidth = 2; g.beginPath(); g.arc(kx, 322, 30, Math.PI * 0.75, Math.PI * 2.25); g.stroke(); for (const [a, t] of [[0.75, 'OFF'], [1.25, 'LO'], [1.75, 'MED'], [2.2, 'HI']]) g.fillText(t, kx + Math.cos(a * Math.PI) * 42, 326 + Math.sin(a * Math.PI) * 42); }
+    // TV screen (512,256)-(1024,512): dark glass, a faint diagonal sheen and the odd dust speck
+    const tv = g.createLinearGradient(512, 256, 1024, 512); tv.addColorStop(0, '#16181c'); tv.addColorStop(0.4, '#0a0b0d'); tv.addColorStop(0.62, '#1c1f24'); tv.addColorStop(0.66, '#0a0b0d'); tv.addColorStop(1, '#060708'); g.fillStyle = tv; g.fillRect(512, 256, 512, 256);
+    for (let k = 0; k < 120; k++) { g.fillStyle = `rgba(255,255,255,${0.03 + r() * 0.05})`; g.fillRect(512 + r() * 512, 256 + r() * 256, 1, 1); }
+    g.fillStyle = 'rgba(200,210,220,0.35)'; g.font = 'bold 14px Helvetica'; g.fillText('VISTA', 768, 504);
+    // dishwasher control strip (0,384)-(512,512)
+    g.drawImage(steel, 0, 384, 512, 128); g.fillStyle = '#1c1e20'; g.fillRect(30, 410, 300, 30);
+    g.fillStyle = '#5ad0ff'; g.font = 'bold 13px Helvetica'; ['NORMAL', 'HEAVY', 'QUICK', 'RINSE'].forEach((t, i) => g.fillText(t, 70 + i * 74, 430));
+    g.fillStyle = '#3a3e42'; g.fillRect(360, 412, 120, 26); g.fillStyle = '#fff'; g.fillText('START', 420, 430);
+    g.fillStyle = '#5a5e62'; g.fillRect(30, 470, 452, 14);   // the handle recess
+    return tex(c, { repeat: false });
+  });
+}
+// tiles on a wall: 'subway' (7.5 x 15 cm bevelled, running bond), 'square' (10 cm), bathroom 'mosaic' accent band.
+// One tile of texture = 0.6 m.
+export function wallTileTexture(kind = 'subway', col = [236, 236, 230], seed = 51) {
+  return once('wt' + kind + col + seed, () => {
+    const N = 256, r = rng(seed), [c, g] = cv(N), hh = new Float32Array(N * N);
+    g.fillStyle = '#b8b4aa'; g.fillRect(0, 0, N, N);   // grout
+    const rows = kind === 'subway' ? 8 : 6, cols = kind === 'subway' ? 4 : 6, th = N / rows, tw = N / cols, gw = 2;
+    for (let j = 0; j < rows; j++) for (let i = -1; i <= cols; i++) {
+      const x = i * tw + (kind === 'subway' && j % 2 ? tw / 2 : 0), y = j * th, v = 0.95 + r() * 0.07;
+      const x0 = x + gw / 2, y0 = y + gw / 2, w = tw - gw, h = th - gw;
+      const gr = g.createLinearGradient(0, y0, 0, y0 + h); gr.addColorStop(0, rgb(col, v * 1.04)); gr.addColorStop(0.5, rgb(col, v)); gr.addColorStop(1, rgb(col, v * 0.93));
+      g.fillStyle = gr; g.fillRect(x0, y0, w, h);
+      g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(x0, y0, w, 1.2); g.fillRect(x0, y0, 1.2, h);   // the bevel catching light
+      g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(x0, y0 + h - 1.2, w, 1.2); g.fillRect(x0 + w - 1.2, y0, 1.2, h);
+      for (let yy = Math.max(0, y0 | 0); yy < Math.min(N, y0 + h); yy++) for (let xx = Math.max(0, x0 | 0); xx < Math.min(N, x0 + w); xx++) { const ex = Math.min(xx - x0, x0 + w - xx, yy - y0, y0 + h - yy); hh[yy * N + xx] = Math.min(1, ex / 3); }
+    }
+    for (let k = 0; k < 40; k++) { g.fillStyle = `rgba(255,255,255,${0.05 + r() * 0.08})`; g.beginPath(); g.ellipse(r() * N, r() * N, 2 + r() * 6, 1 + r() * 2, r(), 0, 7); g.fill(); }   // glaze highlights
+    return withNormal(tex(c), hh, 2.5, N, N);
+  });
+}
+// upholstery: a real woven cloth (a twill or a chunky basket weave), clean, with a little pile variation.
+// UV 0..1 over each cushion face, so the weave is drawn fine.
+export function upholsteryTexture(col = [96, 104, 120], seed = 11) {
+  return once('uph' + col + seed, () => {
+    const N = 256, r = rng(seed), [c, g] = cv(N);
+    paintNoise(g, N, [col.map(x => x * 0.9), col, col.map(x => Math.min(255, x * 1.08))], valueNoise(N, [4, 16], seed), 10, r);
+    const basket = seed % 2 === 0, img = g.getImageData(0, 0, N, N), d = img.data;
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      let f;
+      if (basket) { const ci = (i >> 2) & 1, cj = (j >> 2) & 1, warp = ci ^ cj, u = warp ? (i & 3) / 3 : (j & 3) / 3; f = 0.86 + Math.sin(u * Math.PI) * 0.2 + (warp ? 0.03 : -0.03); }
+      else { const t = ((i + j) % 6) / 6, u = (i % 3) / 2; f = 0.88 + Math.sin(t * Math.PI) * 0.12 + (u - 0.5) * 0.04; }   // twill: diagonal ribs
+      const k = (j * N + i) * 4; d[k] *= f; d[k + 1] *= f; d[k + 2] *= f;
+    }
+    g.putImageData(img, 0, 0);
+    for (let k = 0; k < 500; k++) { g.fillStyle = `rgba(${r() < 0.5 ? '255,255,255' : '0,0,0'},0.04)`; g.fillRect(r() * N, r() * N, 1 + r() * 3, 1); }   // slubs
+    return withNormal(tex(c), c, 1.4);
+  });
+}
+// bedding: 'mattress' (white damask with diamond quilting and tufts), 'pillow' (cotton with a flanged seam),
+// 'quilt0..2' (a patchwork / a plaid / a striped duvet), 'knit' (a cable-knit throw)
+export function beddingTexture(kind = 'mattress', seed = 61) {
+  return once('bed' + kind + seed, () => {
+    const N = 256, r = rng(seed), [c, g] = cv(N);
+    if (kind === 'mattress') {
+      g.fillStyle = '#ece8e0'; g.fillRect(0, 0, N, N);
+      for (let k = 0; k < 400; k++) { g.fillStyle = 'rgba(200,192,176,0.25)'; g.beginPath(); g.arc(r() * N, r() * N, 2 + r() * 4, 0, 7); g.fill(); }   // a faint damask
+      const s = N / 6;
+      for (let q = -6; q <= 12; q++) { for (const sg of [1, -1]) { g.strokeStyle = 'rgba(120,110,96,0.45)'; g.lineWidth = 1.4; g.setLineDash([3, 2]); g.beginPath(); g.moveTo(q * s, sg > 0 ? 0 : N); g.lineTo(q * s + N, sg > 0 ? N : 0); g.stroke(); } }
+      g.setLineDash([]);
+      for (let j = 0; j <= 6; j++) for (let i = 0; i <= 6; i++) { const x = i * s + (j % 2 ? s / 2 : 0), y = j * s / 1 - s / 2 + s / 2; const gr = g.createRadialGradient(x, y, 0, x, y, 9); gr.addColorStop(0, 'rgba(90,80,70,0.45)'); gr.addColorStop(1, 'rgba(90,80,70,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, 9, 0, 7); g.fill(); }
+      g.fillStyle = '#7a8aa8'; g.fillRect(0, 0, N, 4); g.fillRect(0, N - 4, N, 4);   // the piped edge
+      return withNormal(tex(c), c, 1.6);
+    }
+    if (kind === 'pillow') {
+      g.fillStyle = '#f2efe8'; g.fillRect(0, 0, N, N);
+      for (let k = 0; k < 18; k++) { const y = r() * N; g.strokeStyle = 'rgba(160,150,140,0.12)'; g.lineWidth = 2 + r() * 4; g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(N / 3, y + (r() - 0.5) * 40, N * 2 / 3, y + (r() - 0.5) * 40, N, y + (r() - 0.5) * 20); g.stroke(); }   // creases
+      g.strokeStyle = 'rgba(150,140,128,0.5)'; g.lineWidth = 1.2; g.setLineDash([4, 3]); g.strokeRect(18, 18, N - 36, N - 36); g.setLineDash([]);
+      return withNormal(tex(c), c, 1.0);
+    }
+    if (kind === 'knit') {
+      g.fillStyle = '#c8b89a'; g.fillRect(0, 0, N, N);
+      for (let x = 0; x < N; x += 16) for (let y = 0; y < N; y += 10) { for (const sd of [-1, 1]) { g.fillStyle = 'rgba(255,255,255,0.18)'; g.beginPath(); g.ellipse(x + 8 + sd * 3.5, y + 5, 3, 5, sd * 0.5, 0, 7); g.fill(); g.strokeStyle = 'rgba(80,60,40,0.25)'; g.lineWidth = 1; g.stroke(); } }
+      return withNormal(tex(c), c, 2);
+    }
+    const v = +kind.slice(5) || 0;
+    if (v === 0) {   // patchwork: squares of small florals and ginghams, stitched
+      const P = [['#8a3a3a', '#e8d8c0'], ['#3a5a7a', '#e8e4d8'], ['#6a7a4a', '#f0e8d0'], ['#c8a050', '#f4ecd8'], ['#7a4a6a', '#f0e0e8'], ['#e8e0d0', '#9a6a4a']];
+      const s = N / 4;
+      for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
+        const [a, b] = P[Math.floor(r() * P.length)], x = i * s, y = j * s; g.fillStyle = a; g.fillRect(x, y, s, s);
+        if (r() < 0.5) { g.fillStyle = b; g.globalAlpha = 0.45; for (let q = 0; q < s; q += 8) { g.fillRect(x + q, y, 4, s); g.fillRect(x, y + q, s, 4); } g.globalAlpha = 1; }
+        else { g.fillStyle = b; for (let q = 0; q < 14; q++) { const fx = x + 6 + r() * (s - 12), fy = y + 6 + r() * (s - 12); for (let p = 0; p < 5; p++) { g.beginPath(); g.arc(fx + Math.cos(p * 1.26) * 2.5, fy + Math.sin(p * 1.26) * 2.5, 1.8, 0, 7); g.fill(); } } }
+        g.strokeStyle = 'rgba(255,250,235,0.6)'; g.setLineDash([3, 2]); g.lineWidth = 1; g.strokeRect(x + 3, y + 3, s - 6, s - 6); g.setLineDash([]);
+      }
+    } else if (v === 1) {   // a tartan plaid
+      g.fillStyle = '#2a3a5a'; g.fillRect(0, 0, N, N);
+      for (const [o, w, col] of [[0, 40, 'rgba(30,80,50,0.7)'], [64, 12, 'rgba(160,30,30,0.75)'], [128, 40, 'rgba(30,80,50,0.7)'], [192, 12, 'rgba(230,200,90,0.6)'], [100, 4, 'rgba(255,255,255,0.4)']]) { g.fillStyle = col; g.fillRect(o, 0, w, N); g.fillRect(0, o, N, w); }
+      for (let y = 0; y < N; y += 2) { g.fillStyle = 'rgba(0,0,0,0.06)'; g.fillRect(0, y, N, 1); }
+    } else {   // a soft striped duvet cover with a top band
+      g.fillStyle = '#e4e0d6'; g.fillRect(0, 0, N, N);
+      for (let x = 0; x < N; x += 32) { g.fillStyle = 'rgba(90,120,150,0.55)'; g.fillRect(x + 4, 0, 10, N); g.fillStyle = 'rgba(90,120,150,0.25)'; g.fillRect(x + 18, 0, 3, N); }
+    }
+    for (let k = 0; k < 12; k++) { const y = r() * N; g.strokeStyle = 'rgba(0,0,0,0.06)'; g.lineWidth = 3 + r() * 6; g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(N / 3, y + (r() - 0.5) * 50, N * 2 / 3, y + (r() - 0.5) * 50, N, y); g.stroke(); }   // soft folds
+    return withNormal(tex(c), c, 1.2);
+  });
+}
+// a rug, the whole design on one texture (UV 0..1): 'persian' (borders, a medallion, a field of motifs), 'modern'
+// (bold geometric blocks), 'bath' (a soft looped bath mat), 'runner' (a striped kilim)
+export function rugTexture(kind = 'persian', seed = 71) {
+  return once('rug' + kind + seed, () => {
+    const W = 512, H = kind === 'bath' ? 256 : 512, r = rng(seed), [c, g] = cv(W, H);
+    const pile = () => { const id = g.getImageData(0, 0, W, H), d = id.data; for (let i = 0; i < W * H; i++) { const f = 0.88 + r() * 0.2; d[i * 4] *= f; d[i * 4 + 1] *= f; d[i * 4 + 2] *= f; } g.putImageData(id, 0, 0); };
+    if (kind === 'persian') {
+      const red = '#7a1e1a', navy = '#1e2a4a', cream = '#e8d8b0', gold = '#c08a3a';
+      g.fillStyle = red; g.fillRect(0, 0, W, H);
+      const band = (m, w, col) => { g.strokeStyle = col; g.lineWidth = w; g.strokeRect(m + w / 2, m + w / 2, W - 2 * m - w, H - 2 * m - w); };
+      band(6, 26, navy); band(10, 3, gold); band(28, 3, gold);
+      for (let k = 0; k < 24; k++) for (const [x, y] of [[20 + k * 20, 19], [20 + k * 20, H - 19], [19, 20 + k * 20], [W - 19, 20 + k * 20]]) { g.fillStyle = cream; g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x + 5, y); g.lineTo(x, y + 5); g.lineTo(x - 5, y); g.fill(); g.fillStyle = red; g.fillRect(x - 1.5, y - 1.5, 3, 3); }
+      band(40, 6, cream); band(52, 3, navy);
+      g.save(); g.translate(W / 2, H / 2);   // the medallion
+      for (const [s, col] of [[150, navy], [128, gold], [112, cream], [90, red], [60, navy], [36, gold], [18, cream]]) { g.fillStyle = col; g.beginPath(); for (let a = 0; a < 16; a++) { const rr = a % 2 ? s : s * 0.78, an = a / 16 * Math.PI * 2; a ? g.lineTo(Math.cos(an) * rr, Math.sin(an) * rr * 0.8) : g.moveTo(rr, 0); } g.closePath(); g.fill(); }
+      g.restore();
+      for (const [x, y] of [[0, 0], [W, 0], [0, H], [W, H]]) { g.fillStyle = navy; g.beginPath(); g.arc(x, y, 150, 0, 7); g.fill(); g.fillStyle = 'rgba(0,0,0,0)'; }
+      band(6, 26, navy); band(10, 3, gold); band(28, 3, gold); band(40, 6, cream);
+      for (let k = 0; k < 60; k++) { const x = 70 + r() * (W - 140), y = 70 + r() * (H - 140); if (Math.hypot(x - W / 2, (y - H / 2) / 0.8) < 165) continue; g.fillStyle = r() < 0.5 ? gold : cream; g.globalAlpha = 0.7; g.beginPath(); for (let p = 0; p < 4; p++) { g.ellipse(x + Math.cos(p * 1.57) * 5, y + Math.sin(p * 1.57) * 5, 4, 2, p * 1.57, 0, 7); } g.fill(); g.globalAlpha = 1; }
+      for (let x = 0; x < W; x += 5) { g.fillStyle = '#efe6d0'; g.fillRect(x, 0, 2, 4); g.fillRect(x, H - 4, 2, 4); }   // fringe
+    } else if (kind === 'modern') {
+      g.fillStyle = '#d8d0c0'; g.fillRect(0, 0, W, H);
+      const cols = ['#2a4a6a', '#c8823a', '#5a6a5a', '#e8e0d0', '#8a3a2a'];
+      for (let k = 0; k < 9; k++) { g.fillStyle = cols[k % cols.length]; g.globalAlpha = 0.85; const x = r() * W, y = r() * H, w = 60 + r() * 200, h = 40 + r() * 160; g.fillRect(x - w / 2, y - h / 2, w, h); }
+      g.globalAlpha = 1; g.strokeStyle = '#2a2a2a'; g.lineWidth = 3; for (let k = 0; k < 6; k++) { g.beginPath(); g.moveTo(r() * W, 0); g.lineTo(r() * W, H); g.stroke(); }
+      g.strokeStyle = '#3a3a3a'; g.lineWidth = 16; g.strokeRect(8, 8, W - 16, H - 16);
+    } else if (kind === 'runner') {
+      g.fillStyle = '#a84a2a'; g.fillRect(0, 0, W, H);
+      for (let y = 0; y < H; y += 32) { g.fillStyle = ['#e8d8b0', '#2a3a5a', '#d8a040', '#5a2a1a'][(y / 32) % 4]; g.fillRect(0, y, W, 10); for (let x = 0; x < W; x += 24) { g.beginPath(); g.moveTo(x, y + 10); g.lineTo(x + 12, y + 24); g.lineTo(x + 24, y + 10); g.fill(); } }
+    } else {   // bath mat: soft loops, a darker border
+      g.fillStyle = '#7a9ab0'; g.fillRect(0, 0, W, H);
+      for (let k = 0; k < 9000; k++) { g.fillStyle = `rgba(${r() < 0.5 ? '255,255,255' : '20,40,60'},0.12)`; g.beginPath(); g.arc(r() * W, r() * H, 1.5 + r() * 2, 0, 7); g.fill(); }
+      g.strokeStyle = 'rgba(30,50,70,0.5)'; g.lineWidth = 14; g.strokeRect(14, 14, W - 28, H - 28);
+    }
+    pile();
+    return withNormal(tex(c, { repeat: false }), c, 1.4);
+  });
+}
+// book spines in one atlas (512 x 512): 8 spines with titles in the top half; under each its cover cloth (rows
+// 256..384) and its page edges (384..512) — a book is one box UV-mapped onto its own column.
+const TITLES = ['WAR & PEACE', 'MOBY DICK', 'BIRDS OF OHIO', 'THE ATLAS', 'GARDENING', 'DUNE', 'FIRST AID', 'COOKING 101', 'EMMA', 'MAPLE HOLLOW', 'POEMS', 'THE ODYSSEY'];
+export function bookAtlasTexture() {
+  return once('bookAtlas', () => {
+    const N = 512, [c, g] = cv(N), r = rng(77);
+    for (let i = 0; i < 8; i++) {
+      const x = i * 64, base = BOOK_COLS[(i * 3) % BOOK_COLS.length].map(v => v * (0.85 + r() * 0.25)), col = rgb(base);
+      g.fillStyle = col; g.fillRect(x, 0, 64, 384);
+      const sh = g.createLinearGradient(x, 0, x + 64, 0); sh.addColorStop(0, 'rgba(0,0,0,0.32)'); sh.addColorStop(0.35, 'rgba(255,255,255,0.08)'); sh.addColorStop(1, 'rgba(0,0,0,0.32)'); g.fillStyle = sh; g.fillRect(x, 0, 64, 256);
+      const gold = r() < 0.6, ink = gold ? '#d8b060' : (base[0] + base[1] + base[2] > 380 ? '#1a1612' : '#efe6d0');
+      g.fillStyle = gold ? 'rgba(210,170,90,0.9)' : 'rgba(20,16,12,0.7)';
+      for (const y of [18, 230]) { g.fillRect(x + 4, y, 56, 4); g.fillRect(x + 4, y + 7, 56, 1.5); }
+      g.save(); g.translate(x + 32, 128); g.rotate(Math.PI / 2); g.fillStyle = ink; g.textAlign = 'center'; g.textBaseline = 'middle';
+      fitText(g, TITLES[(i * 5 + 3) % TITLES.length], 0, -6, 'bold 22px Georgia', 180, 30);
+      g.font = '12px Georgia'; g.globalAlpha = 0.85; fitText(g, ['A. SMITH', 'J. DOE', 'M. TWAIN', 'L. ROSE'][i % 4], 0, 16, '12px Georgia', 150, 14); g.restore(); g.globalAlpha = 1;
+      grime(g, N, N, 90 + i, 0.06, 0);
+      // its cover (a touch darker, a blind-stamped border) and its pages
+      g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 2; g.strokeRect(x + 6, 262, 52, 116);
+      g.fillStyle = '#e6dcc4'; g.fillRect(x, 384, 64, 128); for (let y = 386; y < 512; y += 2) { g.fillStyle = `rgba(120,100,70,${0.1 + r() * 0.12})`; g.fillRect(x, y, 64, 1); }
+    }
+    return tex(c, { repeat: false });
+  });
+}
+// a cardboard box side: kraft board with the flute showing faintly, packing tape, a printed label or a marker scrawl
+export function cardboardTexture(seed = 81, label = '') {
+  return once('card' + seed + label, () => {
+    const N = 256, r = rng(seed), [c, g] = cv(N);
+    paintNoise(g, N, [[150, 112, 70], [172, 132, 86], [186, 146, 98]], valueNoise(N, [4, 16, 64], seed), 10, r);
+    for (let x = 0; x < N; x += 5) { g.fillStyle = 'rgba(0,0,0,0.035)'; g.fillRect(x, 0, 2, N); }
+    g.fillStyle = 'rgba(200,170,110,0.55)'; g.fillRect(N * 0.4, 0, N * 0.2, N); g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(N * 0.4, 0, 2, N);   // tape down the middle
+    if (label) { g.save(); g.translate(N * 0.5, N * 0.62); g.rotate((r() - 0.5) * 0.15); g.fillStyle = 'rgba(25,20,30,0.85)'; g.textAlign = 'center'; fitText(g, label, 0, 0, 'bold 44px Marker Felt, Comic Sans MS, sans-serif', N * 0.85, 50); g.restore(); }
+    else { g.fillStyle = 'rgba(30,30,30,0.7)'; g.font = 'bold 18px Helvetica'; g.textAlign = 'center'; g.fillText('THIS SIDE UP', N / 2, N * 0.2); g.beginPath(); g.moveTo(N / 2 - 30, N * 0.3); g.lineTo(N / 2 - 22, N * 0.24); g.lineTo(N / 2 - 14, N * 0.3); g.fill(); }
+    grime(g, N, N, seed + 1, 0.2, 0);
+    return tex(c);
+  });
+}

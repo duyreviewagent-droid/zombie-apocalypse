@@ -75,7 +75,7 @@ const CSS = `
 #zvHud.live .mic { border-right-color: #9be07a; } #zvHud.live .mic svg { color: #9be07a; }
 #zvHud.radio .mic { border-right-color: #e8b04a; } #zvHud.radio .mic svg { color: #e8b04a; }
 #zvHud.muted .mic svg { color: #ff8a7a; }
-#zvHud .who { display: flex; align-items: center; gap: 6px; padding: 3px 9px; background: rgba(8,8,7,.55); text-shadow: 0 1px 2px #000; }
+#zvHud .who { display: flex; align-items: center; gap: 6px; max-width: min(240px, 40vw); overflow-wrap: break-word; padding: 3px 9px; background: rgba(8,8,7,.55); text-shadow: 0 1px 2px #000; }
 #zvHud .who svg { width: 12px; height: 12px; color: #9be07a; } #zvHud .who.r svg { color: #e8b04a; }
 #zvPanel { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); font: 400 14px/1.4 Oswald, 'Helvetica Neue', Arial, sans-serif; color: #e9e4d8; }
 #zvPanel.show { display: flex; }
@@ -92,7 +92,7 @@ const CSS = `
 #zvPanel .meter { flex: 1; height: 8px; background: #24221e; position: relative; min-width: 100px; } #zvPanel .meter i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #9be07a; }
 #zvPanel .err { color: #ff8a7a; font-size: 13px; margin: 6px 0; } #zvPanel .note { color: #8d877b; font-size: 12px; }
 #zvPanel .key { min-width: 86px; }
-#zvPanel .pl { display: flex; align-items: center; gap: 8px; margin: 6px 0; } #zvPanel .pl b { width: 110px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#zvPanel .pl { display: flex; align-items: center; gap: 8px; margin: 6px 0; } #zvPanel .pl b { flex: 1 1 110px; min-width: 0; font-weight: 500; overflow-wrap: break-word; line-height: 1.2; }
 #zvPanel .pl .spk { width: 8px; height: 8px; border-radius: 50%; background: #3a362f; flex: none; } #zvPanel .pl .spk.on { background: #9be07a; }
 #zvPanel .close { margin-top: 16px; width: 100%; }
 `;

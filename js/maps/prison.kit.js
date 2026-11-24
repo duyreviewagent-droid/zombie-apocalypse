@@ -5,6 +5,7 @@
 // washers, workbenches, weight benches). Everything goes through the map kit K (merged K.box / K.xadd, instanced
 // K.inst) so the whole prison stays a few hundred draw calls.
 import * as THREE from 'three';
+import { decor, P2, XCELLS } from './decor.js';
 
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export function rng(seed) { let a = seed >>> 0 || 1; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -208,7 +209,9 @@ export function prisonMats(K) {
   add('pTread', std({ map: treadTex(), roughness: 0.4, metalness: 0.75, ...relief(nTread, 1.0) }), 1.2);
   add('pCourt', std({ map: courtTex(), roughness: 0.8 }), 4);
   add('pBars', std({ color: 0x5a646c, roughness: 0.45, metalness: 0.7 }), 1);
-  add('pSteel', std({ color: 0xc4c8cc, roughness: 0.28, metalness: 0.85 }), 1);
+  add('pSteel', std({ map: cv(256, 256, (g, w, h) => P2.brushed(g, 0, 0, w, h, rng(21), [196, 200, 204])), roughness: 0.3, metalness: 0.7 }), 1.2);   // brushed stainless (mess tables, toilets, counters)
+  add('pSheet', std({ map: cv(128, 128, (g, w, h) => { g.fillStyle = '#eef0ee'; g.fillRect(0, 0, w, h); const r = rng(22); for (let y = 0; y < h; y += 2) { g.fillStyle = `rgba(0,0,0,${0.02 + r() * 0.03})`; g.fillRect(0, y, w, 1); } g.fillStyle = '#7aa0c8'; g.fillRect(0, 18, w, 5); g.fillRect(0, 26, w, 2); speck(g, w, h, 300, ['rgba(120,130,150,0.12)'], r, 2); }), roughness: 0.95 }), 1.0);   // hospital sheets: a blue stripe
+  add('pPaintDoor', std({ map: cv(128, 128, (g, w, h) => { g.fillStyle = '#5a6670'; g.fillRect(0, 0, w, h); speck(g, w, h, 900, ['rgba(0,0,0,0.12)', 'rgba(255,255,255,0.08)'], rng(23), 2); }), roughness: 0.55, metalness: 0.3 }), 1);
   add('pRail', std({ color: 0xc8a030, roughness: 0.5, metalness: 0.4 }), 1);                // safety-yellow rails
   add('pMat', std({ map: vinylTex([44, 70, 120], 11), roughness: 0.5 }), 1);                // blue vinyl mattress
   add('pWool', std({ map: woolTex([110, 108, 100], 12), roughness: 1 }), 1);                // grey blanket
@@ -307,14 +310,108 @@ export function bunk(K, x, y, z, yaw, two = true, mess = 0) {
   }
   return P;
 }
+// ---------------------------------------------------------------- the designed fronts (decor.js atlases)
+// The prison's own atlas: laundry machines, vending machines, the Control console, stocked shelves, the tool wall,
+// a tool chest, an eye chart, the gym poster. One material for all of them (merged per chunk).
+const S = P2;
+const PCELLS = [
+  ['steel', (g, w, h, r) => S.brushed(g, 0, 0, w, h, r), { rough: 0.32, metal: 0.7 }],
+  ['grey', (g, w, h, r) => { g.fillStyle = '#7a848c'; g.fillRect(0, 0, w, h); S.speck(g, 0, 0, w, h, 900, ['rgba(0,0,0,0.12)', 'rgba(255,255,255,0.08)'], r, 2); }, { rough: 0.5, metal: 0.4 }],
+  // an industrial front-loader: control panel with dials and a coin slot, a porthole (the drum's in 3-D)
+  ['washer', (g, w, h, r) => {
+    S.brushed(g, 0, 0, w, h, r); g.fillStyle = '#20262c'; g.fillRect(0, 0, w, h * 0.18); S.bevel(g, 0, 0, w, h * 0.18, 2, 0.3);
+    S.knob(g, w * 0.18, h * 0.09, h * 0.05); S.knob(g, w * 0.36, h * 0.09, h * 0.05);
+    g.fillStyle = '#081008'; g.fillRect(w * 0.52, h * 0.05, w * 0.2, h * 0.08); S.text(g, '34:00', w * 0.62, h * 0.09, h * 0.05, '#5aff7a', 'center', 'bold', 'monospace');
+    g.fillStyle = '#c0a040'; g.fillRect(w * 0.8, h * 0.04, w * 0.1, h * 0.1); g.fillStyle = '#111'; g.fillRect(w * 0.84, h * 0.06, w * 0.02, h * 0.06);
+    g.fillStyle = '#3a3e42'; g.beginPath(); g.arc(w / 2, h * 0.53, w * 0.33, 0, 7); g.fill(); g.fillStyle = '#c8ccd0'; g.beginPath(); g.arc(w / 2, h * 0.53, w * 0.3, 0, 7); g.fill();
+    g.fillStyle = '#1a1c1e'; g.beginPath(); g.arc(w / 2, h * 0.53, w * 0.25, 0, 7); g.fill();
+    g.fillStyle = 'rgba(200,220,240,0.25)'; g.beginPath(); g.arc(w / 2 - w * 0.06, h * 0.49, w * 0.12, 0, 7); g.fill();
+    g.fillStyle = '#e8e4d8'; g.fillRect(w * 0.3, h * 0.9, w * 0.4, h * 0.05); S.text(g, 'HEAVY DUTY 40 LB', w * 0.5, h * 0.925, h * 0.03, '#333');
+  }, { rough: 0.3, metal: 0.65 }],
+  ['dryer', (g, w, h, r) => {
+    g.fillStyle = '#d8d6ce'; g.fillRect(0, 0, w, h); S.bevel(g, 0, 0, w, h, 3, 0.25);
+    g.fillStyle = '#2a2e34'; g.fillRect(0, 0, w, h * 0.16); g.fillStyle = '#e04020'; g.fillRect(w * 0.1, h * 0.05, w * 0.08, h * 0.06); S.text(g, 'HIGH · MED · LOW · AIR', w * 0.58, h * 0.08, h * 0.04, '#e8e8e8', 'center', 'bold', undefined, w * 0.7);
+    g.fillStyle = '#4a4e52'; g.beginPath(); g.arc(w / 2, h * 0.52, w * 0.34, 0, 7); g.fill(); g.fillStyle = '#111214'; g.beginPath(); g.arc(w / 2, h * 0.52, w * 0.28, 0, 7); g.fill();
+    g.fillStyle = 'rgba(255,140,60,0.25)'; g.beginPath(); g.arc(w / 2, h * 0.56, w * 0.2, 0, 7); g.fill();
+    for (let x = w * 0.15; x < w * 0.85; x += 10) { g.fillStyle = '#5a5e62'; g.fillRect(x, h * 0.9, 6, h * 0.06); }
+  }, { rough: 0.4, metal: 0.2 }],
+  // vending machines (lit): sodas behind glass, snacks in spiral rows
+  ['soda', (g, w, h, r) => {
+    g.fillStyle = '#b8161a'; g.fillRect(0, 0, w, h);
+    S.glass(g, w * 0.06, h * 0.05, w * 0.6, h * 0.7, [230, 236, 240], 1);
+    const cols = ['#d8201a', '#1a4ad8', '#20a040', '#f0c020', '#f08020', '#e8e8e8'];
+    for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) { g.fillStyle = cols[(i + j) % cols.length]; g.fillRect(w * (0.09 + i * 0.093), h * (0.08 + j * 0.11), w * 0.07, h * 0.08); g.fillStyle = 'rgba(255,255,255,0.6)'; g.fillRect(w * (0.09 + i * 0.093), h * (0.1 + j * 0.11), w * 0.07, h * 0.015); }
+    g.fillStyle = '#1a1a1a'; g.fillRect(w * 0.72, h * 0.08, w * 0.22, h * 0.12); S.text(g, '$1.25', w * 0.83, h * 0.14, h * 0.05, '#ff4030', 'center', 'bold', 'monospace');
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 2; i++) { g.fillStyle = '#e0e0e0'; g.fillRect(w * (0.74 + i * 0.1), h * (0.26 + j * 0.07), w * 0.08, h * 0.05); }
+    g.fillStyle = '#111'; g.fillRect(w * 0.1, h * 0.8, w * 0.52, h * 0.12); S.text(g, 'PUSH', w * 0.36, h * 0.86, h * 0.05, '#888');
+    S.text(g, 'COLD DRINKS', w * 0.83, h * 0.6, h * 0.045, '#fff', 'center', 'bold', undefined, w * 0.22);
+  }, { rough: 0.25, metal: 0.2, glow: 0.6 }],
+  ['snack', (g, w, h, r) => {
+    g.fillStyle = '#1e3a6a'; g.fillRect(0, 0, w, h);
+    S.glass(g, w * 0.05, h * 0.04, w * 0.66, h * 0.78, [228, 232, 236], 1);
+    const cols = ['#e8b020', '#d02a20', '#2a8a30', '#e85a10', '#7a3ac0', '#f0e8c0', '#3a6ad8'];
+    for (let j = 0; j < 6; j++) { g.fillStyle = '#9aa0a6'; g.fillRect(w * 0.06, h * (0.16 + j * 0.12), w * 0.64, 2); for (let i = 0; i < 5; i++) { g.fillStyle = cols[(r() * cols.length) | 0]; g.fillRect(w * (0.08 + i * 0.125), h * (0.07 + j * 0.12), w * 0.1, h * 0.085); g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(w * (0.09 + i * 0.125), h * (0.09 + j * 0.12), w * 0.06, h * 0.02); } }
+    g.fillStyle = '#111'; g.fillRect(w * 0.76, h * 0.08, w * 0.18, h * 0.1); S.text(g, 'A4', w * 0.85, h * 0.13, h * 0.05, '#40ff60', 'center', 'bold', 'monospace');
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 3; i++) { g.fillStyle = '#d8d8d8'; g.fillRect(w * (0.76 + i * 0.065), h * (0.24 + j * 0.06), w * 0.05, h * 0.045); }
+    g.fillStyle = '#0a0a0a'; g.fillRect(w * 0.08, h * 0.86, w * 0.6, h * 0.1);
+  }, { rough: 0.25, metal: 0.2, glow: 0.6 }],
+  // the Control console top: switch banks, buttons, a phone, a mic
+  ['console', (g, w, h, r) => {
+    g.fillStyle = '#2a2e32'; g.fillRect(0, 0, w, h); S.speck(g, 0, 0, w, h, 400, ['rgba(255,255,255,0.05)'], r);
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 12; i++) { const x = w * (0.04 + i * 0.078), y = h * (0.08 + j * 0.13); g.fillStyle = '#121416'; g.fillRect(x, y, w * 0.06, h * 0.09); g.fillStyle = r() < 0.2 ? '#ff3020' : r() < 0.4 ? '#30ff50' : '#d8d8c8'; g.fillRect(x + w * 0.015, y + h * 0.015, w * 0.03, h * 0.035); }
+    g.fillStyle = '#e8e4d8'; for (let i = 0; i < 12; i++) g.fillRect(w * (0.04 + i * 0.078), h * 0.62, w * 0.06, h * 0.04);
+    g.fillStyle = '#111'; g.fillRect(w * 0.06, h * 0.72, w * 0.3, h * 0.22); g.fillStyle = '#333'; for (let j = 0; j < 4; j++) for (let i = 0; i < 3; i++) g.fillRect(w * (0.08 + i * 0.09), h * (0.74 + j * 0.05), w * 0.06, h * 0.035);
+    g.fillStyle = '#c81a1a'; g.beginPath(); g.arc(w * 0.86, h * 0.82, h * 0.09, 0, 7); g.fill(); S.text(g, 'ALARM', w * 0.86, h * 0.96, h * 0.04, '#e8e8e8');
+    S.text(g, 'DOORS · TIER 1 · TIER 2 · YARD', w * 0.6, h * 0.7, h * 0.04, '#d8d8c8', 'center', 'bold', undefined, w * 0.4);
+  }, { rough: 0.4, metal: 0.3, glow: 0.25 }],
+  // a steel shelf of kitchen dry stores: sacks of flour, #10 cans, boxes (one shelf bay; the 3-D uprights are separate)
+  ['drystock', (g, w, h, r) => {
+    g.fillStyle = '#2a2826'; g.fillRect(0, 0, w, h);
+    for (let j = 0; j < 4; j++) { const y1 = (j + 1) * h / 4; g.fillStyle = '#9aa0a6'; g.fillRect(0, y1 - 6, w, 6);
+      let x = 3; while (x < w - 10) { const k = r(); let bw, bh;
+        if (k < 0.35) { bw = 22; bh = h / 4 * 0.55; g.fillStyle = '#b8bcc0'; g.fillRect(x, y1 - 6 - bh, bw, bh); g.fillStyle = ['#d83020', '#30a040', '#e0b020', '#f0f0e8'][(r() * 4) | 0]; g.fillRect(x, y1 - 6 - bh * 0.75, bw, bh * 0.45); }
+        else if (k < 0.65) { bw = 40; bh = h / 4 * 0.7; g.fillStyle = '#e8dcc0'; g.beginPath(); g.moveTo(x, y1 - 6); g.lineTo(x + 3, y1 - 6 - bh); g.lineTo(x + bw - 3, y1 - 6 - bh); g.lineTo(x + bw, y1 - 6); g.fill(); S.text(g, ['FLOUR', 'RICE', 'SUGAR', 'OATS'][(r() * 4) | 0], x + bw / 2, y1 - 6 - bh * 0.45, 7, '#7a2a1a'); }
+        else { bw = 30; bh = h / 4 * 0.6; g.fillStyle = '#b08a58'; g.fillRect(x, y1 - 6 - bh, bw, bh); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x, y1 - 6 - bh * 0.55, bw, 2); S.text(g, 'USDA', x + bw / 2, y1 - 6 - bh * 0.3, 6, '#2a1a0a'); }
+        x += bw + 3; } }
+  }, { rough: 0.7, metal: 0.1 }],
+  // the pharmacy shelf: labelled bins, pill bottles, boxes
+  ['pharm', (g, w, h, r) => {
+    g.fillStyle = '#dfe4e6'; g.fillRect(0, 0, w, h);
+    for (let j = 0; j < 4; j++) { const y1 = (j + 1) * h / 4; g.fillStyle = '#9aa0a6'; g.fillRect(0, y1 - 5, w, 5);
+      for (let i = 0; i < 5; i++) { const x = 4 + i * (w - 8) / 5, bw = (w - 8) / 5 - 4, bh = h / 4 * 0.5; g.fillStyle = ['#3a6ac8', '#e8e8e8', '#d83a2a', '#e8c030', '#40a060'][(i + j) % 5]; g.fillRect(x, y1 - 5 - bh, bw, bh); g.fillStyle = '#fff'; g.fillRect(x + bw * 0.15, y1 - 5 - bh * 0.6, bw * 0.7, bh * 0.3); g.fillStyle = '#333'; g.fillRect(x + bw * 0.22, y1 - 5 - bh * 0.48, bw * 0.56, 2);
+        for (let k = 0; k < 3; k++) { g.fillStyle = r() < 0.5 ? '#e8a030' : '#f4f4f0'; g.fillRect(x + k * bw / 3 + 2, y1 - 5 - bh - 14, bw / 3 - 4, 14); g.fillStyle = '#fff'; g.fillRect(x + k * bw / 3 + 2, y1 - 5 - bh - 17, bw / 3 - 4, 4); } } }
+  }, { rough: 0.4, metal: 0.1 }],
+  ['tools', ...XCELLS.tools],
+  ['toolchest', ...XCELLS.toolchest],
+  ['eyechart', (g, w, h, r) => {
+    g.fillStyle = '#f6f6f2'; g.fillRect(0, 0, w, h); g.strokeStyle = '#333'; g.lineWidth = 2; g.strokeRect(4, 4, w - 8, h - 8);
+    const rows = ['E', 'F P', 'T O Z', 'L P E D', 'P E C F D', 'E D F C Z P', 'F E L O P Z D']; rows.forEach((t, i) => S.text(g, t, w / 2, h * (0.1 + i * 0.12), h * (0.11 - i * 0.012), '#111'));
+    g.fillStyle = '#c81a1a'; g.fillRect(w * 0.15, h * 0.86, w * 0.7, 2);
+  }, { rough: 0.9, metal: 0 }],
+  ['gym', (g, w, h, r) => {
+    g.fillStyle = '#1a1a1a'; g.fillRect(0, 0, w, h); g.fillStyle = '#d8b020'; g.fillRect(0, 0, w, h * 0.22); S.text(g, 'YARD RULES', w / 2, h * 0.11, h * 0.12, '#111');
+    ['RE-RACK YOUR WEIGHTS', 'NO SPOTTING = NO BENCH', '20 MIN PER STATION', 'NO GATHERING > 4', 'OBEY ALL STAFF'].forEach((t, i) => S.text(g, (i + 1) + '. ' + t, w * 0.07, h * (0.33 + i * 0.13), h * 0.06, '#f0ece0', 'left', 'bold', undefined, w * 0.86));
+  }, { rough: 0.7, metal: 0 }],
+];
+let PD = null;
+export function prisonDecor(K) {
+  const D = decor(K);
+  if (!PD || PD.D !== D) PD = { D, PA: D.atlas('prison', PCELLS) };
+  return PD;
+}
+
 // the steel toilet-sink combo against a wall (local +z = into the room)
 export function toiletSink(K, x, y, z, yaw) {
-  const P = frame(x, z, yaw), [ax, az] = P(0, 0.05);
+  const P = frame(x, z, yaw), [ax, az] = P(0, 0.05), g = geos();
   K.box(ax, y, az, 0.28, y + 0.95, 0.14, yaw, 'pSteel');           // the chase / back unit with the basin on top
-  const [bx, bz] = P(0, 0.42); K.box(bx, y, bz, 0.2, y + 0.42, 0.24, yaw, 'pSteel');   // bowl
-  const [cx, cz] = P(0, 0.42); K.box(cx, y + 0.42, cz, 0.19, y + 0.44, 0.23, yaw, 'black');
+  const [bx, bz] = P(0, 0.42); K.xadd(g.pipe, K.MAT.pSteel, K.mat4(bx, y, bz, yaw, 0.2, 0.36, 0.25));      // the bowl: a rounded steel pedestal
+  K.xadd(g.pipe, K.MAT.pSteel, K.mat4(bx, y + 0.36, bz, yaw, 0.21, 0.05, 0.26));                          // the rolled rim
+  K.xadd(g.pipe, K.MAT.black, K.mat4(bx, y + 0.405, bz, yaw, 0.15, 0.006, 0.19), false);                   // the water
   const [dx, dz] = P(0, 0.22); K.box(dx, y + 0.82, dz, 0.2, y + 0.92, 0.1, yaw, 'pSteel');   // sink lip
+  K.xadd(g.pipe, K.MAT.darkMetal || K.MAT.black, K.mat4(dx, y + 0.905, dz, yaw, 0.12, 0.018, 0.06), false);  // the basin
   const [ex, ez] = P(0.12, 0.08); K.box(ex, y + 0.95, ez, 0.02, y + 1.02, 0.02, yaw, 'chrome');   // push button tap
+  const [fx, fz] = P(-0.12, 0.1); K.xadd(g.pipe, K.MAT.chrome, K.mat4(fx, y + 0.94, fz, yaw, 0.022, 0.03, 0.022), false);
+  const [hx, hz] = P(-0.22, 0.17); K.xadd(g.pipe, K.MAT.white, K.mat4(hx, y + 0.62, hz, yaw, 0.055, 0.1, 0.055, Math.PI / 2, 0), false);   // a toilet roll
   K.solid(...P(0, 0.25), 0.3, 0.38, yaw, y + 0.95, 'metal', y, { vault: true });
 }
 // a steel mess table with four attached round stools (bolted down)
@@ -331,35 +428,44 @@ export function messTable(K, x, z, yaw, y = 0) {
   }
   K.solid(x, z, 0.95, 0.9, yaw, y + 0.76, 'metal', y, { vault: true });
 }
-// a hospital bed: tubular frame, side rails, a white mattress, a pillow, a drip stand
+// a hospital bed: tubular frame, side rails, a sheeted mattress, a pillow, a blanket, a chart, a drip stand
 export function hospitalBed(K, x, z, yaw, mess = false) {
   const P = frame(x, z, yaw), g = geos();
   K.box(x, 0.5, z, 1.0, 0.58, 0.45, yaw, 'pSteel');
-  K.box(x, 0.58, z, 0.97, 0.72, 0.43, yaw, mess ? 'pWool' : 'white');
+  K.box(x, 0.58, z, 0.97, 0.72, 0.43, yaw, mess ? 'pWool' : 'pSheet');
+  if (!mess) { const [bx, bz] = P(-0.45, 0); K.box(bx, 0.72, bz, 0.5, 0.75, 0.44, yaw, 'pWool'); const [cx, cz] = P(-0.02, 0); K.box(cx, 0.72, cz, 0.06, 0.765, 0.445, yaw, 'pSheet'); }   // the blanket, the turned-down sheet
   for (const lx of [-1, 1]) for (const lz of [-0.42, 0.42]) { const [px, pz] = P(lx * 0.97, lz); K.box(px, 0, pz, 0.025, 0.5, 0.025, yaw, 'pSteel'); K.xadd(g.ball, K.MAT.rubber, K.mat4(px, 0.05, pz, 0, 0.05, 0.05, 0.05)); }
-  const [hx, hz] = P(1.0, 0); K.box(hx, 0.5, hz, 0.03, 1.05, 0.45, yaw, 'pSteel');
-  for (const lz of [-0.47, 0.47]) { const [rx, rz] = P(0, lz); K.box(rx, 0.78, rz, 0.55, 0.82, 0.012, yaw, 'chrome'); }
+  const [hx, hz] = P(1.0, 0); K.box(hx, 0.5, hz, 0.03, 1.05, 0.45, yaw, 'pSteel'); K.box(hx, 0.55, hz, 0.035, 1.0, 0.4, yaw, 'pCinderB');   // the head board
+  const [fx, fz] = P(-1.0, 0); K.box(fx, 0.5, fz, 0.03, 0.9, 0.45, yaw, 'pSteel');
+  { const [px, pz] = P(-1.04, 0); K.box(px, 0.62, pz, 0.008, 0.84, 0.12, yaw, 'white'); K.box(px - 0.0001, 0.8, pz, 0.01, 0.84, 0.13, yaw, 'chrome'); }   // the chart on its clipboard
+  for (const lz of [-0.47, 0.47]) { const [rx, rz] = P(0.2, lz); K.box(rx, 0.78, rz, 0.55, 0.82, 0.012, yaw, 'chrome'); for (const lx of [-0.3, 0.2, 0.7]) { const [qx, qz] = P(lx, lz); K.box(qx, 0.72, qz, 0.01, 0.8, 0.01, yaw, 'chrome'); } }
   const [ix, iz] = P(0.8, 0.6); K.xadd(g.pipe, K.MAT.chrome, K.mat4(ix, 0, iz, 0, 0.012, 1.9, 0.012)); K.box(ix, 1.75, iz, 0.06, 1.93, 0.02, yaw, 'frosted');
-  const [qx, qz] = P(0.72, 0); K.box(qx, 0.72, qz, 0.2, 0.82, 0.3, yaw, 'white');
+  K.xadd(g.pipe, K.MAT.darkMetal || K.MAT.black, K.mat4(ix, 0.02, iz, 0, 0.2, 0.03, 0.2));
+  const [qx, qz] = P(0.72, 0); K.box(qx, 0.72, qz, 0.2, 0.84, 0.3, yaw, 'white');
   K.solid(x, z, 1.0, 0.47, yaw, 0.82, 'metal', 0, { vault: true });
 }
-// a front-loading industrial washer (dryers: same box, darker door)
+// a front-loading industrial washer / dryer: a designed front, a chrome porthole ring, the door glass
 export function washer(K, x, z, yaw, dryer = false) {
-  const P = frame(x, z, yaw), g = geos();
-  K.box(x, 0, z, 0.55, 1.45, 0.5, yaw, dryer ? 'appliance' : 'pSteel');
-  const [dx, dz] = P(0, 0.51); K.xadd(g.disc, K.MAT.black, K.mat4(dx, 0.75, dz, yaw + Math.PI / 2, 0.012, 0.32, 0.32));
-  K.xadd(g.disc, dryer ? K.MAT.darkMetal : K.MAT.glass, K.mat4(dx, 0.75, dz + 0, yaw + Math.PI / 2, 0.02, 0.26, 0.26));
-  const [px, pz] = P(0, 0.5); K.box(px, 1.25, pz, 0.5, 1.4, 0.02, yaw, 'black');
+  const P = frame(x, z, yaw), g = geos(), { D, PA } = prisonDecor(K);
+  D.abox(PA, { pz: dryer ? 'dryer' : 'washer', side: dryer ? 'grey' : 'steel', top: dryer ? 'grey' : 'steel' }, x, 0.06, z, 0.55, 1.45, 0.5, yaw);
+  K.box(x, 0, z, 0.5, 0.06, 0.45, yaw, 'black');
+  const [dx, dz] = P(0, 0.505); K.xadd(g.disc, K.MAT.chrome, K.mat4(dx, 0.76, dz, yaw + Math.PI / 2, 0.03, 0.3, 0.3));
+  const [ex, ez] = P(0, 0.53); K.xadd(g.disc, dryer ? K.MAT.darkMetal : K.MAT.glass, K.mat4(ex, 0.76, ez, yaw + Math.PI / 2, 0.02, 0.24, 0.24));
+  const [hx, hz] = P(0.3, 0.54); K.box(hx, 0.7, hz, 0.02, 0.82, 0.02, yaw, 'chrome');
   K.solid(x, z, 0.55, 0.5, yaw, 1.45, 'metal');
 }
-// a heavy workbench: steel frame, butcher-block top, a vise, tools on it
+// a heavy workbench: steel frame, butcher-block top, a drawer pedestal, a vise, tools on it
 export function workbench(K, x, z, yaw) {
-  const P = frame(x, z, yaw), g = geos();
-  K.box(x, 0.86, z, 1.2, 0.92, 0.4, yaw, 'darkWood');
+  const P = frame(x, z, yaw), g = geos(), { D, PA } = prisonDecor(K);
+  K.box(x, 0.86, z, 1.2, 0.92, 0.4, yaw, 'dzButcher');
   for (const lx of [-1.12, 1.12]) for (const lz of [-0.33, 0.33]) { const [px, pz] = P(lx, lz); K.box(px, 0, pz, 0.03, 0.86, 0.03, yaw, 'darkMetal'); }
   K.box(x, 0.18, z, 1.15, 0.21, 0.36, yaw, 'darkMetal');
-  const [vx, vz] = P(0.9, 0.25); K.box(vx, 0.92, vz, 0.09, 1.08, 0.1, yaw, 'bluePaint');
-  const [tx, tz] = P(-0.4, 0); K.box(tx, 0.92, tz, 0.25, 1.0, 0.12, yaw, 'redPaint');   // a tool box
+  { const [px, pz] = P(-0.75, 0); D.abox(PA, { pz: 'toolchest', side: 'toolchest', top: 'grey' }, px, 0.21, pz, 0.32, 0.84, 0.34, yaw); }   // a drawer pedestal under one end
+  const [vx, vz] = P(0.9, 0.25); K.box(vx, 0.92, vz, 0.09, 1.0, 0.1, yaw, 'bluePaint'); K.box(vx, 1.0, vz, 0.11, 1.1, 0.06, yaw, 'bluePaint');
+  { const [sx, sz] = P(0.9, 0.42); K.xadd(g.pipe, K.MAT.chrome, K.mat4(sx, 1.04, sz, yaw, 0.012, 0.3, 0.012, Math.PI / 2, 0), false); }   // the vise handle
+  const [tx, tz] = P(-0.4, 0); K.box(tx, 0.92, tz, 0.25, 1.0, 0.12, yaw, 'redPaint'); K.box(tx, 1.0, tz, 0.2, 1.03, 0.015, yaw, 'chrome');   // a tool box
+  { const [hx, hz] = P(0.2, 0.1); K.box(hx, 0.92, hz, 0.12, 0.94, 0.015, yaw + 0.4, 'darkWood'); const [kx, kz] = P(0.29, 0.13); K.box(kx, 0.92, kz, 0.03, 0.97, 0.05, yaw + 0.4, 'metal'); }   // a hammer
+  { const [hx, hz] = P(0.45, -0.2); K.box(hx, 0.92, hz, 0.2, 0.93, 0.15, yaw - 0.2, 'white'); }   // a work order
   K.solid(x, z, 1.2, 0.4, yaw, 0.92, 'metal', 0, { vault: true });
 }
 // weight bench with a loaded bar on the rack
@@ -373,24 +479,30 @@ export function weightBench(K, x, z, yaw) {
   K.solid(x, z, 0.6, 0.45, yaw, 1.05, 'metal', 0, { vault: true });
   { const [rx, rz] = P(-0.45, 0); K.solid(rx, rz, 0.08, 1.0, yaw, 1.25, 'metal', 0.78); }   // the loaded bar sticks out past the bench
 }
-// an office desk with a monitor, keyboard, paper stack and a chair
+// an office desk with a drawer pedestal, a monitor, keyboard, mouse, paper stack, a mug and a chair
 export function desk(K, x, z, yaw, mat = 'pWoodDesk') {
-  const P = frame(x, z, yaw);
+  const P = frame(x, z, yaw), { D } = prisonDecor(K), g = geos();
   K.box(x, 0.72, z, 0.8, 0.76, 0.4, yaw, mat);
-  for (const lx of [-0.75, 0.75]) { const [px, pz] = P(lx, 0); K.box(px, 0, pz, 0.03, 0.72, 0.38, yaw, mat); }
+  { const [px, pz] = P(-0.75, 0); K.box(px, 0, pz, 0.03, 0.72, 0.38, yaw, mat); }
+  { const [px, pz] = P(0.55, 0); D.abox(D.A, { pz: 'drawers3', side: 'white', top: 'white' }, px, 0.02, pz, 0.22, 0.72, 0.36, yaw + Math.PI); }   // the drawer pedestal (drawers on the sitter's side)
+  { const [px, pz] = P(0, -0.37); K.box(px, 0.3, pz, 0.72, 0.72, 0.012, yaw, mat); }   // the modesty panel
   const [mx, mz] = P(0, -0.22); K.box(mx, 0.76, mz, 0.24, 1.12, 0.03, yaw, 'black'); K.box(mx, 0.8, mz, 0.22, 1.1, 0.032, yaw, 'pScreen');
+  { const [sx, sz] = P(0, -0.28); K.box(sx, 0.76, sz, 0.1, 0.78, 0.08, yaw, 'black'); }
   const [kx, kz] = P(0, 0.08); K.box(kx, 0.76, kz, 0.22, 0.78, 0.07, yaw, 'black');
+  { const [qx, qz] = P(0.3, 0.1); K.box(qx, 0.76, qz, 0.03, 0.785, 0.05, yaw, 'black'); }
   const [ax, az] = P(0.5, 0.05); K.box(ax, 0.76, az, 0.12, 0.8, 0.16, yaw, 'white');
+  { const [cx2, cz2] = P(-0.5, 0.1); K.xadd(g.pipe, K.MAT.white, K.mat4(cx2, 0.76, cz2, 0, 0.04, 0.1, 0.04), false); }   // a mug
   const [cx, cz] = P(0, 0.75); K.box(cx, 0.42, cz, 0.24, 0.5, 0.24, yaw, 'black'); K.box(cx, 0, cz, 0.03, 0.42, 0.03, yaw, 'chrome');
+  for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; K.box(cx + Math.cos(a) * 0.15, 0.02, cz + Math.sin(a) * 0.15, 0.13, 0.05, 0.02, -a, 'black'); }   // the five-star base
   const [bx, bz] = P(0, 0.98); K.box(bx, 0.5, bz, 0.22, 1.05, 0.03, yaw, 'black');
   K.solid(x, z, 0.8, 0.4, yaw, 0.76, 'wood', 0, { vault: true });
   { const [sx, sz] = P(0, 0.76); K.solid(sx, sz, 0.25, 0.25, yaw, 1.05, 'wood', 0); }   // the chair (you don't walk through it)
 }
-// a row of grey steel lockers along local x (n doors)
+// a row of grey steel lockers along local x (n doors: louvres, number plates, latches)
 export function lockers(K, x, z, yaw, n = 6) {
-  const P = frame(x, z, yaw), w = n * 0.38;
-  K.box(x, 0, z, w / 2, 1.85, 0.25, yaw, f => f === 'pz' ? 'pCopper' : 'darkMetal');
-  for (let i = 1; i < n; i++) { const [px, pz] = P(-w / 2 + i * 0.38, 0.252); K.box(px, 0.05, pz, 0.006, 1.8, 0.004, yaw, 'black'); }
+  const P = frame(x, z, yaw), w = n * 0.38, { D } = prisonDecor(K), units = Math.max(1, Math.round(n / 2)), uw = w / units;
+  for (let i = 0; i < units; i++) { const [ux, uz] = P(-w / 2 + uw * (i + 0.5), 0); D.abox(D.A, { pz: 'locker', side: 'steel', top: 'steel' }, ux, 0.08, uz, uw / 2 - 0.004, 1.85, 0.25, yaw); }
+  K.box(x, 0, z, w / 2, 0.08, 0.22, yaw, 'dzPlinth');
   K.solid(x, z, w / 2, 0.25, yaw, 1.85, 'metal');
 }
 // a wall sign: a thin plate, the sign texture facing local +z

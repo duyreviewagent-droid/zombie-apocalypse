@@ -68,9 +68,19 @@ export default (initiator, {rtcConfig, rtcPolyfill, turnConfig}) => {
     }
   }
 
+  // MP (Zombie_Apocalypse patch): 'disconnected' is often only a hiccup (Wi-Fi roaming, a phone or iPad that was
+  // busy or briefly in the background) and WebRTC recovers from it by itself within seconds. Only give up on the
+  // connection if it's still not back after 15 s; 'failed' and 'closed' are final.
+  let discT = null
   pc.onconnectionstatechange = () => {
-    if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+    const st = pc.connectionState
+    if (st === 'disconnected') {
+      if (!discT) discT = setTimeout(() => { discT = null; if (pc.connectionState !== 'connected') handlers.close?.() }, 15000)
+    } else if (st === 'failed' || st === 'closed') {
+      clearTimeout(discT); discT = null
       handlers.close?.()
+    } else if (st === 'connected') {
+      clearTimeout(discT); discT = null
     }
   }
 

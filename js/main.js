@@ -220,7 +220,8 @@ HELI.init({
   daylight: () => world.daylight ?? 0,
   playerPos: () => P && P.s ? P.s.pos : null,
   lz: LZ, lzName: MAPLE() ? 'Main St & Maple Ave' : lzName(),
-  schedule: MAPLE() || !E ? [{ day: 2, hour: 2 }, { day: 3, hour: 2 }] : (E.schedule || [{ day: 2, hour: E.hour ?? 2 }]),   // 02:00 the night of day 1 (the day rolls over at midnight), then the last one
+  // [rescue] the user's rule: survive a FULL day first — the first flight comes the night AFTER the first night (Saturday's outbreak → all of Sunday → Monday 02:00), the last one the night after that
+  schedule: (MAPLE() || !E ? [{ day: 2, hour: 2 }, { day: 3, hour: 2 }] : (E.schedule || [{ day: 2, hour: E.hour ?? 2 }])).map(f => ({ ...f, day: f.day + 1 })),   // 02:00 the night of day 1 (the day rolls over at midnight), then the last one
   boardKey: 'E',
   onInbound: () => heliInbound(),
   onArrive: () => heliArrive(),
@@ -1155,7 +1156,7 @@ function playMapRadio() {
 // does this chapter's "done" hold yet? (time:<h> · item(s):<id>[+<id>] · note:<id> · radio · reach:<spot> · board)
 function doneKey(k) {
   const i = k.indexOf(':'), a = i < 0 ? k : k.slice(0, i), b = i < 0 ? '' : k.slice(i + 1);
-  if (a === 'time') { const h = +b, tgt = h >= obHour() - 0.01 ? h : 24 + h; return (G.day - 1) * 24 + G.hour >= tgt; }
+  if (a === 'time') { const h = +b, tgt = h >= obHour() - 0.01 ? h : 48 + h; return (G.day - 1) * 24 + G.hour >= tgt; }   // [rescue] after-midnight beats belong to the rescue night (a full day later)
   if (a === 'item' || a === 'items') return b.split('+').every(id => id === 'weapon' ? supplies().weapon : id === 'food' ? supplies().food > 0 : (G.inv[id] || 0) > 0);
   if (a === 'note') return G.notes.includes(b);
   if (a === 'radio') return !!G.radioDone;
@@ -2566,7 +2567,7 @@ function survive(dt) {
   if (TUT.on && TUT.calm && G.phase === 'calm' && G.hour > obHour() - 0.25 && G.hour < obHour()) G.hour = obHour() - 0.25;   // the morning waits while you learn
   if (G.hour >= 24) { G.hour -= 24; G.day++; }
   { const nf = HELI.nextFlight(), wh = nf ? nf.hour - 0.5 : -9; if (G.phase === 'outbreak' && wh >= 0 && h0 < wh && G.hour >= wh && HELI.state() === 'waiting' && nf.day === G.day) { SND.sting('objective'); think(MAPLE() ? 'Half past one. Half an hour. I need to get to Main and Maple.' : `Half an hour. I need to get to ${lzName()}.`, 4.5); } }
-  if (h0 < 21 && G.hour >= 21) { SND.sting('night'); bigText('NIGHTFALL', `day ${G.day} · more of them, and some of them run · ${MAPLE() ? 'helicopter at 02:00' : rideName() + ' at ' + hhmm(endHour())}`, 4); later(() => think(G.flashlight ? 'Dark already. The flashlight will give me away...' : 'It\'s getting dark. They\'ll be everywhere soon.', 4), 1); }
+  if (h0 < 21 && G.hour >= 21) { SND.sting('night'); { const nf = HELI.nextFlight(), tonight = nf && nf.day === G.day + 1; bigText('NIGHTFALL', `day ${G.day} · more of them, and some of them run · ${!nf ? 'no more ' + rideName() + 's' : tonight ? rideName() + ' at ' + hhmm(nf.hour) : 'survive until the ' + rideName() + ' · night ' + (nf.day - 1)}`, 4); } later(() => think(G.flashlight ? 'Dark already. The flashlight will give me away...' : 'It\'s getting dark. They\'ll be everywhere soon.', 4), 1); }   // [rescue] (MP agent: moved this comment to the end — it had swallowed the closing brace)
   if (h0 < 6 && G.hour >= 6) { SND.sting('day'); bigText(`DAY ${G.day}`, 'you made it through the night', 4); save.bestDays = Math.max(save.bestDays, G.day - 1); writeSave(); }
   world.sunny = G.phase === 'calm' || G.phase === 'news' ? 1 : G.phase === 'outbreak' ? clamp(1 - (G.t - G.obT) / (HOUR * 2.5), 0, 1) : 0;
   world.setTime(G.hour);
@@ -3230,7 +3231,7 @@ function hud(dt) {
     else if (hs === 'inbound' || hs === 'descend') oh += `<div class="dl hot">${icon(RIC)}${RD} INBOUND · ${LZU}</div>`;
     else if (hs === 'orbit') oh += `<div class="dl hot">${icon(RIC)}${RD} CIRCLING · CAN'T LAND</div>`;
     else if (hs === 'liftoff' || hs === 'outbound') oh += `<div class="dl">${icon(RIC)}THE ${RD} IS LEAVING</div>`;
-    else if (left > 0) oh += `<div class="dl ${left < 1 ? 'hot' : ''}">${icon(RIC)}${nf && G.missed ? 'LAST ' : ''}${RD} IN ${hm(left)} · ${hhmm(nf.hour)}</div>`;
+    else if (left > 0) oh += `<div class="dl ${left < 1 ? 'hot' : ''}">${icon(RIC)}${nf && G.missed ? 'LAST ' : ''}${RD} IN ${hm(left)} · ${nf.day > G.day + 1 || (nf.day > G.day && G.hour < 12) ? 'DAY ' + nf.day + ' ' : ''}${hhmm(nf.hour)}</div>`;   // [rescue] which night
     else oh += `<div class="dl">${icon('clock')}NO MORE ${RD}S</div>`;
   }
   $('objCh').textContent = calm && !MP ? 'PROLOGUE · ' + String(mapName()).toUpperCase() : calm ? 'PROLOGUE · SATURDAY' : `CHAPTER ${st2 + 1} · ${CH.title}`;
@@ -3364,6 +3365,7 @@ function step(dt) {
   STATS.tick(dt, P, G);
   if (G.state !== 'result') {
     if ((G.state === 'play' || G.state === 'bag' || (MP.on() && G.state !== 'title')) && G.phase === 'outbreak' && !MP.isClient()) { populate(dt); outbreakStep(dt); }   // MP: only the host's game makes the dead (and keeps doing it while friends play on)
+    else if (MP.isClient() && G.phase === 'outbreak' && G.state !== 'title') mpReveal(dt);   // MP: a client's town comes apart like the host's (the wrecks, the blood, the boards)
     if (G.state === 'play' || G.state === 'phone') phoneTick(dt);
     if (G.state === 'play' && P.alive && world.hazards) for (const h of world.hazards) { if (h.off || !h.dps) continue; if (Math.hypot(P.s.pos.x - h.x, P.s.pos.z - h.z) < h.r && (P.s.gy || 0) < 0.6) { damage(P, dt * h.dps, null, { [h.kind]: true }); G.hurtFlash = Math.max(G.hurtFlash || 0, 0.3); } }
     if (G.state === 'play' && G.phase === 'calm' && G.hour >= obHour() && G.hour < obHour() + 6) { if (MAPLE()) startNews(); else startMapNews(); }
@@ -3509,6 +3511,12 @@ async function startMP(st) {
   if (w.index > 0) { const y = P.s.yaw, off = [[1.1, 0], [-1.1, 0], [0, -1.1], [1.1, -1.1]][(w.index - 1) % 4];
     for (const k of [1, 0.6, 0.3]) { const x = P.s.pos.x + (off[0] * Math.cos(y) + off[1] * Math.sin(y)) * k, z = P.s.pos.z + (-off[0] * Math.sin(y) + off[1] * Math.cos(y)) * k; if (world.walkable(x, z)) { P.s.place(x, z, y); break; } } }
 }
+// MP: the host's outbreakStep without the host's part (new survivors): the chaos layer shows, out of sight, on the
+// host's outbreak clock (net.js keeps G.obT in step with the host)
+function mpReveal(dt) {
+  G.revealT = (G.revealT || 0) - dt; if (G.revealT > 0) return; G.revealT = 0.6;
+  const k = clamp((G.t - G.obT) / (HOUR * 3.2), 0, 1), cf = V(); camera.getWorldDirection(cf); world.revealChaos(k, camera.position, cf);
+}
 // a friend got you back up (instead of game over)
 function mpRespawn(x, z) {
   if (G.state !== 'dead') return;
@@ -3547,6 +3555,8 @@ MP.init({
   vehicle: v => v[0] === 'c' ? DRIVE.cars[v[1]] : v[0] === 'b' ? DRIVE.bikes[v[1]] : null,
   moveVehicle: v => { const T = v[0] === 'c' ? DRIVE.cars[v[1]] : DRIVE.bikes[v[1]]; if (!T || T === DRIVE.current()) return; T.g.position.x = T.x = v[2]; T.g.position.z = T.z = v[3]; T.g.rotation.y = T.yaw = v[4]; if (T.C && T.C.box) T.C.box.off = true; if (T.C) { T.C.x = v[2]; T.C.z = v[3]; } },
   driving: () => DRIVE.active(),
+  // the host has more of the dead about than this device made room for (phones/tablets make fewer): make another body
+  makeZombie: () => { if (Z.pool.length >= 140) return null; const bodies = ['human', 'butler', 'coach', 'michelle'], i = Z.pool.length; return makeZombie(KINDS[bodies[i % 4]], scene, Math.floor(i / 4) % 4, onStep); },
   pvpHurt: (dmg, by, e) => { if (!P.alive) return; damage(P, dmg, by && by.s ? by : null, { human: true, part: e.part || undefined, blast: !!e.blast }); if (P.alive && (e.knock > 0.6 || dmg > 30 || e.blast) && P.s.acts.Hit_Knockback) { P.s.play('Hit_Knockback', { fade: 0.1, rate: 1.3 }); C.shake = Math.max(C.shake, 0.4); } },
   healMe: (hp, who) => { P.hp = Math.min(P.maxHp, P.hp + hp); G.bleed = 0; toast(`${who} bandaged you up`, 'good'); },
   giveMe: (id, who) => { if (ITEMS[id]) { addItem(id, 1); toast(`${who} gave you ${ITEMS[id].name}`, 'good'); } },
