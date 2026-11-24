@@ -321,7 +321,7 @@ export function makeWorld(scene, renderer) {
   const PAINT = ['#d8ccb4', '#c8d0c4', '#d4c4b8', '#bcc4cc', '#e0d8c4', '#c4b8a8'];
   PAINT.forEach((c, i) => { MAT['paint' + i] = std({ map: TX.wallpaperTexture(20 + i, c), roughness: 0.9 }); });
   const FABRIC = [[96, 104, 120], [120, 84, 70], [70, 90, 70], [130, 120, 100], [60, 60, 70]];
-  FABRIC.forEach((c, i) => { MAT['fabric' + i] = std({ map: TX.fabricTexture(c, 11 + i), roughness: 1 }); });
+  FABRIC.forEach((c, i) => { MAT['fabric' + i] = std({ ...TX.relief(TX.upholsteryTexture(c, 11 + i), 0.8), roughness: 1 }); });   // a real woven cloth (twill / basket weave)
   const BOOKS = [0x7a2a22, 0x2a4a6a, 0x3a5a2a, 0x6a5a2a, 0x4a2a4a, 0x8a7a5a];
   BOOKS.forEach((c, i) => { MAT['book' + i] = std({ color: c, roughness: 0.8 }); });
   const CARS = ['#6b7a86', '#7a1e1a', '#d8d6d0', '#1e2a3a', '#2e3a2a', '#8a8070', '#3a3a3c', '#7a6a48'];
@@ -375,7 +375,6 @@ export function makeWorld(scene, renderer) {
   MAT.tileSubway2 = std({ ...TX.relief(TX.wallTileTexture('subway', [150, 176, 170], 52), 0.8), roughness: 0.12, envMapIntensity: 1.1 });
   MAT.tileBath = std({ ...TX.relief(TX.wallTileTexture('square', [232, 236, 238], 53), 0.8), roughness: 0.1, envMapIntensity: 1.1 });
   MAT.tileBath2 = std({ ...TX.relief(TX.wallTileTexture('square', [196, 214, 226], 54), 0.8), roughness: 0.1, envMapIntensity: 1.1 });
-  [[96, 104, 120], [128, 90, 72], [84, 104, 84], [150, 138, 116], [72, 72, 84]].forEach((c, i) => { MAT['uph' + i] = std({ ...TX.relief(TX.upholsteryTexture(c, 11 + i), 0.8), roughness: 1 }); });
   MAT.mattressQ = std({ ...TX.relief(TX.beddingTexture('mattress', 61), 0.8), roughness: 0.95 }); MAT.mattressQ.map.repeat.set(2, 3);
   MAT.pillowM = std({ ...TX.relief(TX.beddingTexture('pillow', 62), 0.6), roughness: 0.95 });
   for (let i = 0; i < 3; i++) { MAT['quilt' + i] = std({ ...TX.relief(TX.beddingTexture('quilt' + i, 63 + i), 0.7), roughness: 0.95 }); MAT['quilt' + i].map.repeat.set(2, 2); }
@@ -584,7 +583,7 @@ export function makeWorld(scene, renderer) {
       else if (k === 'jar') ref = inst(GEO.jar, MAT.jarGlass, m);
       else if (k === 'bottle') ref = inst(GEO.bottle, MAT['bottle' + Math.floor(Math.random() * 2)], m);
       else if (k === 'box') ref = inst(GEO.cereal, MAT['book' + Math.floor(Math.random() * 6)], m);
-      else if (k === 'book') ref = inst(bookGeo(Math.floor(Math.random() * 8), 'px', true), MAT.books, mat4(x, y, z, ry, 0.17, 0.23, 0.065));   // a hardback, its spine (and title) to the room
+      else if (k === 'book') ref = inst(bookGeo(Math.floor(Math.random() * 4) * 2, 'px', true), MAT.books, mat4(x, y, z, ry, 0.17, 0.23, 0.065));   // a hardback, its spine (and title) to the room
       else if (k === 'cloth') ref = inst(GEO.folded, MAT['fabric' + Math.floor(Math.random() * 5)], m);
       else if (k === 'trash') ref = inst(GEO.bag, MAT.trashBag, m);
       else if (k === 'carton') ref = inst(GEO.carton, MAT.white, m);
@@ -1594,7 +1593,7 @@ export function makeWorld(scene, renderer) {
     const STY = dpick(3, 0);
     const KC = ['cabinet', 'cabinetSage', 'oak'][STY], CT = ['counterG', 'counterB', 'counterM'][STY];
     const BS = STY === 1 ? 'tileSubway2' : 'tileSubway', BT = STY === 1 ? 'tileBath2' : 'tileBath';
-    const UPH = 'uph' + dpick(5, 12), QLT = 'quilt' + dpick(3, 16), RUG = ['rugPersian', 'rugModern'][dpick(2, 18)];
+    const QLT = 'quilt' + STY, RUG = ['rugPersian', 'rugModern'][dpick(2, 18)];
     const DOOR = KC === 'oak' ? 'raised' : 'shaker';
     const unM = (k) => flip < 0 ? -k : k;   // a scale along house x that undoes the mirror (printed faces, book titles read right)
     // ---- floors (per room) ----
@@ -2162,7 +2161,7 @@ export function makeWorld(scene, renderer) {
     const leg = (x, z, y1, w = 0.035, m = MAT.walnut) => hbox(x - w / 2, 0, z - w / 2, x + w / 2, y1, z + w / 2, m, false);
     // living room (front left: x -6..1, z 0.4..5)
     { // the couch: a base on short legs, three seat cushions, three back cushions leaning back, rounded arms
-      const fm = MAT[UPH];
+      const fm = MAT[fab];
       solid(...P(-5.4, 2.6), 0.48, 1.2, yaw, 0.5, 'cloth');
       for (const [lx, lz] of [[-5.8, 1.5], [-5.02, 1.5], [-5.8, 3.7], [-5.02, 3.7]]) hm(GEO.ucyl, MAT.walnut, lx, 0.05, lz, 0, 0.05, 0.1, 0.05, 0, 0, false);
       hm(RB(0.92, 0.24, 2.36, 0.05), fm, -5.42, 0.22, 2.6);
@@ -2381,7 +2380,7 @@ export function makeWorld(scene, renderer) {
       stock(U, 0.075, 6, 0.04, ['pills', 'meds', 'pills']); stock(U, 0.32, 6, 0.04, ['pills', 'meds']);   // pill bottles and packs of tablets
       OC('medicine', { ...U, stand: () => U.stand(0.98) }, 'Medicine cabinet', 1.2, [leaf(U, -0.35, 0.0, 0.62, 0.7, 1, MAT.mirror, MAT.white)]);
     }
-    hbox(2.6, 1.3, -3.42, 2.64, 1.32, -2.78, MAT.chrome, false); hbox(2.6, 0.92, -3.36, 2.67, 1.31, -2.84, MAT[UPH], false);   // a towel on a rail
+    hbox(2.6, 1.3, -3.42, 2.64, 1.32, -2.78, MAT.chrome, false); hbox(2.6, 0.92, -3.36, 2.67, 1.31, -2.84, MAT[fab2], false);   // a towel on a rail
     // ---- the things on every wall: ceiling lights, switches, sockets, pictures, a clock ----
     for (const [lx, lz] of [[-2.5, 2.7], [3.5, 2.6], [-2.0, -2.3], [4.2, -2.3]]) hm(GEO.ceilLight, MAT.fixture, lx, WH - 0.12, lz, 0, 1, 1, 1, 0, 0, false);
     // switch plates by the latch side of each doorway, sockets low on the walls (each [x, y, z, facing])
@@ -3368,7 +3367,7 @@ export function makeWorld(scene, renderer) {
       const sign = new THREE.Mesh(new THREE.BoxGeometry(9, 1.2, 0.2), [MAT.darkMetal, MAT.darkMetal, MAT.darkMetal, MAT.darkMetal, lab, MAT.darkMetal]); const [cx, cz] = P(0, Dp / 2 + 0.26); sign.position.set(cx, WH + 0.5, cz); /* in front of the parapet coping: no z-fight */ sign.rotation.y = yaw; sign.castShadow = true; rg.add(sign);
       // a parapet coping round the roof edge, a rooftop AC unit
       for (const [w2, d2, ox, oz] of [[Wd + 0.6, 0.3, 0, Dp / 2 + 0.15], [Wd + 0.6, 0.3, 0, -Dp / 2 - 0.15], [0.3, Dp + 0.6, Wd / 2 + 0.15, 0], [0.3, Dp + 0.6, -Wd / 2 - 0.15, 0]]) { const cp = new THREE.Mesh(new THREE.BoxGeometry(w2, 0.35, d2), MAT.concrete); const [px4, pz4] = P(ox, oz); cp.position.set(px4, WH + 0.45, pz4); cp.rotation.y = yaw; cp.castShadow = true; rg.add(cp); }
-      const ac = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.9, 1.0), MAT.appliance); const [ax4, az4] = P(4, -2.5); ac.position.set(ax4, WH + 0.75, az4); ac.rotation.y = yaw; ac.castShadow = true; rg.add(ac);
+      const ac = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.9, 1.0), MAT.steel); const [ax4, az4] = P(4, -2.5); ac.position.set(ax4, WH + 0.75, az4); ac.rotation.y = yaw; ac.castShadow = true; rg.add(ac);
       const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.05, 18), MAT.darkMetal); fan.position.set(ax4, WH + 1.22, az4); rg.add(fan);
     }
     // a drop ceiling of 600 mm tiles (a slab: its top casts the shadow)
@@ -3401,9 +3400,9 @@ export function makeWorld(scene, renderer) {
       const fz = -Dp / 2 + 0.9, coolerB = [], K3 = prodKit();   // the bottles: a run of each brand, labels on
       const [cx, cz] = P(0, -Dp / 2 + 0.5); solid(cx, cz, 6, 0.4, yaw, 2.2, 'metal');
       { const [bx3, bz3] = P(0, -Dp / 2 + 0.13); B.box(bx3, 0, bz3, 6, 2.2, 0.03, yaw, ALL('darkMetal'), TILE); }      // the back
-      B.box(cx, 0, cz, 6, 0.3, 0.4, yaw, ALL('appliance'), TILE);                                                // the kick plate
-      B.box(cx, 2.0, cz, 6, 2.45, 0.42, yaw, ALL('appliance'), TILE);                                            // the header
-      for (const e of [-6, 6]) { const [ex, ez] = P(e, -Dp / 2 + 0.5); B.box(ex, 0, ez, 0.03, 2.45, 0.42, yaw, ALL('appliance'), TILE); }
+      B.box(cx, 0, cz, 6, 0.3, 0.4, yaw, ALL('steel'), TILE);                                                // the kick plate
+      B.box(cx, 2.0, cz, 6, 2.45, 0.42, yaw, ALL('steel'), TILE);                                            // the header
+      for (const e of [-6, 6]) { const [ex, ez] = P(e, -Dp / 2 + 0.5); B.box(ex, 0, ez, 0.03, 2.45, 0.42, yaw, ALL('steel'), TILE); }
       for (let k = 1; k < 6; k++) { const [mx, mz] = P(-6 + k * 2, -Dp / 2 + 0.5); B.box(mx, 0.3, mz, 0.025, 2.0, 0.4, yaw, ALL('darkMetal'), TILE); }
       // the light strip inside, and the sign on top
       { const strip = new THREE.Mesh(new THREE.PlaneGeometry(11.8, 0.12).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xeaf4ff, emissiveIntensity: 2.2 })); const [lx2, lz2] = P(0, -Dp / 2 + 0.75); strip.position.set(lx2, 1.985, lz2); strip.rotation.y = yaw; level.add(strip);
@@ -3579,7 +3578,7 @@ export function makeWorld(scene, renderer) {
     }
     // the deck: white fascia sides, a soffit of long linear metal panels underneath
     { const sof = std({ map: ctex(512, 512, (g) => { g.fillStyle = '#e6e8ea'; g.fillRect(0, 0, 512, 512); for (let x = 0; x < 512; x += 11.6) { g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(x, 0, 1.4, 512); g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(x + 1.6, 0, 1, 512); } g.fillStyle = 'rgba(0,0,0,0.12)'; for (const y of [128, 256, 384]) g.fillRect(0, y, 512, 2); }), roughness: 0.4, metalness: 0.2 });
-      add(new THREE.BoxGeometry(13.2, 0.3, 9.2), [MAT.white, MAT.white, MAT.white, sof, MAT.white, MAT.white], 0, 4.65, 3); }
+      add(new THREE.BoxGeometry(13.2, 0.3, 9.2), MAT.white, 0, 4.65, 3); add(new THREE.PlaneGeometry(13.1, 9.1), sof, 0, 4.497, 3, Math.PI / 2, 0, 0, false); }
     for (const [lz, w, ry] of [[3 + 4.62, 13.3, 0], [3 - 4.62, 13.3, Math.PI]]) { add(new THREE.BoxGeometry(w, 0.85, 0.08), fascia, 0, 4.95, lz, 0, ry); }
     for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.08, 0.85, 9.3), MAT.white, sx * 6.62, 4.95, 3);
     for (const [lz] of [[3 + 4.67], [3 - 4.67]]) add(new THREE.BoxGeometry(13.35, 0.14, 0.04), stripe, 0, 4.58, lz);

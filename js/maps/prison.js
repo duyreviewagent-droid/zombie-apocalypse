@@ -399,7 +399,7 @@ export function buildMap(K) {
     K.wall(x - 7, z + d / 2 - 0.15, x - 7, z - d / 2 + 0.15, { h: 4.6, t: 0.25, mat: 'pCinder', inMat: 'pCinderG', capMat: 'pCinder', openings: [{ at: -2.5, w: 1.0, door: true, col: 0x3a4048, hp: 900 }] });
     // washers along the south wall, dryers along the north, folding tables in the middle, carts
     for (let i = 0; i < 8; i++) washer(K, x - 4.5 + i * 2.6, z - d / 2 + 1.0, 0);
-    for (let i = 0; i < 6; i++) washer(K, x - 1.5 + i * 2.6, z + d / 2 - 1.0, Math.PI, true);
+    for (let i = 0; i < 6; i++) washer(K, x + 1.4 + i * 2.2, z + d / 2 - 1.0, Math.PI, true);   // (clear of the north door at x)
     for (const tz of [z - 3, z + 3]) { bs(x - 2, 0.85, tz - 0.7, x + 10, 0.92, tz + 0.7, 'pSteel', 'metal', { vault: true }); for (const lx of [-1.8, 4, 9.8]) bx(x + lx - 0.04, 0, tz - 0.6, x + lx + 0.04, 0.85, tz + 0.6, 'pBars');
       for (let i = 0; i < 5; i++) bx(x - 1 + i * 2.2, 0.92, tz - 0.3, x - 0.2 + i * 2.2, 1.0 + (i % 2) * 0.06, tz + 0.3, i % 3 ? 'pOrange' : 'white'); }
     for (const [lx, lz] of [[-3.5, 6], [11.5, -6], [12, 4]]) { bs(x + lx - 0.5, 0.15, z + lz - 0.7, x + lx + 0.5, 0.95, z + lz + 0.7, 'pWool', 'cloth', { vault: true }); bx(x + lx - 0.5, 0, z + lz - 0.7, x + lx + 0.5, 0.15, z + lz + 0.7, 'pBars'); }
@@ -475,10 +475,10 @@ export function buildMap(K) {
     // the kitchen (north of the line): stoves, steam kettles, prep tables, the walk-in, dry stores
     const kz0 = z - d / 2 + 0.15;
     // the cooking line: two six-burner ranges, a griddle-top range, a double fryer, under a canopy hood
-    for (let i = 0; i < 4; i++) { const px = x - 14 + i * 2.2; if (i === 3) { D.fryer(px - 0.45, kz0 + 0.475, 0); D.fryer(px + 0.45, kz0 + 0.475, 0); K.solid(px, kz0 + 0.475, 1, 0.475, 0, 0.98, 'metal'); continue; }
+    for (let i = 0; i < 4; i++) { const px = x - 13.2 + i * 2.2; if (i === 3) { D.fryer(px - 0.45, kz0 + 0.475, 0); D.fryer(px + 0.45, kz0 + 0.475, 0); K.solid(px, kz0 + 0.475, 1, 0.475, 0, 0.98, 'metal'); continue; }
       D.range(px - 0.5, kz0 + 0.475, 0, { w: 1.0, d: 0.95, h: 0.92, front: 'oven', big: true, guard: 0.3, solid: false }); D.range(px + 0.5, kz0 + 0.475, 0, { w: 1.0, d: 0.95, h: 0.92, front: 'oven', guard: 0.3, solid: false }); K.solid(px, kz0 + 0.475, 1, 0.475, 0, 0.97, 'metal'); }
-    D.hood(x - 9.8, 2.2, kz0 + 0.6, 0, 10.8, 1.2, 0.7);
-    bx(x - 15.2, 0.92, kz0, x - 4.4, 2.2, kz0 + 0.02, 'pTile');   // tiled wall behind the line
+    D.hood(x - 9.0, 2.2, kz0 + 0.6, 0, 10.4, 1.2, 0.7);   // (the back door is at x − 15: the line, the hood and the tiles start clear of it)
+    bx(x - 14.2, 0.92, kz0, x - 3.6, 2.2, kz0 + 0.02, 'pTile');   // tiled wall behind the line
     D.kitchenRun(x - w / 2 + 0.15 + 0.32, z - 8.1, Math.PI / 2, [{ k: 'steelDoor', w: 1.2 }, { k: 'sink', w: 1.2 }, { k: 'dishwasher', w: 0.6 }, { k: 'sink', w: 1.2 }, { k: 'steelDoor', w: 1.2 }], { steel: true, top: 'dzSteel', splash: 'pTile', splashH: 1.2, d: 0.64 });   // the pot wash
     D.board(D.A, 'notice', x - w / 2 + 0.17, 1.9, z - 4.9, Math.PI / 2, 1.0, 0.7);
     for (const px of [x - 1.5, x + 1]) {   // steam kettles: a tilting pot on a pedestal, a hand wheel, a draw-off tap
@@ -615,7 +615,8 @@ export function buildMap(K) {
     for (const bz of [z - 2, z]) { bs(x - 5, 0, bz - 0.25, x - 3, 0.45, bz + 0.25, 'pWoodDesk', 'wood', { vault: true }); }
     // ---- visiting room: a glass partition with booths (stools, phones) and a few contact tables ----
     const vx = x - 14;
-    for (let i = 0; i < 6; i++) { const bz = iz0 + 1.6 + i * 2.8; for (const sd of [-1, 1]) bs(vx + sd * 0.3, 0.95, bz - 1.38, vx + sd * 1.1, 2.3, bz - 1.32, 'paint3', 'wood'); }
+    for (let i = 0; i < 6; i++) { const bz = iz0 + 1.6 + i * 2.8; for (const sd of [-1, 1]) { bs(vx + sd * 0.3, 0.95, bz - 1.38, vx + sd * 1.1, 2.3, bz - 1.32, 'pTile', 'wood'); bx(vx + sd * 0.3 - 0.02, 2.3, bz - 1.4, vx + sd * 1.1 + 0.02, 2.34, bz - 1.3, 'pSteel'); }   // tiled booth dividers with steel caps
+      if (i < 5) for (const sd of [-1, 1]) { K.box(vx + sd * 0.33, 1.6, bz, 0.01, 1.85, 0.18, 0, 'white'); K.wbeam([vx + sd * 0.36, 1.25, bz + 0.04], [vx + sd * 0.45, 1.0, bz + 0.1], 0.008, 0.008, MAT.black); } }   // the rules card by each phone, the handset cords
     const vz0 = iz0, vz1 = iz1 - 2.4, vzc = (vz0 + vz1) / 2, vh = (vz1 - vz0) / 2;   // (open at the north end: the inmates' side door)
     K.box(vx, 0, vzc, 0.3, 0.9, vh, 0, 'cabinet'); K.box(vx, 0.9, vzc, 0.32, 0.95, vh, 0, 'counter');
     K.box(vx, 0.95, vzc, 0.012, 2.3, vh, 0, f => f === 'px' || f === 'nx' ? 'glass' : null);

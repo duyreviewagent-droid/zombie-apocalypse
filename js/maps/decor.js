@@ -394,6 +394,7 @@ export function decor(K) {
   const geoCache = new Map();
   const D = { K };
   CACHE.set(K.MAT, D);
+  if (typeof location !== 'undefined' && /[?&]dzlog\b/.test(location.search)) dzInstrument(K);   // debug: ?dzlog (door-clearance audit)
   const add = (k, m, t) => { if (!M[k]) { M[k] = m; T[k] = t; } return M[k]; };
   // ---- tiling materials ----
   add('dzSteel', std({ map: tileTex(K, 256, 256, (g, w, h) => S.brushed(g, 0, 0, w, h, rng(3))), roughness: 0.32, metalness: 0.7 }), 1.2);
@@ -456,18 +457,18 @@ export function decor(K) {
       if (u.k === 'gap') continue;
       const [ux, uz] = P(cx, 0);
       const front = u.k === 'sink' ? (o.steel ? 'steelDoor' : (o.cab || 'cab2')) : u.k === 'hob' ? (o.steel ? 'oven' : 'cooker') : u.k === 'cab' ? (o.cab || 'cab2') : u.k;
-      D.abox(D.A, { pz: front, side, top: side, bot: 'steel', nz: side }, ux, y0 + 0.1, uz, u.w / 2 - 0.003, y0 + H - 0.04, d / 2 - 0.02, yaw);
-      // the plinth (toe kick), recessed
-      { const [px, pz] = P(cx, -0.04); K.box(px, y0, pz, u.w / 2, y0 + 0.1, d / 2 - 0.06, yaw, 'dzPlinth'); }
+      D.abox(D.A, { pz: front, side, top: side, bot: 'steel', nz: side }, ux, y0 + (o.lite ? 0 : 0.1), uz, u.w / 2 - 0.003, y0 + H - 0.04, d / 2 - 0.02, yaw);
+      // the plinth (toe kick), recessed (lite: none — one material fewer per chunk where there are dozens of kitchens)
+      if (!o.lite) { const [px, pz] = P(cx, -0.04); K.box(px, y0, pz, u.w / 2, y0 + 0.1, d / 2 - 0.06, yaw, 'dzPlinth'); }
       if (u.k === 'sink') {
         const [sx, sz] = P(cx, 0.02); D.top(D.A, 'sink', sx, y0 + H + 0.002, sz, yaw, Math.min(u.w - 0.08, 0.9), d - 0.16);
         const [tx, tz] = P(cx - Math.min(u.w - 0.08, 0.9) * 0.22, -d / 2 + 0.07); D.tap(tx, y0 + H, tz, yaw);
       }
       if (u.k === 'hob') { const [hx, hz] = P(cx, 0.02); D.top(D.A, 'hob', hx, y0 + H + 0.003, hz, yaw, Math.min(u.w - 0.06, 0.62), d - 0.12);
-        if (o.props !== false) { const [px, pz] = P(cx - 0.14, 0.12); K.xadd(GG.pot, M.chrome, K.mat4(px, y0 + H + 0.01, pz, 0, 0.9, 0.9, 0.9)); const [qx, qz] = P(cx + 0.15, -0.1); K.xadd(GG.pan, M.darkMetal || M.black, K.mat4(qx, y0 + H + 0.01, qz)); K.xadd(GG.cylX, M.black, K.mat4(...[P(cx + 0.36, -0.1)].flatMap(([a, b]) => [a, y0 + H + 0.05, b]), yaw, 0.22, 0.012, 0.012), false); } }
+        if (o.props !== false) { const [px, pz] = P(cx - 0.14, 0.12); K.xadd(GG.pot, M.chrome, K.mat4(px, y0 + H + 0.01, pz, 0, 0.9, 0.9, 0.9)); if (o.lite) continue; const [qx, qz] = P(cx + 0.15, -0.1); K.xadd(GG.pan, M.darkMetal || M.black, K.mat4(qx, y0 + H + 0.01, qz)); K.xadd(GG.cylX, M.black, K.mat4(...[P(cx + 0.36, -0.1)].flatMap(([a, b]) => [a, y0 + H + 0.05, b]), yaw, 0.22, 0.012, 0.012), false); } }
     }
     // the worktop (a hair proud of the cabinets), with a front lip
-    { const [cx, cz] = P(0, 0.015); K.box(cx, y0 + H - 0.04, cz, W / 2 + 0.01, y0 + H, d / 2 + 0.02, yaw, f => f === 'bot' ? 'dzPlinth' : topM); }
+    { const [cx, cz] = P(0, 0.015); K.box(cx, y0 + H - 0.04, cz, W / 2 + 0.01, y0 + H, d / 2 + 0.02, yaw, f => f === 'bot' ? (o.lite ? null : 'dzPlinth') : topM); }
     if (o.splash !== null) { const sh = o.splashH ?? 0.55, [bx, bz] = P(0, -d / 2 + 0.006); K.box(bx, y0 + H, bz, W / 2, y0 + H + sh, 0.008, yaw, o.splash || 'dzTileW'); }
     if (o.wall) {   // wall cupboards: 0.35 deep, 0.7 tall, 0.55 above the worktop (skipping over the hob: a hood there)
       let wx = -W / 2;
@@ -480,7 +481,7 @@ export function decor(K) {
       }
     }
     // things on the worktop
-    if (o.props !== false) {
+    if (o.props !== false && !o.lite) {
       const R = rng(Math.round(x * 13 + z * 7)); let px = -W / 2 + 0.25;
       for (const u of units) {
         const cx = px + u.w / 2 - 0.25; px += u.w;
@@ -599,4 +600,44 @@ function merge(geos) {
   for (const g of parts) { pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); if (g.attributes.uv) uv.set(g.attributes.uv.array, o * 2); o += g.attributes.position.count; }
   const m = new THREE.BufferGeometry(); m.setAttribute('position', new THREE.BufferAttribute(pos, 3)); m.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); m.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   return m;
+}
+
+// ---------------------------------------------------------------- debug: ?dzlog — record every doorway and every drawn piece
+// (with the map line that made it) so a test can check that no prop stands in a doorway. Costs nothing unless asked.
+function dzInstrument(K) {
+  const L = globalThis.__DZLOG = globalThis.__DZLOG || { ops: [], items: [] };
+  const where = () => { const st = (new Error().stack || '').split('\n').map(x => x.match(/maps\/([a-z.]+\.js):(\d+)/)).filter(Boolean); const m = st.find(q => q[1] !== 'decor.js') || st[0]; const d = st.find(q => q[1] === 'decor.js'); return m ? m[1] + ':' + m[2] + (d ? ' via decor:' + d[2] : '') : '?'; };
+  const op = (ax, az, bx, bz, p, y0) => { const L2 = Math.hypot(bx - ax, bz - az); if (L2 < 0.01) return; const ux = (bx - ax) / L2, uz = (bz - az) / L2, a = L2 / 2 + p.at; L.ops.push({ x: ax + ux * a, z: az + uz * a, ux, uz, w: p.w || 0.95, y0: y0 || 0, top: p.top ?? 2.12, door: !!p.door, src: where() }); };
+  const wall0 = K.wall; K.wall = (x0, z0, x1, z1, o = {}) => { for (const p of o.openings || []) if (!p.glass && !(p.sill > 0.3)) op(x0, z0, x1, z1, { ...p, door: !!p.door }, o.y0); return wall0(x0, z0, x1, z1, o); };
+  const room0 = K.room; K.room = (x, z, w, d, yaw = 0, o = {}) => { const c = Math.cos(yaw), s = Math.sin(yaw), P = (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c];
+    const A = P(-w / 2, -d / 2), B = P(w / 2, -d / 2), C = P(w / 2, d / 2), Dd = P(-w / 2, d / 2), sides = { s: [A, B], e: [B, C], n: [C, Dd], w: [Dd, A] };
+    for (const p of o.doors || []) { const [a, b] = sides[p.side]; op(a[0], a[1], b[0], b[1], { w: 0.95, ...p, door: p.door !== false }, 0); }
+    return room0(x, z, w, d, yaw, o); };
+  const aabb = (geo, m) => { if (!geo.boundingBox) geo.computeBoundingBox(); const bb = geo.boundingBox.clone().applyMatrix4(m); return [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z]; };
+  const boxAB = (x, y0, z, hx, y1, hz, yaw) => { const c = Math.abs(Math.cos(yaw)), s = Math.abs(Math.sin(yaw)), ex = hx * c + hz * s, ez = hx * s + hz * c; return [x - ex, y0, z - ez, x + ex, y1, z + ez]; };
+  const rec = (bb, kind) => L.items.push({ bb, kind, src: where() });
+  const box0 = K.box; K.box = (x, y0, z, hx, y1, hz, yaw, mat) => { rec(boxAB(x, y0, z, hx, y1, hz, yaw), 'box'); return box0(x, y0, z, hx, y1, hz, yaw, mat); };
+  const blk0 = K.block; K.block = (x, y0, z, hx, y1, hz, yaw, ...r) => { rec(boxAB(x, y0, z, hx, y1, hz, yaw), 'block'); return blk0(x, y0, z, hx, y1, hz, yaw, ...r); };
+  const sol0 = K.solid; K.solid = (x, z, hx, hz, yaw, y1, surf, y0 = 0, ex) => { if (!(ex && (ex.off || ex.zOnly))) rec(boxAB(x, y0, z, hx, y1, hz, yaw), 'solid'); return sol0(x, z, hx, hz, yaw, y1, surf, y0, ex); };
+  const xa0 = K.xadd; K.xadd = (geo, mat, m, sh) => { rec(aabb(geo, m), 'xadd'); return xa0(geo, mat, m, sh); };
+  const in0 = K.inst; K.inst = (geo, mat, m, sh) => { rec(aabb(geo, m), 'inst'); return in0(geo, mat, m, sh); };
+}
+// the audit itself: every piece that intrudes into a doorway's clear space (the opening, 0.6 m either side of the wall)
+export function dzAudit(depth = 0.6) {
+  const L = globalThis.__DZLOG; if (!L) return null;
+  const hits = [];
+  for (const o of L.ops) {
+    const nx = -o.uz, nz = o.ux;
+    for (const it of L.items) {
+      const [x0, y0, z0, x1, y1, z1] = it.bb;
+      if (y1 < o.y0 + 0.08 || y0 > o.y0 + Math.min(o.top, 2.0)) continue;
+      // the AABB's corners in the opening's frame (along u, across n)
+      let a0 = 1e9, a1 = -1e9, n0 = 1e9, n1 = -1e9;
+      for (const [cx, cz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) { const dx = cx - o.x, dz = cz - o.z, a = dx * o.ux + dz * o.uz, n = dx * nx + dz * nz; a0 = Math.min(a0, a); a1 = Math.max(a1, a); n0 = Math.min(n0, n); n1 = Math.max(n1, n); }
+      if (a1 < -o.w / 2 + 0.05 || a0 > o.w / 2 - 0.05 || n1 < -depth || n0 > depth) continue;
+      if (a1 - a0 > o.w + 1.5 && n1 - n0 < 0.6 && Math.abs((n0 + n1) / 2) < 0.4) continue;   // (the wall itself / a long lintel running along it)
+      hits.push({ door: o.src + (o.door ? ' door' : ' gap') + ` @(${o.x.toFixed(1)},${o.z.toFixed(1)})`, item: it.kind + ' ' + it.src, y: [y0.toFixed(2), y1.toFixed(2)] });
+    }
+  }
+  return hits;
 }

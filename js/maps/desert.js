@@ -214,7 +214,7 @@ export function buildMap(K) {
     // --- inside: the living room and kitchen ---
     const kx = ss * (w / 2 - 0.55);
     const ky = yaw + (ss > 0 ? -PI / 2 : PI / 2);   // the kitchen faces into the room
-    { const [cx, cz] = P(kx - ss * 0.0, zs + 1.6); D.kitchenRun(cx, cz, ky, [{ k: 'cab', w: 0.8 }, { k: 'hob', w: 0.8 }, { k: 'sink', w: 0.8 }], { cab: 'cabWood2', top: 'd_tileB', splash: 'dzTileZ', splashH: 0.6, d: 0.66, props: true }); K.container('kitchen', cx, cz, 0.9, 'Kitchen shelves', yaw, H);
+    { const [cx, cz] = P(kx - ss * 0.0, zs + 1.6); D.kitchenRun(cx, cz, ky, [{ k: 'cab', w: 0.8 }, { k: 'hob', w: 0.8 }, { k: 'sink', w: 0.8 }], { cab: 'cabWood2', top: 'd_tileB', splash: 'dzTileZ', splashH: 0.6, d: 0.66, lite: true }); K.container('kitchen', cx, cz, 0.9, 'Kitchen shelves', yaw, H);
       { const [px, pz] = P(kx, zs + 0.95); inst(G.teapot, 'copper', mat4(px, 0.9, pz, r() * 6, 1.4, 1.4, 1.4)); }
       const [sx2, sz2] = P(ss * (w / 2 - 0.28), zs + 1.6); xadd(G.ubox, 'beam', mat4(sx2, 1.6, sz2, yaw, 0.3, 0.05, 2.2));
       for (let i = 0; i < 5; i++) { const [px, pz] = P(ss * (w / 2 - 0.3), zs + 0.7 + i * 0.42); inst(G.jar, i % 2 ? 'clay' : 'clayDark', mat4(px, 1.65, pz, r() * 6, 0.45, 0.45, 0.45)); } }

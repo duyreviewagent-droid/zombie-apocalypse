@@ -526,12 +526,16 @@ export function buildMap(K) {
   // in the boxes: a table and chairs each; the press box: desks, monitors, the commentators' notes
   for (let u = -45; u <= 45; u += 10) {
     if (Math.abs(u) < 6) continue;
-    const [x, z] = P(N, u, 17.3); K.block(x, L1, z, 0.9, L1 + 0.74, 0.5, 0, f => f === 'top' ? 'darkWood' : 'black', 'wood', true, { vault: true });
+    const [x, z] = P(N, u, 17.3); K.block(x, L1, z, 0.9, L1 + 0.7, 0.5, 0, 'black', 'wood', true, { vault: true });
+    K.box(x, L1 + 0.42, z, 0.93, L1 + 0.75, 0.53, 0, f => f === 'bot' ? null : 'white');   // a white tablecloth to the floor-ish, set for the match
+    for (const dx of [-0.5, 0, 0.5]) { K.WX(G.cyl, MAT.glass || MAT.shopGlass, x + dx, L1 + 0.82, z - 0.3, 0, 0.07, 0.14, 0.07); K.WX(G.cyl, MAT.white, x + dx, L1 + 0.755, z - 0.15, 0, 0.24, 0.01, 0.24); }
+    K.WX(G.cyl, MAT.greenPaint || MAT.black, x + 0.7, L1 + 0.9, z + 0.1, 0, 0.08, 0.3, 0.08); K.WX(G.cyl, MAT.redPaint || MAT.black, x - 0.75, L1 + 0.86, z + 0.15, 0, 0.12, 0.22, 0.12);
     for (const dx of [-0.6, 0, 0.6]) K.inst(G.chair, MAT.black, K.mat4(x + dx, L1, z - 0.8, 0));
     // balcony seats in front of the glass
     for (let k = 0; k < 8; k++) { const [bx2, bz2] = P(N, u - 4.3 + k * 0.62, 14.3); K.inst(G.seat, MAT.sdSeatG, K.mat4(bx2, L1, bz2, 0)); }
   }
-  { for (let k = 0; k < 6; k++) { const [x, z] = P(N, -6.5 + k * 2.6, 15.6); K.block(x, L1, z, 1.2, L1 + 0.75, 0.35, 0, f => f === 'top' ? 'counter' : 'black', 'wood', true, { vault: true }); K.inst(G.monitor, MAT.screen, K.mat4(x, L1 + 0.75, z + 0.1 * (N.o[1] < 0 ? -1 : 1), Math.PI)); K.inst(G.chair, MAT.black, K.mat4(x, L1, z - 0.9, Math.PI)); }
+  { for (const uD of [-6.75, -4.35, -0.85, 1.75, 4.35]) { const [x, z] = P(N, uD, 15.6); K.solid(x, z, 1.2, 0.35, 0, L1 + 0.75, 'wood', L1, { vault: true }); DZ.abox(DZ.A, { nz: 'drawers3', side: 'white', top: 'white' }, x, L1, z, 1.2, L1 + 0.72, 0.35, 0); K.box(x, L1 + 0.72, z, 1.22, L1 + 0.76, 0.37, 0, 'dzLaminate');
+      for (const dx of [-0.5, 0.5]) { K.WX(G.cyl, MAT.chrome, x + dx, L1 + 0.86, z + 0.05, 0, 0.02, 0.2, 0.02); K.WX(G.box, MAT.black, x + dx, L1 + 0.97, z + 0.05, 0, 0.05, 0.09, 0.05); K.WX(G.box, MAT.black, x + dx + 0.25, L1 + 0.77, z - 0.15, 0, 0.18, 0.05, 0.12); }   /* microphones, headsets */ K.inst(G.monitor, MAT.screen, K.mat4(x, L1 + 0.75, z + 0.1 * (N.o[1] < 0 ? -1 : 1), Math.PI)); K.inst(G.chair, MAT.black, K.mat4(x, L1, z - 0.9, Math.PI)); }
     const [x, z] = P(N, 0, 15.6); cUp('cabinet', x, z, L1 + 0.8, 'Commentary desk', 0);
     const [sx, sz] = P(N, 0, 14.85); sign(['PRESS'], sx, L1 + 2.75, sz, 0, 1.6, 0.36, '#1a1a1a'); }
   // the hospitality lounge: a long bar, tables
@@ -541,7 +545,7 @@ export function buildMap(K) {
       for (let q = 0; q < 3; q++) { const [fx, fz] = P(N, -39 + q * 8, 29.77); DZ.abox(DZ.A, { nz: 'drinks', pz: 'drinks', side: 'white', top: 'steel' }, fx, L1, fz, 0.45, L1 + 0.85, 0.18, 0); } }
     for (let k = 0; k < 6; k++) { const [tx, tz] = P(N, -46 + k * 6, 24.5); K.block(tx, L1, tz, 0.6, L1 + 0.74, 0.6, 0, f => f === 'top' ? 'white' : 'black', 'wood', true, { vault: true }); for (const a of [0, 1.57, 3.14, 4.71]) K.inst(G.chair, MAT.darkWood, K.mat4(tx + Math.sin(a) * 0.95, L1, tz + Math.cos(a) * 0.95, a + Math.PI)); } }
   // the police control room: a wall of CCTV monitors over the pitch-side window, desks, the radio
-  { for (let k = 0; k < 5; k++) { const [x, z] = P(N, -10 + k * 3.4, 29.3); K.block(x, L1, z, 1.4, L1 + 0.75, 0.4, 0, f => f === 'top' ? 'counter' : 'black', 'wood'); for (let j = 0; j < 2; j++) K.inst(G.monitor, MAT.screen, K.mat4(x - 0.4 + j * 0.8, L1 + 0.75, z, Math.PI)); }
+  { for (let k = 0; k < 5; k++) { const [x, z] = P(N, -10 + k * 3.4, 29.3); K.solid(x, z, 1.4, 0.4, 0, L1 + 0.75, 'wood', L1); DZ.abox(DZ.A, { pz: 'drawers3', side: 'white', top: 'white' }, x, L1, z, 1.4, L1 + 0.72, 0.4, 0); K.box(x, L1 + 0.72, z, 1.42, L1 + 0.76, 0.42, 0, 'dzLaminate'); K.WX(G.box, MAT.black, x + 0.6, L1 + 0.77, z + 0.15, 0, 0.3, 0.02, 0.12); K.WX(G.box, MAT.black, x - 0.7, L1 + 0.8, z + 0.1, 0, 0.1, 0.08, 0.18); for (let j = 0; j < 2; j++) K.inst(G.monitor, MAT.screen, K.mat4(x - 0.4 + j * 0.8, L1 + 0.75, z, Math.PI)); }
     const [x, z] = P(N, -2, 29.3); cUp('police', x, z, L1 + 0.8, 'Police equipment locker', 0, null, { fixed: [['ammo9', 12]] });
     const [cx, cz] = P(N, -8, 22); cUp('cabinet', cx, cz, L1 + 0.9, 'Briefing table', 0);
     K.block(cx, L1, cz, 1.6, L1 + 0.74, 0.7, 0, f => f === 'top' ? 'white' : 'black', 'wood', true, { vault: true }); }

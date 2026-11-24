@@ -607,7 +607,7 @@ export function buildMap(K) {
     void H;
     D.abox(JA, { nz: 'supplies', pz: 'supplies', side: 'olive', top: 'olive' }, 24.6, 0, 110, 0.8, 0.9, 0.35, 0); K.solid(24.6, 110, 0.8, 0.35, 0, 0.9, 'wood'); K.container('shelf', 24.6, 110.1, 0.9, 'Bait shelf', 0);
     D.abox(D.A, { pz: 'cabWood2', nz: 'cabWood2', side: 'white', top: 'white' }, 29.8, 0, 106.7, 0.5, 1.6, 0.25, 0); K.solid(29.8, 106.7, 0.5, 0.25, 0, 1.6, 'wood'); K.container('cabinet', 29.8, 107, 0.9, 'Tool cupboard', Math.PI);
-    D.face(JA, 'tools', 27.4, 1.55, 110.84, Math.PI, 1.3, 1.0); D.face(JA, 'map', 24.6, 1.75, 110.84, Math.PI, 0.9, 0.7);
+    D.face(JA, 'tools', 27.4, 1.55, 110.84, Math.PI, 1.3, 1.0);
     K.container('cooler', 25, 107, 0.3, 'Fish cooler', 0); propBox(25, 0, 107, 0.4, 0.45, 0.3, 0, M.jCooler, 'plastic', [0.05, 0.1, 0.3, 0.4]);
     for (const [x, z] of [[33, 111.5], [33.7, 112.2], [32.6, 112.6]]) K.xadd(G.drum, M.jDrumBlue, mat4(x, 0, z, R())); K.solid(33.2, 112.1, 0.9, 0.9, 0, 0.9, 'metal');
   }
