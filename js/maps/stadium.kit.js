@@ -326,7 +326,8 @@ export function builder(K) {
 // brightness × that person's colour; norm = 1 / the texture's mean brightness where the mesh uses it).
 // Standing: one frame of the idle, feet on y = 0, centred. Sitting: the idle's arms, legs bent, hips over a seat pan
 // (0.45 m up, a little behind the origin), hands on the thighs. Faces +z like the models.
-const partOf = n => /Teeth/i.test(n) ? -1 : /Ch03/i.test(n) ? 5 : /Outfit_Top/i.test(n) ? 1 : /Outfit_Bottom/i.test(n) ? 2 : /Wolf3D_(Skin|Body)/i.test(n) ? 3 : /Hair|Beard|Headwear/i.test(n) ? 4 : 0;
+const partOf = n => /Teeth|Headwear/i.test(n) ? -1 :   // (no hats: a dark hat over a red top is the player's look)
+  /Ch03/i.test(n) ? 5 : /Outfit_Top/i.test(n) ? 1 : /Outfit_Bottom/i.test(n) ? 2 : /Wolf3D_(Skin|Body)/i.test(n) ? 3 : /Hair|Beard|Headwear/i.test(n) ? 4 : 0;
 const lumCache = new WeakMap();
 function texLum(map, uvs) {   // the mean linear brightness of a texture over the uvs a mesh uses
   const img = map && map.image; if (!img || !img.width) return 1;

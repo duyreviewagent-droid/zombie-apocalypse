@@ -117,6 +117,7 @@ export function beats(G, api = {}) {
   { const pp = api.playerPos ? api.playerPos() : (G && G.player && G.player.s ? G.player.s.pos : null); S.you = pp ? { x: pp.x, z: pp.z, y: pp.y } : null; }
   // real time from the stadium's own clock (frame-rate independent; main.js doesn't pass dt)
   const now = S.t || 0, dt = B.last == null ? 0 : Math.max(0, Math.min(0.25, now - B.last)); B.last = now;
+  if (phase === 'calm' || phase === 'news') B.live = true;   // (saw the match: a save loaded later finds the ground already emptied)
   if (phase === 'calm' || (phase === 'news' && !B.cut)) {
     // the match: kick-off at 19:45, the score, a roar for each goal, singing in between
     if (h >= kickoffHour) { S.minute = Math.min(45, Math.floor((h - kickoffHour) * 60)); S.screenMsg = null; } else { S.minute = 0; S.screenMsg = 'WELCOME TO HARBOR CITY STADIUM'; }
@@ -135,8 +136,9 @@ export function beats(G, api = {}) {
     // the match plays on under the announcements; the power goes just after "...oh my God" (18.2 s)
     if (phase === 'news') { B.newsT += dt; S.halted = B.newsT > 4.6; if (B.newsT > 19) blackout(S); }   // ("the match has been temporarily suspended")
   } else if (!B.cut) blackout(S);
-  // the panic: 10 s of frantic movement in the thinning crowd after the blackout
-  if (B.cut && B.panicT > 0) { B.panicT = Math.max(0, B.panicT - dt); S.cheer(B.panicT > 0 ? 0.6 * Math.min(1, B.panicT / 3) : 0); }
+  // the panic: the ones still in their seats jump up and down for a few seconds before they get out (stadium.evac.js
+  // walks everybody out: stood up a few seconds apart, along the rows, down / up the aisles, out of the corners to the gates)
+  if (B.cut && B.panicT > 0) { B.panicT = Math.max(0, B.panicT - dt); S.cheer(B.panicT > 0 ? 0.3 * Math.min(1, B.panicT / 3) : 0); }
   if (S.hasKey) { say('key', 'The floodlight key. Now the switch room — up the back stairs, outside the Main Stand.'); if (phase === 'outbreak' && api.setStage) api.setStage(2, 1.2); }   // (THE TUNNEL is done: LIGHTS ON)
   if (S.lockedTry && S.lockedTry !== B.lockedSeen) { B.lockedSeen = S.lockedTry; if (api.think && !S.hasKey) api.think('Locked. It needs the floodlight key — Gus keeps it in the red cabinet in his store.', 3); }
   // LIGHTS ON is done when the floodlights are on and it's nearly two (not on the clock alone: in the dark the helicopter turns away)
@@ -148,10 +150,10 @@ export function beats(G, api = {}) {
     if (near('switchRoom', 4) && !S.hasKey) say('nokey', 'The panel needs a key. The groundsman\'s store — under the Main Stand.');
   }
 }
-function blackout(S) { B.cut = true; B.panicT = 10; S.setPower(false); S.setLights(false); S.setCrowd(false); S.broken = true; S.screenMsg = 'EVACUATE'; S.cheer(0.6); }
+function blackout(S) { B.cut = true; B.panicT = 10; S.setPower(false); S.setLights(false); S.setCrowd(false, !B.live); S.broken = true; S.screenMsg = 'EVACUATE'; S.cheer(0.3); }
 // a fresh run (main.js may call this on restart)
 export function reset() {
-  Object.assign(B, { cut: false, said: {}, last: null, newsT: 0, panicT: 0, lockedSeen: 0 });
+  Object.assign(B, { cut: false, said: {}, last: null, newsT: 0, panicT: 0, lockedSeen: 0, live: false });
   Object.assign(STADIUM, { power: true, lights: true, crowd: true, hasKey: false, switchedOn: false, switchT: null, score: [0, 0], minute: 0, broken: false, screenMsg: null, goalT: 0, goalBig: 0, lockedTry: 0, halted: false, wantGoal: null });
   if (STADIUM.match && STADIUM.match.reset) STADIUM.match.reset();
   if (STADIUM.keyC) STADIUM.keyC.searched = false;

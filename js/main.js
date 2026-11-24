@@ -42,7 +42,8 @@ import * as MP from './mp.js';   // MP: online multiplayer (mp.js + net.js + p2p
 import * as LOOKS from './looks.js';   // [looks] everyone their own look, you included
 import * as SHOP from './shop.js';   // [zLux] money + a store on every map (shop.js, money.js)
 import * as BOSS from './bosses.js';   // [boss] mini bosses, bosses and THE ZOMBIE (bosses.js; zombies.js rolls them)
-import { whoInfoHTML, WHO_INFO_CSS } from './whoinfo.js';   // [who] the file on the person you pick
+import { whoInfoHTML, WHO_INFO_CSS } from './whoinfo.js';
+import * as ACC from './access.js';   // [acc] accessibility: damage numbers, zombie counter, health bars, danger arrows, bigger text   // [who] the file on the person you pick
 // line icons into the static markup
 for (const e of document.querySelectorAll('[data-ic]')) e.outerHTML = icon(e.dataset.ic);
 
@@ -269,7 +270,10 @@ const loadGLB = (name, n = 4) => new Promise((res, rej) => loader.load(`models/$
   if (e.total) { progress[name] = e.loaded / e.total; const s = Object.values(progress).reduce((a, b) => a + b, 0) / files.length; $('loadbar').style.width = (s * 55) + '%'; }
 }, err => n > 1 ? setTimeout(() => loadGLB(name, n - 1).then(res, rej), 900) : rej(err)));
 const tick = () => new Promise(r => setTimeout(r, 0));
-const ZOMBIES = Q.has('zn') ? +Q.get('zn') : MOB ? Math.round(34 * MOB.poolScale) : 34;
+// [mapz] bigger maps, more of the dead: Maple ×2, Arroyo Seco ×3, Blackwater ×3, Rio Verde ×4, the stadium ×6 (the user's numbers).
+// The pool of bodies grows with it, capped so the game stays playable (desktop 120 bodies, phones/tablets fewer).
+const MAPZ = { maple: 2, desert: 3, prison: 3, jungle: 4, stadium: 6 }[MAP_ID] || 1;
+const ZOMBIES = Q.has('zn') ? +Q.get('zn') : MOB ? Math.min(Math.round(34 * MOB.poolScale * MAPZ), Math.round(70 * MOB.poolScale)) : Math.min(34 * MAPZ, 120);
 let TIPS = ['Only the head kills for sure.', 'Gunshots bring the whole street.', 'Close a door behind you. They\'ll have to beat it down.', 'At night they can barely see you — unless your flashlight is on.', 'Rain covers the sound of your footsteps.', 'Grabbed? Mash Space before it bites.', 'A thrown bottle draws them away.', 'Bandage a cut before you bleed out.', 'The big ones don\'t stagger. Don\'t trade blows.', 'Crouch to move quietly.'];
 let tipI = 0; const tipTimer = setInterval(() => { const e = $('loadtip'); if (!e) return; e.style.opacity = 0; setTimeout(() => { e.textContent = TIPS[tipI++ % TIPS.length]; e.style.opacity = 1; }, 600); }, 3200);
 // [ldz] the loading screen's dancer: one of the game's own zombies (the real body, its zombie skin and clothes, the
@@ -346,6 +350,7 @@ async function load() {
   await tick();   // (let the bar and the tips repaint between the big pieces)
   if (!MAPLE()) placeMapNotes();
   if (world.lockGates) world.lockGates();
+  ACC.init({ C, G, save, camera, Z, P: () => P, writeSave });   // [acc]
   SHOP.init({ scene, world, camera, G, keys, KINDS, PEOPLE, SND, P: () => P, MAP_ID: () => MAP_ID, toast, think, addItem, startSearch, showScreen, closeBag, equipGun, startThrow, later, fillTank });   // [zLux] the store, its keeper, the HUD wallet
   initHeli();
   DRIVE.initDrive({ scene, world, SND, fx, camera, damage, noise, Z, C, getP: () => P, hasKeys: () => (G.inv && G.inv.keys || 0) > 0, PEOPLE });
@@ -2526,7 +2531,7 @@ function populate(dt, initial = false) {
   G.popT = (G.popT || 0) - dt; if (G.popT > 0 && !initial) return; G.popT = 1.2;
   const night = world.night > 0.5;
   const ramp = G.phase === 'outbreak' ? clamp(0.3 + (G.t - G.obT) / (HOUR * 2.2), 0.3, 1) : 0;
-  const want = Math.max(1, Math.min(Z.pool.length - 4, Math.round(((night ? 26 : 12) + (G.day - 1) * 3 + (initial ? 4 : 0)) * DIFF.count * ramp * (1 + 0.4 * (MP.playerCount() - 1)))));   // MP: more players, more of them   // the night is when they come out
+  const want = Math.max(1, Math.min(Z.pool.length - 4, Math.round(((night ? 26 : 12) + (G.day - 1) * 3 + (initial ? 4 : 0)) * DIFF.count * MAPZ * ramp * (1 + 0.4 * (MP.playerCount() - 1)))));   // MP: more players, more of them   // the night is when they come out
   // put far-away ones back to sleep (not the ones after you, not Dale)
   for (const u of [...Z.list]) {
     const d = MP.on() ? MP.nearDist(u.s.pos, P) : u.s.pos.distanceTo(P.s.pos);   // MP: near anybody
@@ -3401,6 +3406,7 @@ function step(dt) {
   G.t += dt; C.t = G.t;
   runTimers();
   SHOP.update(dt);   // [zLux]
+  ACC.update(dt);   // [acc]
   if (G.state === 'play' || G.state === 'dead' || bagOpen) {
     edgeSteer(dt);
     if (G.state !== 'dead') survive(dt);

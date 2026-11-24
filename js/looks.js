@@ -87,6 +87,7 @@ export function lookFor(key, body) {
       const d = lookDiff(L, o);
       if (d < md) md = d;
       if (o.body === L.body && o.top === L.top && o.bot === L.bot) md = Math.min(md, MIN_DIFF - 1);   // never the same outfit on the same body
+      if (o.top === L.top && (o.hat + o.hatCol) === (L.hat + L.hatCol)) md = Math.min(md, MIN_DIFF - 1);   // nor the same shirt under the same hat (the first thing you notice)
       if (md < bestD) break;
     }
     if (md > bestD) { best = L; bestD = md; }
@@ -113,6 +114,13 @@ const GLSL = {
   vec3 lkDye(vec3 c, vec2 uv){
     vec3 s = pow(max(c, 0.0), vec3(1.0 / 2.2)) * 255.0; vec4 h = lkHsl(s);
     float k = 0.5 + 0.5 * clamp(h.z / 80.0, 0.0, 1.9), keep = smoothstep(150.0, 205.0, h.z) * (1.0 - h.y), w = 0.85 * (1.0 - keep);
+    return pow(mix(s, lkA * 255.0 * k, w) / 255.0, vec3(2.2)); }`,
+  // mode 2: trousers/skirts (Ready Player Me Outfit_Bottom): dyed right through — only near-white trims survive, so a
+  //         cream pair of trousers doesn't stay cream on everybody (nobody's twin from the waist down either)
+  2: `uniform vec3 lkA;${GLSL_HSV}
+  vec3 lkDye(vec3 c, vec2 uv){
+    vec3 s = pow(max(c, 0.0), vec3(1.0 / 2.2)) * 255.0; vec4 h = lkHsl(s);
+    float k = 0.55 + 0.45 * clamp(h.z / 90.0, 0.0, 1.9), keep = smoothstep(225.0, 250.0, h.z) * (1.0 - h.y), w = 0.92 * (1.0 - keep);
     return pow(mix(s, lkA * 255.0 * k, w) / 255.0, vec3(2.2)); }`,
   0: `uniform vec3 lkA, lkB, lkSkin; uniform sampler2D lkMask;${GLSL_HSV}
   vec3 lkDye(vec3 c, vec2 uv){
@@ -476,7 +484,7 @@ export function applyLook(s, L, { zombie = false } = {}) {
         skinUp(m, /Wolf3D_Head/.test(n));   // [chars] pores, a little oil, light scattering warm under the skin
       } else if (/Outfit_(Top|Bottom)|Footwear/.test(n)) {
         const which = /Top/.test(n) ? 'top' : /Bottom/.test(n) ? 'bot' : 'shoe', col = which === 'top' ? TOPS[L.top] : which === 'bot' ? BOTTOMS[L.bot] : SHOES[L.shoe];
-        const U = { lkA: { value: v3(col) } }; o.material = dyeMat(m0, 1, U); s.lookU.push([which, U]);
+        const U = { lkA: { value: v3(col) } }; o.material = dyeMat(m0, which === 'bot' ? 2 : 1, U); s.lookU.push([which, U]);
       } else if (/Eye|Teeth/.test(n) && !/Brow|Lash/.test(n)) { o.material = wetMat(m0, /Eye/.test(n) ? 0.12 : 0.42);   // [chars] wet eyes catch the light
       } else if (/Hair|Beard|Headwear/.test(n)) o.visible = false;   // their own: the look brings its own
     });

@@ -13,6 +13,7 @@ import * as LOOT from '../loot.js';
 import { tier } from '../tex.js';
 const ITEMS = LOOT.ITEMS || {}, LOOT_PANEL = !!(LOOT.LOOT_KINDS && LOOT.LOOT_KINDS.panel);
 import { makeMatch } from './stadium.match.js';
+import { makeEvac } from './stadium.evac.js';
 import { textures, signAtlas, barsTexture, geos, builder, rng, bakePerson, personSource, HOME, AWAY, stadiumDecor } from './stadium.kit.js';
 const Q_HAS = k => { try { return new URLSearchParams(location.search).has(k); } catch { return false; } };
 const Q_NOREAL = () => Q_HAS('noreal');   // (test hooks: ?noreal — the far crowd figures only; ?nomatch — nobody on the pitch)
@@ -89,6 +90,7 @@ export function buildMap(K) {
   add('sdLocker', std({ map: T.locker, roughness: 0.6 }), 2);
   add('sdConc', std({ map: K.TX.concreteTexture(0.85), color: 0xb8b4aa, roughness: 0.55 }), 4);   // polished concourse floor
   add('sdSteel', std({ color: 0xa8adb2, roughness: 0.45, metalness: 0.6 }));   // (painted steel: a white one glared under the floodlights)
+  add('sdFin', std({ color: 0x5a6068, roughness: 0.72, metalness: 0.2, envMapIntensity: 0.3 }));   // the façade's steel fins: matt dark grey (shiny ones glared white as light strips at night)
   add('sdGlassBand', std({ color: 0x1a2430, roughness: 0.08, metalness: 0.6, envMapIntensity: 1.5 }), 4);
   add('sdRoofTop', std({ map: K.TX.corrugatedTexture([170, 176, 182]), roughness: 0.5, metalness: 0.6 }), 4);
   add('sdRoofUnder', std({ map: K.TX.corrugatedTexture([206, 208, 210]), roughness: 0.7, metalness: 0.3 }), 3);   // (the underside of the profiled steel deck)
@@ -224,7 +226,7 @@ export function buildMap(K) {
           K.inst(seatGeo, seatMat(st), K.mat4(x, y, z, yaw), false);
           if (st.main && Math.abs(x - PLAYER_SEAT[0]) < 1.1 && Math.abs(z - PLAYER_SEAT[1]) < 0.4) continue;   // your seat and Ben's
           if (st.main && i > 11 && i <= 13 && Math.abs(x - PLAYER_SEAT[0]) < 1.6) continue;   // (the two rows behind you: nobody's head in the camera)
-          if (R() < 0.82) fans.push([x, y, z, yaw, st.away ? (R() < 0.8 ? 2 : 3) : R() < 0.55 ? 0 : R() < 0.7 ? 1 : 3]);
+          if (R() < 0.82) fans.push([x, y, z, yaw, st.away ? (R() < 0.8 ? 2 : 3) : R() < 0.55 ? 0 : R() < 0.7 ? 1 : 3, st.id, u, i, 0]);   // (+ where: stand, along, row, tier — the way out at the evacuation)
         }
       }
     }
@@ -335,7 +337,7 @@ export function buildMap(K) {
     for (const [a, b, ya, yb] of ops.concat([[L - 0.6, L, 0, 99]])) { if (yb > g0 && ya < g1) { if (a - 0.3 > ug) sbox(st, ug, out, a - 0.3, out + 0.04, g0, g1, { [bf(st)]: 'sdGlassBand' }, { solid: false }); ug = b + 0.3; } }
     for (let uf = -L + 2.5; uf < L - 1; uf += 5) {
       if (ops.some(([a, b]) => uf > a - 0.6 && uf < b + 0.6) || Math.abs(uf) < 8.6) continue;   // (none across the stand's name)
-      const [x, z] = P(st, uf, out + 0.3); K.inst(G.box, MAT.sdSteel, K.mat4(x, (yTop - 1.2) / 2, z, Math.atan2(st.o[0], st.o[1]), 0.22, yTop - 1.2, 0.6));
+      const [x, z] = P(st, uf, out + 0.3); K.inst(G.box, MAT.sdFin, K.mat4(x, (yTop - 1.2) / 2, z, Math.atan2(st.o[0], st.o[1]), 0.22, yTop - 1.2, 0.6));
     }
     // a canopy over each ground-level gate
     for (const [a, b, ya] of ops) if (ya < 0.5) { const [cx, cz] = P(st, (a + b) / 2, out + 1.0); const ax = Math.abs(st.a[0]) > 0.5; K.box(cx, 3.35, cz, ax ? (b - a) / 2 + 0.8 : 1.0, 3.55, ax ? 1.0 : (b - a) / 2 + 0.8, 0, f => f === 'top' ? 'sdRoofTop' : f === 'bot' ? 'sdRoofUnder' : 'sdBand'); }
@@ -640,7 +642,7 @@ export function buildMap(K) {
     for (let j = 0; j < n; j++) {
       const v0 = vu + j * d2, y = yu + j * r2;
       sbox(N, -50, v0, 50, v0 + d2, y - r2 - 0.1, y, f => f === 'top' ? 'sdTread' : 'sdRiser', { extra: { noWalk: true } });
-      for (let u = -49.7; u <= 49.7; u += 0.5) { const [x, z] = P(N, u, v0 + 0.46); K.inst(seatGeo, Math.abs(u) < 12 && j > 3 && j < 9 && ((Math.floor(u / 2) + j) % 3 === 0) ? seatHB : seatHC, K.mat4(x, y, z, 0), false); if (R() < 0.85) fans.push([x, y, z, 0, R() < 0.6 ? 0 : 1]); }
+      for (let u = -49.7; u <= 49.7; u += 0.5) { const [x, z] = P(N, u, v0 + 0.46); K.inst(seatGeo, Math.abs(u) < 12 && j > 3 && j < 9 && ((Math.floor(u / 2) + j) % 3 === 0) ? seatHB : seatHC, K.mat4(x, y, z, 0), false); if (R() < 0.85) fans.push([x, y, z, 0, R() < 0.6 ? 0 : 1, 'N', u, j, 1]); }
     }
     // the club crest on the upper tier's front, the clock
     const [cx, cz] = P(N, 0, 18.75); K.xadd(G.plane, std({ map: T.crest, transparent: true, alphaTest: 0.1, roughness: 0.5, emissive: 0xffffff, emissiveMap: T.crest, emissiveIntensity: 0.25 }), K.mat4(cx, L1 + 3.65, cz + 0.01, 0, 1.6, 1.6, 1), false);
@@ -736,6 +738,7 @@ export function buildMap(K) {
 
   // ================================================================ the outside: fences, corners, plaza, car park
   // the corners: steel palisade from stand to stand, a gate for vehicles (shut) and a door for people
+  const cornerDoors = [];   // (the stewards throw these open at the evacuation)
   const palisade = (x0, z0, x1, z1, doorAt = null) => {
     const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0), Lp = alongX ? Math.abs(x1 - x0) : Math.abs(z1 - z0), sgn = alongX ? Math.sign(x1 - x0) : Math.sign(z1 - z0);
     const at = a => alongX ? [x0 + sgn * a, z0] : [x0, z0 + sgn * a];
@@ -747,7 +750,7 @@ export function buildMap(K) {
       box(ax - (alongX ? 0 : 0.06), az - (alongX ? 0.06 : 0), bx2 + (alongX ? 0 : 0.06), bz2 + (alongX ? 0.06 : 0), 0, 2.9, null, { surf: 'metal', extra: { window: true } });
       for (let k = a; k <= b + 0.01; k += 3) { const [px, pz] = at(Math.min(k, b)); K.inst(G.box, MAT.sdPalisade, K.mat4(px, 1.45, pz, 0, 0.1, 2.95, 0.1)); }
     }
-    if (doorAt != null) { const [hx, hz] = at(doorAt - 0.55); K.door(hx, hz, alongX ? 0 : -Math.PI / 2 * sgn, 1, 0x1e3a2a, null, { w: 1.1, hp: 400 }); }
+    if (doorAt != null) { const [hx, hz] = at(doorAt - 0.55); const dr = K.door(hx, hz, alongX ? 0 : -Math.PI / 2 * sgn, 1, 0x1e3a2a, null, { w: 1.1, hp: 400 }); if (dr) cornerDoors.push(dr); }
   };
   for (const sx of [-1, 1]) {
     palisade(sx * 52.9, -70.5, sx * 76.0, -70.5, 11.5);   // north corners (the stairs end at 52.7)
@@ -977,12 +980,22 @@ export function buildMap(K) {
   for (const st of Object.values(STANDS)) for (let k = 0; k < (st.main ? 50 : 70); k++) { let u = (R() - 0.5) * st.L * 1.8; const v = st.main ? 24 + R() * 4 : CONC + 4 + R() * 3, yaw = R() * 6.28, col = R() < 0.7 ? (st.away ? 2 : 0) : 3; if (inRoom(st, u)) continue; const [x, z] = P(st, u, v); standers.push([x, z, yaw, col]); }
   // ================================================================ the crowd (calm evening only): instanced fans
   const crowd = new THREE.Group(); K.level.add(crowd);
-  const crowdUni = { cT: { value: 0 }, cCheer: { value: 0.15 }, cKeep: { value: 1 } };
-  const crowdMat = (rough) => { const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: rough }); m.onBeforeCompile = sh => { Object.assign(sh.uniforms, crowdUni); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float cT, cCheer, cKeep; attribute float aRank;').replace('#include <begin_vertex>', `#include <begin_vertex>
+  const crowdUni = { cT: { value: 0 }, cCheer: { value: 0.15 }, cKeep: { value: 1 }, eT: { value: -1 } };
+  // the evacuation (stadium.evac.js): a standing fan walking out swings his legs and arms and bobs in step (aWalk: the
+  // stride's phase and how big it is, written each frame), and doesn't do the cheering bounce on the move; a seat's fan
+  // is gone from it once he's stood up (aGo: when, against eT — the seconds since the evacuation began)
+  const WALK_GLSL = `
+        if (aWalk.y > 0.001) {
+          float sw = sin(aWalk.x) * aWalk.y, an, dy, dz; vec3 q = transformed;
+          if (abs(q.x) > 0.19 && q.y < 1.47 && q.y > 0.7) { an = sw * 0.55 * sign(q.x); dy = q.y - 1.43; dz = q.z; transformed.y = 1.43 + dy * cos(an) - dz * sin(an); transformed.z = dy * sin(an) + dz * cos(an); }
+          else if (q.y < 0.9) { an = -sw * 0.5 * sign(q.x); dy = q.y - 0.9; dz = q.z; transformed.y = 0.9 + dy * cos(an) - dz * sin(an); transformed.z = dy * sin(an) + dz * cos(an); }
+          transformed.y += (abs(cos(aWalk.x)) - 0.5) * 0.05 * aWalk.y;
+        }`;
+  const crowdMat = (rough, kind = '') => { const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: rough }); m.onBeforeCompile = sh => { Object.assign(sh.uniforms, crowdUni); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float cT, cCheer, cKeep, eT; attribute float aRank;' + (kind === 'walk' ? ' attribute vec2 aWalk;' : kind === 'seat' ? ' attribute float aGo;' : '')).replace('#include <begin_vertex>', `#include <begin_vertex>
       { vec3 ip = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]); float ph = fract(sin(dot(ip.xz, vec2(12.9898, 78.233))) * 43758.5453);
-        float b = max(0.0, sin(cT * (5.0 + ph * 3.0) + ph * 40.0)); transformed.y += b * b * cCheer * smoothstep(0.3, 0.9, position.y);
-        transformed.x += sin(cT * 1.3 + ph * 20.0) * 0.03 * smoothstep(0.6, 1.3, position.y);
-        transformed *= step(aRank, cKeep); }`); }; m.customProgramCacheKey = () => 'sdCrowd' + rough; return m; };
+        float b = max(0.0, sin(cT * (5.0 + ph * 3.0) + ph * 40.0)); transformed.y += b * b * cCheer${kind === 'walk' ? ' * (1.0 - step(0.001, aWalk.y))' : ''} * smoothstep(0.3, 0.9, position.y);
+        transformed.x += sin(cT * 1.3 + ph * 20.0) * 0.03 * smoothstep(0.6, 1.3, position.y);${kind === 'walk' ? WALK_GLSL : ''}
+        transformed *= step(aRank, cKeep)${kind === 'seat' ? ' * step(eT, aGo)' : ''}; }`); }; m.customProgramCacheKey = () => 'sdCrowd' + rough + kind; return m; };
   // three instanced parts per person, far off: shirt + arms (team colours), trousers + shoes, skin (head, neck, hands),
   // hair / hat. Up close (see "real people" below) they're the game's own character models.
   const LT = tier(), sg = LT > 1 ? 5 : 7;
@@ -1022,21 +1035,25 @@ export function buildMap(K) {
   const dress = (list, seated) => list.map((f, idx) => {
     const [x, y, z, yaw, ci] = seated ? f : [f[0], 0, f[1], f[2], f[3]], hair = pick(HAIR), dense = !seated && !!f[4];
     return { x, y, z, yaw, s: 0.9 + CR() * 0.18, shirt: (CR() < 0.2 ? SHIRT[3 + Math.floor(CR() * 3)] : SHIRT[ci]).clone().multiplyScalar(0.8 + CR() * 0.3),
-      legs: pick(JEANS), skin: pick(SKIN), hair, hat: CR() < 0.3 ? SHIRT[ci] : hair, kind: (CR(), (idx * 0.381966) % 1), near: false, rank: CR(), dense };   // (rank: who's still there as the crowd thins — the shader and the collision go by the same number)
+      legs: pick(JEANS), skin: pick(SKIN), hair, hat: CR() < 0.3 ? SHIRT[ci] : hair, kind: (CR(), (idx * 0.381966) % 1), near: false, rank: CR(), dense, m: seated ? f.slice(5) : null };   // (rank: who's still there as the crowd thins — the shader and the collision go by the same number)
   });
   const mtx = new THREE.Matrix4(), qY = new THREE.Quaternion(), vS = new THREE.Vector3(), vP = new THREE.Vector3(), AY = new THREE.Vector3(0, 1, 0), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   const place = f => mtx.compose(vP.set(f.x, f.y, f.z), qY.setFromAxisAngle(AY, f.yaw), vS.setScalar(f.s));
-  const people = (list, kit, seated) => {
-    const n = list.length, parts = ['top', 'legs', 'head', 'hair'].map(k => new THREE.InstancedMesh(kit[k], crowdMat(k === 'head' ? 0.6 : 0.85), n));
+  const people = (list, kit, seated, hidden = false) => {
+    const n = list.length, parts = ['top', 'legs', 'head', 'hair'].map(k => new THREE.InstancedMesh(kit[k], crowdMat(k === 'head' ? 0.6 : 0.85, seated ? 'seat' : 'walk'), n));
     list.forEach((f, i) => {
-      place(f); for (const im of parts) im.setMatrixAt(i, mtx);
+      if (hidden) parts[0].setMatrixAt(i, ZERO); else { place(f); parts[0].setMatrixAt(i, mtx); }
       parts[0].setColorAt(i, f.shirt); parts[1].setColorAt(i, f.legs); parts[2].setColorAt(i, f.skin); parts[3].setColorAt(i, f.hat);   // (a third of them in a bobble hat)
     });
+    // (one set of matrices for all four parts — they always move together: one upload, not four)
+    for (const im of parts) if (im !== parts[0]) im.instanceMatrix = parts[0].instanceMatrix;
     const rk = new Float32Array(n); list.forEach((f, i) => { rk[i] = f.rank; });
-    for (const im of parts) { im.geometry.setAttribute('aRank', new THREE.InstancedBufferAttribute(rk, 1)); im.castShadow = !seated; im.receiveShadow = true; im.computeBoundingSphere(); crowd.add(im); }
+    const aRank = new THREE.InstancedBufferAttribute(rk, 1), extra = seated ? new THREE.InstancedBufferAttribute(new Float32Array(n).fill(1e6), 1) : new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2);
+    extra.setUsage(THREE.DynamicDrawUsage); parts[0].instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (const im of parts) { im.geometry.setAttribute('aRank', aRank); im.geometry.setAttribute(seated ? 'aGo' : 'aWalk', extra); im.castShadow = !seated && !hidden; im.receiveShadow = true; im.computeBoundingSphere(); crowd.add(im); }
     // the standing crowd is solid (you can't walk through the queue); a fan who's gone takes his box with him
-    if (!seated) for (const f of list) if (!f.dense) f.box = K.solid(f.x, f.z, 0.2 * f.s, 0.2 * f.s, 0, 1.75 * f.s, 'wood', 0, { navSkip: true, fan: true });
-    return { list, parts, seated };
+    if (!seated && !hidden) for (const f of list) if (!f.dense) f.box = K.solid(f.x, f.z, 0.2 * f.s, 0.2 * f.s, 0, 1.75 * f.s, 'wood', 0, { navSkip: true, fan: true });
+    return { list, parts, seated, extra, mat: parts[0].instanceMatrix };
   };
   // 60% fewer fans everywhere (seats and the standing crowd), and fewer again on phones / tablets; an even spread,
   // picked without touching the layout's random sequence
@@ -1044,6 +1061,9 @@ export function buildMap(K) {
   // (nobody standing inside a wall, a van, a coach, a hut or a crowd barrier)
   const clear = ([x, z]) => !W.boxes.some(b => !b.fan && b.y0 < 1.5 && b.y1 > 0.2 && Math.abs((x - b.x) * b.c - (z - b.z) * b.s) < b.hx + 0.3 && Math.abs((x - b.x) * b.s + (z - b.z) * b.c) < b.hz + 0.3);
   const farSeat = people(dress(thin(fans), true), SEAT, true), farStand = people(dress(thin(standers).filter(clear), false), STAND, false);
+  // the seated fans on their feet (the evacuation): the same people standing — and walking out (stadium.evac.js moves them)
+  const farUp = people(farSeat.list, STAND, false, true);
+  for (const im of farUp.parts) { im.visible = false; im.frustumCulled = false; }
 
   // ---- real people up close: the nearest few dozen fans are the game's own character models (posed and baked once:
   // standing in the idle, or sat down), each recoloured to that fan's shirt, trousers, skin and hair. The far figure
@@ -1091,7 +1111,8 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
     return m;
   };
   const NEAR = { R: LT > 1 ? 12 : LT ? 16 : 24, cap: { stand: LT > 1 ? 8 : LT ? 14 : 36, sit: LT > 1 ? 8 : LT ? 14 : 40 }, t: 0 };
-  const KIND_IDS = KINDS ? ['human', 'butler', 'coach', 'michelle'].filter(k => KINDS[k] && KINDS[k].root) : [];
+  // (not the 'human' body: its red tailcoat and black top hat are what YOU wear — nobody in the crowd looks like you)
+  const KIND_IDS = KINDS ? ['butler', 'coach', 'michelle'].filter(k => KINDS[k] && KINDS[k].root) : [];
   // (baked a body at a time after the map is up — one every 0.3 s, standing first — so loading doesn't wait for them)
   const REAL_TODO = KIND_IDS.length && !Q_NOREAL() ? ['stand', 'sit'].flatMap(pose => KIND_IDS.map(k => [pose, k])) : [];
   let realNew = false;
@@ -1116,7 +1137,7 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
       const pose = far.seated ? 'sit' : 'stand', meshes = REAL.filter(r => r.pose === pose), cap = NEAR.cap[pose];
       if (!meshes.length) continue;
       const cand = [];
-      for (let i = 0; i < far.list.length; i++) { const f = far.list[i], dx = f.x - focus.x, dz = f.z - focus.z, dy = f.y - (focus.y || 0), d2 = dx * dx + dz * dz + dy * dy; if (d2 < R2) cand.push([d2, i]); }
+      for (let i = 0; i < far.list.length; i++) { const f = far.list[i]; if (f.left) continue; const dx = f.x - focus.x, dz = f.z - focus.z, dy = f.y - (focus.y || 0), d2 = dx * dx + dz * dz + dy * dy; if (d2 < R2) cand.push([d2, i]); }
       cand.sort((a, b) => a[0] - b[0]); const want = new Set(cand.slice(0, cap).map(c => c[1]));
       let dirty = fresh;
       far.list.forEach((f, i) => { const w = want.has(i); if (w === f.near) return; f.near = w; dirty = true; if (w) for (const im of far.parts) im.setMatrixAt(i, ZERO); else { place(f); for (const im of far.parts) im.setMatrixAt(i, mtx); } });
@@ -1131,7 +1152,7 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
       }
       for (const r of meshes) { r.im.visible = r.im.count > 0; r.im.instanceMatrix.needsUpdate = true; for (const a of Object.values(r.attrs)) a.needsUpdate = true; if (r.im.count) r.im.computeBoundingSphere(); }
     }
-    if (!STADIUM.crowd) for (const r of REAL) if (r.pose === 'sit') r.im.visible = false;   // (after the blackout nobody sits calmly in the seats next to you)
+    // (at the evacuation a fan who's got up is the walking crowd's — stadium.evac.js — not a posed body any more)
   };
 
   // ================================================================ the match and the stewards (stadium.match.js)
@@ -1214,14 +1235,41 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
   STADIUM.setPower = on => { STADIUM.power = !!on; };
   STADIUM.setLights = on => { STADIUM.lights = !!on; };
   // the crowd never vanishes in a frame: it thins out over ~10 s (fans fleeing), a few stay as silhouettes
-  STADIUM.crowdTarget = 1;
-  STADIUM.setCrowd = (on, now) => { STADIUM.crowd = !!on; STADIUM.crowdTarget = on ? 1 : 0.15; crowd.visible = true; if (now) crowdUni.cKeep.value = STADIUM.crowdTarget; };
+  // ---- the evacuation (stadium.evac.js): at the blackout everybody gets up and walks — or runs — out. The way out of a
+  // seat: along the row to the nearest aisle; the front rows down it to the walkway in front of the stand, along that
+  // and out of the stand's end into the open corner; the back rows up it to the top gangway, along to the end and down
+  // the end stairs to the same corner. From there (and from wherever the standing crowd is) the zombies' route grid
+  // finds the way through the corner doors to the gates. The Main Stand's upper tier goes out at the back.
+  const routeSeat = (f, R) => {
+    const [sid, u, i, upper] = f.m, st = STANDS[sid], pts = [], add = (uu, v, y) => { const [x, z] = P(st, uu, v); pts.push([x, y, z]); };
+    if (upper) {
+      const v0 = 19.2 + i * 0.88, y = 9.4 + i * 0.56, a = [-37, -12, 12, 37].reduce((b, q) => Math.abs(q - u) < Math.abs(b - u) ? q : b) + (R() - 0.5) * 1.2;
+      add(u, v0 + 0.12, y); add(a, v0 + 0.12, y); add(a, 29.7, 9.4 + 11 * 0.56 + 0.05);
+      return { pts, q: null, key: null, wait: Math.abs(u - a) * 0.25 };
+    }
+    const n = st.rows, v0 = rowV(i), y = rowY(i), lane = v0 + 0.14, cutRow = st.main && y - 0.3 < 3.25;
+    let a = null; for (const q of st.aisles) { if (cutRow && Math.abs(q) < 3.3) continue; if (a == null || Math.abs(q - u) < Math.abs(a - u)) a = q; }
+    const sx = Math.abs(a) > 0.1 ? Math.sign(a) : u < 0 ? -1 : 1, goUp = i >= n / 2 || Math.abs(a) < 0.1;   // (the Main Stand's middle aisle stops at the tunnel roof: up)
+    const ja = a + (R() - 0.5) * 0.6, ue = sx * (st.L + 1.6), va = st.main ? 2.2 : 4.0;
+    add(u, lane, y); add(ja, lane, y);
+    if (!goUp) { const jw = 0.7 + R() * 0.7; add(ja, rowV(0) + 0.2, rowY(0)); add(ja, jw, 0.04); add(sx * (st.L - 0.4), jw, 0.04); add(ue, 0.9, 0.02); }
+    else { const jg = st.gang + 0.6 + R() * 0.9; add(ja, st.gang + 0.15, st.top); add(ja, jg, st.top); add(ue, jg, st.top); add(ue, st.gang - 0.05, st.top); add(ue, va + 0.05, 0.02); add(ue, 0.9, 0.02); }
+    const [qx, qz] = P(st, ue, 0.9), cx = Math.sign(qx), cz = Math.sign(qz);
+    // out of the corner through the door in its fence (64.4 out from the middle: clear of the floodlight pylon's base)
+    const via = (sid === 'E' || sid === 'W' ? [[cx * 60, cz * 45]] : [[cx * 54.5, cz * 41.5]]).concat([[cx * 64.4, cz < 0 ? -68.3 : 56.6], [cx * 64.4, cz < 0 ? -72.8 : 61]]);
+    return { pts, q: [qx, qz], via, key: sid + sx, sx: qx < 0 ? -1 : 1, wait: Math.abs(u - a) * 0.3 };
+  };
+  const routeStand = f => ({ pts: [[f.x, 0, f.z]], q: [f.x, f.z], key: 'p' + Math.round(f.x / 3) + ',' + Math.round(f.z / 3), sx: f.x < 0 ? -1 : 1, wait: 0 });
+  const evac = makeEvac({ W, S: STADIUM, seat: farSeat, up: farUp, stand: farStand, uni: crowdUni, LT, KINDS, level: K.level, routeSeat, routeStand, doors: cornerDoors });
+  STADIUM.evac = evac;
+  // the crowd: on (the calm evening; a fresh run puts everyone back), off = EVACUATE (now: they're long gone already)
+  STADIUM.setCrowd = (on, now) => { STADIUM.crowd = !!on; crowd.visible = true; crowdUni.cKeep.value = 1; if (on) { if (evac.on) evac.reset(); } else if (now) evac.skip(); else evac.start(); };
   STADIUM.cheer = k => { crowdUni.cCheer.value = k; };
   STADIUM.update = (dt, focus) => {
     tAcc += dt; crowdUni.cT.value = tAcc; STADIUM.t = tAcc;
-    if ((NEAR.t -= dt) <= 0 && focus) { NEAR.t = 0.3; nearUpdate(focus); const kv = crowdUni.cKeep.value; for (const f of farStand.list) if (f.box) f.box.off = !(f.rank < kv); }   // (the real people up close; the standing crowd's boxes)
+    if ((NEAR.t -= dt) <= 0 && focus) { NEAR.t = evac.on ? 0.15 : 0.3; nearUpdate(focus); }   // (the real people up close)
+    try { evac.update(dt, focus); } catch (e) { if (!STADIUM.evacErr) { STADIUM.evacErr = true; console.error('stadium evac', e); } }
     if (STADIUM.match) { try { STADIUM.match.update(dt, focus, W.time, STADIUM.phase, STADIUM.you || null); } catch (e) { if (!STADIUM.matchErr) { STADIUM.matchErr = true; console.error('stadium match', e); } } }
-    { const ck = crowdUni.cKeep; ck.value += ((STADIUM.crowdTarget ?? 1) - ck.value) * Math.min(1, dt * 0.3); if (Math.abs(ck.value - STADIUM.crowdTarget) < 0.002) ck.value = STADIUM.crowdTarget; }
     // the key: once the red cabinet's been searched you have it, and the switch panel can be used
     if (keyC && keyC.searched && !STADIUM.hasKey) STADIUM.hasKey = true;
     if (switchC) {

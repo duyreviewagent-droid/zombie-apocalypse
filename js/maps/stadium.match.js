@@ -11,7 +11,7 @@
 // at the outbreak the pitch-side ones run toward the East End, then everybody runs for the nearest way out.
 // makeMatch(K, { S, KINDS, HOME, AWAY, stewards: [{ x, z, yaw, ax, az }] }) → { update(dt, focus, hour), reset() }
 import * as THREE from 'three';
-import { Soldier } from '../soldier.js';
+import { Soldier, aimBone } from '../soldier.js';
 import { tier } from '../tex.js';
 
 const PX = 52.5, PZ = 34, GOAL_Z = 3.66;
@@ -53,7 +53,7 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export function makeMatch(K, { S, KINDS, HOME, AWAY, stewards = [] }) {
   if (!KINDS || !KINDS.human) return null;
   const LT = tier(), level = K.level;
-  const bodies = ['human', 'butler', 'coach'].filter(k => KINDS[k]);
+  const bodies = ['butler', 'coach'].filter(k => KINDS[k]); if (!bodies.length) bodies.push('human');   // (not the 'human' body: its red tailcoat is what you wear)
   // (the footballers and the referee are the body in a T-shirt and shorts; the stewards anybody)
   const mk = (i, top, bottom, scale = 1, sporty = false) => {
     const kind = sporty && KINDS.coach ? KINDS.coach : KINDS[bodies[i % bodies.length]], s = new Soldier(kind, level, { clone: true });
@@ -86,7 +86,7 @@ export function makeMatch(K, { S, KINDS, HOME, AWAY, stewards = [] }) {
   function placeAll() {
     for (const u of players) { u.s.place(u.home[0] * 0.95, u.home[1], u.team === 0 ? Math.PI / 2 : -Math.PI / 2); u.s.setVisible(true); u.mode = 'play'; u.hidden = false; u.fallT = 0; u.zombie = false; u.s.resetActs && u.s.resetActs(); }
     ref.s.place(0, -9, 0); ref.s.setVisible(true); ref.mode = 'play'; ref.hidden = false;
-    for (const c of crew) { c.s.place(c.post.x, c.post.z, c.post.yaw || 0); c.s.setVisible(true); c.mode = 'post'; c.hidden = false; c.zombie = false; c.leg = 0; c.turnAt = null; c.t2 = 0; c.s.resetActs && c.s.resetActs(); }
+    for (const c of crew) { c.s.place(c.post.x, c.post.z, c.post.yaw || 0); c.s.setVisible(true); c.mode = 'post'; c.hidden = false; c.zombie = false; c.leg = 0; c.turnAt = null; c.t2 = 0; c.flee = false; c.zT = 0; c.s.resetActs && c.s.resetActs(); }
     resetBall(); M.state = 'warm'; M.celebrate = null; M.panicT = 0;
   }
   placeAll();
@@ -277,17 +277,46 @@ export function makeMatch(K, { S, KINDS, HOME, AWAY, stewards = [] }) {
         steerFree(c, tx, tz, 1.25, dt, p.yaw);
       } else if (phase === 'news') {   // code red: the pitch-side ones go toward the East End; the rest hold the gates
         if (p.pitch) steerFree(c, clamp(c.s.pos.x + 10, -54, 54), c.s.pos.z, 4.5, dt); else steerFree(c, p.x, p.z, 1.2, dt, Math.atan2(58 - p.x, -p.z));
-      } else {   // the blackout: run for the nearest way out (and out of sight there); one or two don't make it
-        if (c.turnAt == null) c.turnAt = (crew.indexOf(c) % 3 === 1) ? rnd(3, 9) : -1;
-        if (c.turnAt > 0 && (c.t2 = (c.t2 || 0) + dt) > c.turnAt) { c.mode = 'down'; c.fallT = 0; c.s.play('Death_D', { hold: true }); continue; }
-        const route = p.exit || [[p.x, p.z]]; c.leg = c.leg || 0;
-        const ex = route[Math.min(c.leg, route.length - 1)]; steerFree(c, ex[0], ex[1], 5.5, dt);
-        if (Math.hypot(c.s.pos.x - ex[0], c.s.pos.z - ex[1]) < 1.2) {
+      } else {   // the blackout: hold the post and wave everybody out toward the exit; run only when the dead get close
+        c.t2 = (c.t2 || 0) + dt;
+        if (c.turnAt == null) c.turnAt = (crew.indexOf(c) % 3 === 1) ? rnd(30, 60) : -1;   // (one in three doesn't make it — later, once the crowd's out)
+        if (c.turnAt > 0 && c.t2 > c.turnAt) { c.mode = 'down'; c.fallT = 0; c.s.play('Death_D', { hold: true }); continue; }
+        const route = p.exit || [[p.x, p.z]], ex = route[route.length - 1];
+        if (!c.flee && (c.zT = (c.zT || 0) - dt) <= 0) { c.zT = 0.4; if (zombieNear(c.s.pos, 10) || c.t2 > (S.evacDone ? 6 : 100)) { c.flee = true; c.leg = 0; } }
+        if (!c.flee) {
+          // the wave spot: the post (pitch-side ones go to where their corner opens); face the crowd coming, point the way
+          const ws = p.pitch ? route[0] : [p.x, p.z], hx = ex[0] - ws[0], hz = ex[1] - ws[1], face = (p.pitch ? Math.atan2(-hx, -hz) : p.yaw) + (crew.indexOf(c) % 2 ? 0.6 : -0.6);   // (at a gate: facing out, as posted)
+          steerFree(c, ws[0], ws[1], 4.5, dt, face);
+          if (!c.s.frozen && c.s.speed < 0.6) waveArms(c, hx, hz);
+          continue;
+        }
+        c.leg = c.leg || 0;
+        const wp = route[Math.min(c.leg, route.length - 1)]; steerFree(c, wp[0], wp[1], 5.5, dt);
+        if (Math.hypot(c.s.pos.x - wp[0], c.s.pos.z - wp[1]) < 1.2) {
           if (c.leg < route.length - 1) c.leg++;
-          else { const f = M.focus, far = !f || Math.hypot(f.x - ex[0], f.z - ex[1]) > 18; if (far || ex[1] < -44) { c.s.setVisible(false); c.hidden = true; } }   // (out of sight round the corner / down the tunnel)
+          else { const f = M.focus, far = !f || Math.hypot(f.x - wp[0], f.z - wp[1]) > 18; if (far || wp[1] < -44) { c.s.setVisible(false); c.hidden = true; } }   // (out of sight round the corner / down the tunnel)
         }
       }
     }
+  }
+  // a steward waving people out: one arm pointing the way (hx, hz), the other beckoning over the head ("this way!")
+  const vA = new THREE.Vector3(), vB = new THREE.Vector3();
+  function waveArms(c, hx, hz) {
+    const B = c.s.B; if (!B || !B.RightArm || !B.LeftArm) return;
+    c.s.pivot.updateMatrixWorld(true);
+    const L = Math.hypot(hx, hz) || 1, t = (M.waveT || 0) + c.s.id * 0.7, yaw = c.s.yaw, side = Math.cos(yaw) * hx / L - Math.sin(yaw) * hz / L;   // (+: the exit is on his left)
+    const [pt, pf, ph, wa, wf, wh] = side > 0 ? ['LeftArm', 'LeftForeArm', 'LeftHand', 'RightArm', 'RightForeArm', 'RightHand'] : ['RightArm', 'RightForeArm', 'RightHand', 'LeftArm', 'LeftForeArm', 'LeftHand'];
+    vA.set(hx / L, 0.25 + 0.08 * Math.sin(t * 2.1), hz / L);   // pointing: out at shoulder height, toward the exit
+    aimBone(B[pt], B[pf], vA); aimBone(B[pf], B[ph], vA);
+    // the other hand up and waving: up over the head, swinging toward the exit
+    const sw = Math.sin(t * 7.5), rx = Math.cos(yaw), rz = -Math.sin(yaw), sg = side > 0 ? -1 : 1;   // (rx, rz: his right)
+    vB.set(rx * sg * 0.35 + hx / L * 0.45 * sw, 1, rz * sg * 0.35 + hz / L * 0.45 * sw);
+    aimBone(B[wa], B[wf], vB); vB.y = 1.2; vB.x += hx / L * 0.5 * sw; vB.z += hz / L * 0.5 * sw; aimBone(B[wf], B[wh], vB);
+  }
+  function zombieNear(p, r) {
+    const Z = globalThis.ZA && globalThis.ZA.Z; if (!Z || !Z.pool) return false;
+    for (const u of Z.pool) if (u.active && u.alive && u.s && Math.abs(u.s.pos.x - p.x) < r && Math.abs(u.s.pos.z - p.z) < r && Math.hypot(u.s.pos.x - p.x, u.s.pos.z - p.z) < r) return true;
+    return false;
   }
   function steerFree(c, tx, tz, speed, dt, face = null) {   // (stewards walk where there's floor: posts and exits are picked clear)
     const p = c.s.pos, dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz);
@@ -307,7 +336,7 @@ export function makeMatch(K, { S, KINDS, HOME, AWAY, stewards = [] }) {
 
   let phaseSeen = null;
   function update(dt, focus, hour, phase, you) {
-    dt = Math.min(dt, 0.1); M.focus = focus; M.you = you;
+    dt = Math.min(dt, 0.1); M.focus = focus; M.you = you; M.waveT = (M.waveT || 0) + dt;
     if (dt <= 0) return;
     if (!phase) return;   // (the story hasn't said yet)
     // (a save loaded in mid-outbreak, or after it: the pitch is already empty — nobody runs off a match you never saw)
