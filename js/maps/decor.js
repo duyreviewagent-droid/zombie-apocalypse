@@ -435,8 +435,8 @@ export function decor(K) {
   D.top = (A, cell, x, y, z, yaw, w, d) => K.xadd(planeGeo(A, cell, geoCache), A.mat, K.mat4(x, y, z, yaw, w, d, 1, -Math.PI / 2, 0), false);
   // chrome bits
   D.bar = (x, y, z, yaw, len, vertical = false, r = 0.011) => K.xadd(vertical ? GG.cylY : GG.cylX, M.chrome, vertical ? K.mat4(x, y - len / 2, z, yaw, r, len, r) : K.mat4(x, y, z, yaw, len, r, r), false);
-  D.knobs = (P, yaw, lz, y, xs, mat = M.black) => { for (const lx of xs) { const [kx, kz] = P(lx, lz); K.inst(GG.knob, mat, K.mat4(kx, y, kz, yaw), false); } };
-  D.tap = (x, y, z, yaw) => K.inst(GG.tap, M.chrome, K.mat4(x, y, z, yaw), false);
+  D.knobs = (P, yaw, lz, y, xs, mat = M.black) => { for (const lx of xs) { const [kx, kz] = P(lx, lz); K.xadd(GG.knob, mat, K.mat4(kx, y, kz, yaw), false); } };
+  D.tap = (x, y, z, yaw) => K.xadd(GG.tap, M.chrome, K.mat4(x, y, z, yaw), false);
 
   // ================================================================ composite props
   // Every builder: (x, z) = the centre of the footprint on the floor (y0 = floor height), yaw = the way the FRONT
@@ -464,7 +464,7 @@ export function decor(K) {
         const [tx, tz] = P(cx - Math.min(u.w - 0.08, 0.9) * 0.22, -d / 2 + 0.07); D.tap(tx, y0 + H, tz, yaw);
       }
       if (u.k === 'hob') { const [hx, hz] = P(cx, 0.02); D.top(D.A, 'hob', hx, y0 + H + 0.003, hz, yaw, Math.min(u.w - 0.06, 0.62), d - 0.12);
-        if (o.props !== false) { const [px, pz] = P(cx - 0.14, 0.12); K.inst(GG.pot, M.chrome, K.mat4(px, y0 + H + 0.01, pz, 0, 0.9, 0.9, 0.9)); const [qx, qz] = P(cx + 0.15, -0.1); K.inst(GG.pan, M.darkMetal || M.black, K.mat4(qx, y0 + H + 0.01, qz)); K.xadd(GG.cylX, M.black, K.mat4(...[P(cx + 0.36, -0.1)].flatMap(([a, b]) => [a, y0 + H + 0.05, b]), yaw, 0.22, 0.012, 0.012), false); } }
+        if (o.props !== false) { const [px, pz] = P(cx - 0.14, 0.12); K.xadd(GG.pot, M.chrome, K.mat4(px, y0 + H + 0.01, pz, 0, 0.9, 0.9, 0.9)); const [qx, qz] = P(cx + 0.15, -0.1); K.xadd(GG.pan, M.darkMetal || M.black, K.mat4(qx, y0 + H + 0.01, qz)); K.xadd(GG.cylX, M.black, K.mat4(...[P(cx + 0.36, -0.1)].flatMap(([a, b]) => [a, y0 + H + 0.05, b]), yaw, 0.22, 0.012, 0.012), false); } }
     }
     // the worktop (a hair proud of the cabinets), with a front lip
     { const [cx, cz] = P(0, 0.015); K.box(cx, y0 + H - 0.04, cz, W / 2 + 0.01, y0 + H, d / 2 + 0.02, yaw, f => f === 'bot' ? 'dzPlinth' : topM); }
@@ -487,10 +487,10 @@ export function decor(K) {
         if (u.k === 'sink' || u.k === 'hob' || u.k === 'gap') continue;
         const k = R();
         const [ax, az] = P(cx + (R() - 0.5) * u.w * 0.4, -0.05 + (R() - 0.5) * 0.1);
-        if (k < 0.3) K.inst(GG.kettle, o.steel ? M.chrome : (M.redPaint || M.chrome), K.mat4(ax, y0 + H, az, R() * 6), false);
-        else if (k < 0.55) { K.inst(GG.board, M.dzButcher, K.mat4(ax, y0 + H, az, yaw + (R() - 0.5) * 0.4), false); }
-        else if (k < 0.75) { K.inst(GG.bowl, M.porcelain || M.white, K.mat4(ax, y0 + H, az, 0), false); }
-        else for (let i = 0; i < 3; i++) { const [bx, bz] = P(cx - 0.12 + i * 0.1, -d / 2 + 0.12); K.inst(GG.bottle, [M.greenPaint, M.redPaint, M.yellowPaint, M.chrome][(i + (k * 10 | 0)) % 4] || M.chrome, K.mat4(bx, y0 + H, bz, 0), false); }
+        if (k < 0.3) K.xadd(GG.kettle, o.steel ? M.chrome : (M.redPaint || M.chrome), K.mat4(ax, y0 + H, az, R() * 6), false);
+        else if (k < 0.55) { K.xadd(GG.board, M.dzButcher, K.mat4(ax, y0 + H, az, yaw + (R() - 0.5) * 0.4), false); }
+        else if (k < 0.75) { K.xadd(GG.bowl, M.porcelain || M.white, K.mat4(ax, y0 + H, az, 0), false); }
+        else for (let i = 0; i < 3; i++) { const [bx, bz] = P(cx - 0.12 + i * 0.1, -d / 2 + 0.12); K.xadd(GG.bottle, [M.greenPaint, M.redPaint, M.yellowPaint, M.chrome][(i + (k * 10 | 0)) % 4] || M.chrome, K.mat4(bx, y0 + H, bz, 0), false); }
       }
     }
     return blk(o, ...P(0, 0), W / 2, d / 2, yaw, y0 + H, y0);
@@ -520,7 +520,7 @@ export function decor(K) {
     const [hx, hz] = P(0, 0.02); D.top(D.A, 'hob', hx, y0 + h + 0.003, hz, yaw, w - 0.06, d - 0.1);
     const [bx, bz] = P(0, -d / 2 + 0.04); D.abox(D.A, { pz: side, side }, bx, y0 + h, bz, w / 2, y0 + h + (o.guard ?? 0.14), 0.04, yaw);
     const [ox, oz] = P(0, d / 2 + 0.03); D.bar(ox, y0 + h * 0.75, oz, yaw, w * 0.78);
-    if (o.props !== false) { const [px, pz] = P(-w * 0.22, 0.1); K.inst(GG.pot, M.chrome, K.mat4(px, y0 + h + 0.01, pz, 0, o.big ? 1.6 : 1, o.big ? 1.5 : 1, o.big ? 1.6 : 1)); const [qx, qz] = P(w * 0.22, -0.12); K.inst(GG.pan, M.darkMetal || M.black, K.mat4(qx, y0 + h + 0.01, qz, 0, o.big ? 1.4 : 1, 1, o.big ? 1.4 : 1)); }
+    if (o.props !== false) { const [px, pz] = P(-w * 0.22, 0.1); K.xadd(GG.pot, M.chrome, K.mat4(px, y0 + h + 0.01, pz, 0, o.big ? 1.6 : 1, o.big ? 1.5 : 1, o.big ? 1.6 : 1)); const [qx, qz] = P(w * 0.22, -0.12); K.xadd(GG.pan, M.darkMetal || M.black, K.mat4(qx, y0 + h + 0.01, qz, 0, o.big ? 1.4 : 1, 1, o.big ? 1.4 : 1)); }
     return blk(o, x, z, w / 2, d / 2, yaw, y0 + h + 0.05, y0);
   };
   // a canopy extraction hood over a cooking line (drawn only: it's up out of the way)
@@ -538,11 +538,11 @@ export function decor(K) {
     for (const lx of [-w / 2 + 0.04, w / 2 - 0.04]) for (const lz of [-d / 2 + 0.04, d / 2 - 0.04]) { const [px, pz] = P(lx, lz); K.xadd(GG.cylY, M.chrome, K.mat4(px, y0, pz, 0, 0.02, h - 0.04, 0.02)); }
     if (o.props !== false) {
       const R = rng(Math.round(x * 31 + z * 17));
-      { const [bx, bz] = P(-w * 0.25, 0.05); K.inst(GG.board, M.dzButcher, K.mat4(bx, y0 + h, bz, yaw + 0.1, 1.4, 1, 1.3), false); }
-      { const [bx, bz] = P(w * 0.2, -0.1); K.inst(GG.bowl, M.chrome, K.mat4(bx, y0 + h, bz, 0, 1.5, 1.5, 1.5), false); }
-      for (let i = 0; i < 3; i++) { const [bx, bz] = P(-w * 0.25 + (R() - 0.5) * 0.25, 0.05 + (R() - 0.5) * 0.15); K.inst(GG.sphere, [M.redPaint, M.orange, M.greenPaint][i % 3] || M.redPaint, K.mat4(bx, y0 + h + 0.06, bz, 0, 0.04, 0.035, 0.04), false); }
+      { const [bx, bz] = P(-w * 0.25, 0.05); K.xadd(GG.board, M.dzButcher, K.mat4(bx, y0 + h, bz, yaw + 0.1, 1.4, 1, 1.3), false); }
+      { const [bx, bz] = P(w * 0.2, -0.1); K.xadd(GG.bowl, M.chrome, K.mat4(bx, y0 + h, bz, 0, 1.5, 1.5, 1.5), false); }
+      for (let i = 0; i < 3; i++) { const [bx, bz] = P(-w * 0.25 + (R() - 0.5) * 0.25, 0.05 + (R() - 0.5) * 0.15); K.xadd(GG.sphere, [M.redPaint, M.orange, M.greenPaint][i % 3] || M.redPaint, K.mat4(bx, y0 + h + 0.06, bz, 0, 0.04, 0.035, 0.04), false); }
       // stock pots under the table
-      for (let i = 0; i < 2; i++) { const [bx, bz] = P(-w / 4 + i * w / 2, 0); K.inst(GG.pot, M.chrome, K.mat4(bx, y0 + 0.21, bz, 0, 1.4, 1.3, 1.4), false); }
+      for (let i = 0; i < 2; i++) { const [bx, bz] = P(-w / 4 + i * w / 2, 0); K.xadd(GG.pot, M.chrome, K.mat4(bx, y0 + 0.21, bz, 0, 1.4, 1.3, 1.4), false); }
     }
     return blk({ vault: true, ...o }, x, z, w / 2, d / 2, yaw, y0 + h, y0);
   };

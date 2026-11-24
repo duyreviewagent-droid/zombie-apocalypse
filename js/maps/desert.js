@@ -10,7 +10,7 @@
 //   · east of the highway: the dirt airstrip, its radio shack and windsock. The mail plane lands at 05:30.
 //   · all round: dunes, and red mesas on the horizon.
 // Coordinates: x east, z south (−z is north). Ground 0 except the wadi, the rocky hill (NW) and the dunes outside.
-import { install, rng, mat4, labelTex } from './desert.kit.js';
+import { install, rng, mat4, labelTex, desertDecor } from './desert.kit.js';
 
 const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 export const wadiZ = x => 52 + 5 * Math.sin(x / 23);
@@ -42,6 +42,7 @@ export function buildMap(K) {
   K.bounds(-108, -108, 108, 108);
   K.preset('desert');
   const { M, G } = install(K);
+  const { D, DA } = desertDecor(K);   // designed fronts: kitchens, shop shelves, the café, the clinic, the garage
   const R = rng(1977);
   const PI = Math.PI;
   const hY = heightAt;
@@ -206,17 +207,18 @@ export function buildMap(K) {
     K.box(bed[0], 0.36, bed[1], 0.98, 0.52, 0.46, yaw, 'd_fabricC');
     { const [px, pz] = P(-ss * (w / 2 - 0.55), -d / 2 + 0.72); xadd(G.ubox, 'fabricC', mat4(px, 0.52, pz, yaw, 0.4, 0.12, 0.6)); const [bx, bz] = P(-ss * (w / 2 - 1.55), -d / 2 + 0.72); xadd(G.ubox, r() < 0.5 ? 'fabricA' : 'fabricB', mat4(bx, 0.52, bz, yaw, 1.35, 0.06, 0.96)); }
     { const [nx, nz] = P(-ss * (w / 2 - 2.65), -d / 2 + 0.45); blk(nx, 0, nz, 0.24, 0.55, 0.22, yaw, 'd_redWood', 'wood'); K.container('nightstand', nx, nz, 0.55, 'Bedside table', yaw, H); inst(G.lantern, 'lanternOn', mat4(nx, 0.8, nz), false); }
-    { const [cx, cz] = P(ss * (w / 2 - 0.75), -d / 2 + 0.5); blk(cx, 0, cz, 0.45, 0.55, 0.28, yaw, 'd_redWood', 'wood'); K.container('dresser', cx, cz, 0.55, 'Wooden chest', yaw, H);
+    { const [cx, cz] = P(ss * (w / 2 - 0.75), -d / 2 + 0.5); D.abox(DA, { pz: 'chest', side: 'wood', top: 'wood' }, cx, 0, cz, 0.45, 0.55, 0.28, yaw); K.solid(cx, cz, 0.45, 0.28, yaw, 0.55, 'wood'); K.container('dresser', cx, cz, 0.55, 'Wooden chest', yaw, H);
       for (const o2 of [-0.3, 0.3]) { const [qx, qz] = P(ss * (w / 2 - 0.75) + o2, -d / 2 + 0.5); xadd(G.ubox, 'brass', mat4(qx, 0, qz, yaw, 0.05, 0.56, 0.58), false); } }
-    if (r() < 0.6) { const [wx, wz] = P(ss * (w / 2 - 0.75), zs - 0.45); blk(wx, 0, wz, 0.5, 1.9, 0.28, yaw, 'd_greenWood', 'wood'); K.container('closet', wx, wz, 1.0, 'Wardrobe', yaw, H); }
+    if (r() < 0.6) { const [wx, wz] = P(ss * (w / 2 - 0.75), zs - 0.45); D.abox(DA, { nz: 'wardrobe', side: 'wood', top: 'wood' }, wx, 0, wz, 0.5, 1.9, 0.28, yaw); K.solid(wx, wz, 0.5, 0.28, yaw, 1.9, 'wood'); K.container('closet', wx, wz, 1.0, 'Wardrobe', yaw, H); }
     { const [rx2, rz2] = P(0, -d / 2 + bd / 2 + 0.3); K.box(rx2, 0.03, rz2, 1.0, 0.04, 0.7, yaw, f => f === 'top' ? 'd_rug' + Math.floor(r() * 3) : null); }
     // --- inside: the living room and kitchen ---
     const kx = ss * (w / 2 - 0.55);
-    { const [cx, cz] = P(kx, zs + 1.6); blk(cx, 0, cz, 0.33, 0.9, 1.2, yaw, f => f === 'top' ? 'd_tileB' : f === 'bot' ? null : pl, 'concrete'); K.container('kitchen', cx, cz, 0.9, 'Kitchen shelves', yaw, H);
-      for (let i = 0; i < 3; i++) { const [px, pz] = P(kx, zs + 0.8 + i * 0.6); inst(i === 1 ? G.teapot : G.pot, i === 1 ? 'copper' : 'clayDark', mat4(px, 0.9, pz, r() * 6, i === 1 ? 1.4 : 0.8, i === 1 ? 1.4 : 0.8, i === 1 ? 1.4 : 0.8)); }
+    const ky = yaw + (ss > 0 ? -PI / 2 : PI / 2);   // the kitchen faces into the room
+    { const [cx, cz] = P(kx - ss * 0.0, zs + 1.6); D.kitchenRun(cx, cz, ky, [{ k: 'cab', w: 0.8 }, { k: 'hob', w: 0.8 }, { k: 'sink', w: 0.8 }], { cab: 'cabWood2', top: 'd_tileB', splash: 'dzTileZ', splashH: 0.6, d: 0.66, props: true }); K.container('kitchen', cx, cz, 0.9, 'Kitchen shelves', yaw, H);
+      { const [px, pz] = P(kx, zs + 0.95); inst(G.teapot, 'copper', mat4(px, 0.9, pz, r() * 6, 1.4, 1.4, 1.4)); }
       const [sx2, sz2] = P(ss * (w / 2 - 0.28), zs + 1.6); xadd(G.ubox, 'beam', mat4(sx2, 1.6, sz2, yaw, 0.3, 0.05, 2.2));
       for (let i = 0; i < 5; i++) { const [px, pz] = P(ss * (w / 2 - 0.3), zs + 0.7 + i * 0.42); inst(G.jar, i % 2 ? 'clay' : 'clayDark', mat4(px, 1.65, pz, r() * 6, 0.45, 0.45, 0.45)); } }
-    { const [fx, fz] = P(kx, zs + 3.2); if (zs + 3.6 < d / 2 - 0.3) { blk(fx, 0, fz, 0.33, 1.55, 0.32, yaw, 'd_white', 'metal'); K.container('fridge', fx, fz, 1.0, 'Old fridge', yaw, H); } }
+    { const [fx, fz] = P(kx, zs + 3.2); if (zs + 3.6 < d / 2 - 0.3) { D.fridge(fx, fz, ky, { cell: 'fridgeOld', w: 0.64, h: 1.55, d: 0.66 }); K.container('fridge', fx, fz, 1.0, 'Old fridge', yaw, H); } }
     { const [jx, jz] = P(ss * (w / 2 - 0.55), d / 2 - 0.5); for (const [ox, oz] of [[0, 0], [-0.4, 0.05], [-0.2, -0.38]]) { const [qx, qz] = P(ss * (w / 2 - 0.55) + ox * ss, d / 2 - 0.5 + oz); inst(G.amphora, 'clay', mat4(qx, 0, qz, r() * 6, 0.62, 0.62, 0.62)); } K.solid(jx, jz, 0.5, 0.42, yaw, 0.78, 'concrete', 0, { vault: true }); K.container('pantry', jx, jz, 0.6, 'Storage jars', yaw, H); }
     // the majlis: cushions along the far wall, a rug, a low table with tea
     const mx = -ss * (w / 2 - 0.55);
@@ -295,6 +297,12 @@ export function buildMap(K) {
     if (kind === 'cloth') for (let k = 0; k < 6; k++) { const [px, pz] = P(-1.1 + k * 0.45, 0.55); items.push([G.ubox, ['rug0', 'rug1', 'rug2', 'awn0', 'awn2', 'awn3'][k], px, 0.85, pz, 0]); }
     if (kind === 'water') for (let k = 0; k < 4; k++) { const [px, pz] = P(-1.0 + k * 0.66, 0.55); items.push([G.crate, 'greyWood', px, 0.85, pz, 0.8]); items.push([G.jerry, ['jerryB', 'jerryW'][k % 2], px, 0.85 + 0.42 * 0.8, pz, 0.7]); }
     for (const [g, m, px, py, pz, s] of items) { if (s === 0) inst(g, m, mat4(px, py, pz, yaw, 0.38, 0.16, 0.5)); else inst(g, m, mat4(px, py, pz, R() * 6, s, s, s)); }
+    // a cloth skirt draped over the counter front, open sacks of spice / grain / beans along the front, a hanging rug
+    { const [fx, fz] = P(0, 0.88); xadd(G.ubox, awn, mat4(fx, 0.12, fz, yaw, 2.6, 0.7, 0.02)); const [tx, tz] = P(0, 0.55); K.box(tx, 0.85, tz, 1.38, 0.88, 0.35, yaw, f => f === 'bot' ? null : 'd_greyWood'); }
+    if (kind === 'spice' || kind === 'pots' || kind === 'cloth') for (let k = 0; k < 3; k++) { const [px, pz] = P(-0.9 + k * 0.9, 1.25); const sm = ['spice0', 'spice1', 'spice2'][(k + i) % 3]; inst(G.sack, 'burlap', mat4(px, 0, pz, R() * 6, 0.9, 0.75, 0.9)); inst(G.spice, sm, mat4(px, 0.33, pz, R() * 6, 1.0, 0.9, 1.0)); }
+    if (kind !== 'melon' && kind !== 'water') K.solid(...P(0, 1.25), 1.3, 0.25, yaw, 0.45, 'cloth', 0, { vault: true });
+    if (kind === 'cloth' || kind === 'pots' || kind === 'spice') { const [rx, rz] = P(0, -0.95); xadd(G.ubox, ['rug0', 'rug1', 'rug2'][i % 3], mat4(rx, 0.55, rz, yaw, 2.4, 1.6, 0.02)); K.wbeam([...P(-1.4, -0.95)].flatMap((v, q) => q ? [v] : [v, 2.18]), [...P(1.4, -0.95)].flatMap((v, q) => q ? [v] : [v, 2.18]), 0.03, 0.03, M.beam); }
+    if (kind === 'fruit' || kind === 'dates') for (let k = 0; k < 2; k++) { const [px, pz] = P(-0.55 + k * 1.1, 1.25); inst(G.crate, 'greyWood', mat4(px, 0, pz, yaw, 0.8, 0.8, 0.8)); for (let q = 0; q < 6; q++) inst(G.fruit, 'fruit' + (kind === 'dates' ? 3 : (q + k) % 3), mat4(px + (q % 3 - 1) * 0.12, 0.36, pz + (q < 3 ? -0.08 : 0.08), 0, 1.6, 1.6, 1.6)); }
     // sacks behind the counter, a lantern under the awning
     for (let k = 0; k < 3; k++) { const [px, pz] = P(-0.9 + k * 0.8, -0.65); inst(G.sack, 'burlap', mat4(px, 0.45, pz, R() * 6, 0.8, 0.8, 0.8)); }
     { const [lx, lz] = P(0.8, 0.6), [tx, tz] = P(0.4, 1.4); inst(G.lantern, 'lanternOn', mat4(lx, 2.05, lz), false); lampAt(lx, 1.95, lz, { tx, tz, pool: 2.6 }); }
@@ -344,14 +352,20 @@ export function buildMap(K) {
     K.box(cx, 3.2, cz + cd / 2 + 0.45, 1.6, 3.9, 0.45, 0, f => f === 'bot' ? 'd_plasterIn' : 'd_plaster6');
     sign(['CAPILLA DE SAN ISIDRO'], cx, 4.3, cz + cd / 2 + 0.92, 0, 3.0, 0.4);
     // pews (vault them), the altar, a cabinet in the sacristy corner
-    for (let r2 = 0; r2 < 5; r2++) for (const sx of [-1, 1]) blk(cx + sx * 2.9, 0, cz + 2.8 - r2 * 1.25, 2.1, 0.48, 0.22, 0, 'd_greyWood', 'wood', { vault: true });
+    for (let r2 = 0; r2 < 5; r2++) for (const sx of [-1, 1]) {   // pews: a seat, a slatted back, carved ends, a kneeler
+      const px = cx + sx * 2.9, pz = cz + 2.8 - r2 * 1.25; K.solid(px, pz, 2.1, 0.22, 0, 0.48, 'wood', 0, { vault: true });
+      K.box(px, 0.42, pz, 2.0, 0.47, 0.22, 0, 'd_beam'); K.box(px, 0.47, pz + 0.2, 2.0, 0.95, 0.03, 0, 'd_redWood'); K.box(px, 0.9, pz + 0.2, 2.02, 0.96, 0.05, 0, 'd_beam');
+      for (const ex of [-2.05, 2.05]) K.box(px + ex, 0, pz + 0.02, 0.04, 0.98, 0.26, 0, 'd_beam');
+      K.box(px, 0.1, pz - 0.42, 1.9, 0.2, 0.08, 0, 'd_fabricA');
+    }
+    D.face(DA, 'retablo', cx, 2.7, cz - cd / 2 + 0.27, 0, 1.6, 2.1);
     blk(cx, 0, cz - cd / 2 + 1.1, 1.3, 1.0, 0.5, 0, f => f === 'top' ? 'd_fabricC' : 'd_sandstone', 'concrete');
     for (const sx of [-1, 1]) inst(G.lantern, 'lanternOn', mat4(cx + sx * 1.1, 1.3, cz - cd / 2 + 1.1), false);
     lampAt(cx, 1.2, cz - cd / 2 + 1.6, { tx: cx, tz: cz - cd / 2 + 2.6, pool: 2.4, gy: 0.02 });
     inst(G.lantern, 'lanternOn', mat4(cx, 3.15, cz + cd / 2 + 0.6), false); xadd(G.post, 'darkMetal', mat4(cx, 3.15, cz + cd / 2 + 0.6, 0, 0.3, 0.06, 0.3), false);
     lampAt(cx, 3.0, cz + cd / 2 + 0.6, { tx: cx, tz: cz + cd / 2 + 2.4, pool: 3.0, pow: 0.45, dist: 11 });
-    blk(cx + cw / 2 - 0.8, 0, cz - cd / 2 + 0.6, 0.5, 1.9, 0.3, 0, 'd_greenWood', 'wood'); K.container('shelf', cx + cw / 2 - 0.8, cz - cd / 2 + 0.6, 1.1, 'Sacristy cupboard', 0, H);
-    blk(cx - cw / 2 + 0.8, 0, cz - cd / 2 + 0.6, 0.5, 1.0, 0.3, 0, 'd_redWood', 'wood'); K.container('medicine', cx - cw / 2 + 0.8, cz - cd / 2 + 0.6, 1.0, 'Alms box', 0, H);
+    D.abox(DA, { pz: 'wardrobe', side: 'wood', top: 'wood' }, cx + cw / 2 - 0.8, 0, cz - cd / 2 + 0.6, 0.5, 1.9, 0.3, 0); K.solid(cx + cw / 2 - 0.8, cz - cd / 2 + 0.6, 0.5, 0.3, 0, 1.9, 'wood'); K.container('shelf', cx + cw / 2 - 0.8, cz - cd / 2 + 0.6, 1.1, 'Sacristy cupboard', 0, H);
+    D.abox(DA, { pz: 'chest', side: 'wood', top: 'wood' }, cx - cw / 2 + 0.8, 0, cz - cd / 2 + 0.6, 0.5, 1.0, 0.3, 0); K.solid(cx - cw / 2 + 0.8, cz - cd / 2 + 0.6, 0.5, 0.3, 0, 1.0, 'wood'); K.container('medicine', cx - cw / 2 + 0.8, cz - cd / 2 + 0.6, 1.0, 'Alms box', 0, H);
     K.light(cx, 4.2, cz, 0xffc880, 3, 12);
   }
   // the bell tower: a 5 × 5 m sandstone shaft, five switchback storeys, a belfry with open arches at 16 m
@@ -429,9 +443,13 @@ export function buildMap(K) {
     for (const [x, z] of [[12.5, -14.5], [12.5, -11], [12.5, -8.5]]) { xadd(G.ucyl, 'metal', mat4(x, 0, z, 0, 0.7, 0.74, 0.7)); inst(G.teapot, 'brass', mat4(x, 0.74, z)); K.solid(x, z, 0.36, 0.36, 0, 0.75, 'metal', 0, { vault: true }); for (const s of [-1, 1]) inst(G.ubox, 'greyWood', mat4(x + s * 0.7, 0, z, 0, 0.42, 0.45, 0.42)); }
     sign(['CAFÉ OASIS'], 14.75, 2.55, -14.2, -PI / 2, 2.6, 0.5, '#2e5c8c', '#f0e6cc');
     // inside: the counter, the radio, the cool box
-    blk(21.6, 0, -12, 0.35, 1.05, 3.0, 0, f => f === 'top' ? 'd_tileB' : 'd_plasterBlue', 'concrete');
+    blk(21.6, 0, -12, 0.35, 1.0, 3.0, 0, f => f === 'top' ? 'd_plasterBlue' : f === 'nx' ? 'dzTileZ' : 'd_plasterBlue', 'concrete');
+    K.box(21.55, 1.0, -12, 0.42, 1.05, 3.05, 0, f => f === 'bot' ? 'dzPlinth' : 'dzButcher');   // the wooden counter top, over the zellige front
+    D.coffee(21.75, 1.05, -14.4, -PI / 2); D.board(DA, 'menu', 22.77, 2.05, -12.4, -PI / 2, 1.5, 1.05, 'd_beam');
+    for (let i = 0; i < 4; i++) inst(G.teapot, 'brass', mat4(21.6, 1.05, -13.2 + i * 0.28, i, 0.9, 0.9, 0.9));
+    D.kitchenRun(22.48, -10.9, -PI / 2, [{ k: 'cab', w: 0.8 }, { k: 'hob', w: 0.6 }, { k: 'sink', w: 0.7 }], { cab: 'cabWood2', top: 'd_tileB', splash: 'dzTileZ', d: 0.6, solid: false, props: false });
     K.container('register', 21.6, -13.5, 1.05, 'Café till', 0, H); K.container('cooler', 22.6, -10, 0.9, 'Cool box', 0, H);
-    blk(22.6, 0, -10, 0.35, 0.9, 0.5, 0, 'd_white', 'metal');
+    K.solid(22.5, -10.9, 0.3, 1.05, 0, 0.9, 'metal');
     inst(G.ubox, 'darkMetal', mat4(21.6, 1.05, -11.0, 0.2, 0.42, 0.24, 0.18)); K.container('shelf', 21.6, -11.0, 1.1, 'The café radio', 0, H, { radio: true });
     for (const [x, z] of [[17.5, -14], [17.5, -10]]) { xadd(G.ucyl, 'greyWood', mat4(x, 0, z, 0, 0.8, 0.72, 0.8)); K.solid(x, z, 0.4, 0.4, 0, 0.72, 'wood', 0, { vault: true }); }
     K.light(19, 2.8, -12, 0xffc880, 3, 10);
@@ -441,8 +459,10 @@ export function buildMap(K) {
       doors: [{ side: 'n', at: 0, w: 1.2, col: 0x7a3a24, dir: -1, front: true }], windows: [{ side: 'n', at: -2.3, w: 1.2, sill: 0.9, top: 2.2 }], name: 'Haddad General Store', home: false, inside: [[0, 0]] });
     H.yTop = () => 3.52;
     sign(['TIENDA HADDAD', 'GENERAL STORE'], 14.3, 2.7, 4.2, -PI / 2, 3.0, 0.75, '#e8dcc0', '#7a2a1a');
-    for (const z of [1.6, 6.8]) { blk(18.2, 0, z, 2.6, 2.0, 0.28, 0, 'd_greyWood', 'wood'); K.container('store', 18.2, z, 1.0, 'Store shelves', 0, H); for (let k = 0; k < 10; k++) inst(G.ubox, 'goods' + (k % 4), mat4(16.0 + k * 0.45, 1.0 + (k % 2) * 0.55, z, 0, 0.25, 0.3, 0.2)); }
-    blk(20.8, 0, 4.2, 0.4, 1.0, 1.1, 0, 'd_greyWood', 'wood'); K.container('register', 20.8, 4.2, 1.0, 'Store till', 0, H);
+    for (const z of [1.6, 6.8]) { K.solid(18.2, z, 2.6, 0.28, 0, 2.0, 'wood'); for (const ux of [16.9, 19.5]) D.abox(DA, { pz: 'shelf', nz: 'shelf', side: 'wood', top: 'wood' }, ux, 0, z, 1.3, 2.0, 0.28, 0); K.container('store', 18.2, z, 1.0, 'Store shelves', 0, H); }
+    blk(20.8, 0, 4.2, 0.4, 1.0, 1.1, 0, f => f === 'nx' ? 'd_blueWood' : f === 'top' ? 'dzButcher' : 'd_greyWood', 'wood'); K.container('register', 20.8, 4.2, 1.0, 'Store till', 0, H);
+    D.abox(D.A, { nx: 'microwave', side: 'steel', top: 'steel' }, 20.85, 1.0, 4.6, 0.18, 1.2, 0.2, 0);   // the till
+    for (let k = 0; k < 4; k++) inst(G.jar, ['clay', 'clayDark'][k % 2], mat4(20.75, 1.0, 3.4 + k * 0.2, k, 0.3, 0.3, 0.3));
     for (let k = 0; k < 4; k++) inst(G.sack, 'burlap', mat4(15.6, 0, 3.2 + k * 0.6, R() * 6, 1, 1, 1));
   }
   {
@@ -451,9 +471,16 @@ export function buildMap(K) {
     H.yTop = () => 3.42;
     sign(['CLÍNICA', '+'], -73, 2.7, 6.78, PI, 2.4, 0.8, '#f0f0ea', '#b01810');
     note('bulletin', -71.0, 6.5, 1.0);
-    for (const sx of [-1, 1]) { blk(-73 + sx * 3, 0, 13.6, 1.0, 0.6, 0.45, 0, 'd_white', 'metal'); xadd(G.ubox, 'white', mat4(-73 + sx * 3, 0.6, 13.6, 0, 1.9, 0.12, 0.85)); }
-    blk(-77.2, 0, 9, 0.3, 1.9, 0.9, 0, 'd_white', 'metal'); K.container('pharmacy', -77.2, 9, 1.1, 'Medicine cabinet', 0, H);
-    blk(-68.8, 0, 9.5, 0.4, 0.85, 0.8, 0, 'd_greyWood', 'wood'); K.container('medicine', -68.8, 9.5, 0.85, 'Nurse\'s desk', 0, H);
+    for (const sx of [-1, 1]) {   // two clinic beds: a steel frame, a sheeted mattress, a blanket, a pillow
+      const bx0 = -73 + sx * 3; K.solid(bx0, 13.6, 1.0, 0.45, 0, 0.66, 'metal', 0, { vault: true });
+      K.box(bx0, 0.45, 13.6, 1.0, 0.52, 0.45, 0, 'dzSteel'); K.box(bx0, 0.52, 13.6, 0.97, 0.64, 0.43, 0, 'dzSheet'); K.box(bx0 - 0.3, 0.64, 13.6, 0.62, 0.67, 0.44, 0, 'd_fabricB'); K.box(bx0 + 0.72, 0.64, 13.6, 0.18, 0.74, 0.3, 0, 'd_white');
+      for (const lx of [-0.97, 0.97]) for (const lz of [-0.42, 0.42]) K.box(bx0 + lx, 0, 13.6 + lz, 0.02, 0.45, 0.02, 0, 'dzSteel');
+      K.box(bx0 + 1.0, 0.45, 13.6, 0.025, 1.05, 0.45, 0, 'dzSteel'); K.box(bx0 + 1.01, 0.6, 13.6, 0.02, 0.95, 0.4, 0, 'd_blueWood');
+      K.box(bx0 + 0.5, 0, 14.25, 0.012, 1.8, 0.012, 0, 'chrome' in K.MAT ? 'chrome' : 'dzSteel'); K.box(bx0 + 0.5, 1.6, 14.25, 0.06, 1.78, 0.02, 0, 'd_white');   // a drip stand
+    }
+    D.medCabinet(-77.2, 9, PI / 2, { w: 1.8, d: 0.6 }); K.container('pharmacy', -77.2, 9, 1.1, 'Medicine cabinet', 0, H);
+    D.abox(D.A, { nx: 'drawers3', side: 'white', top: 'white' }, -68.8, 0, 9.5, 0.4, 0.85, 0.8, 0); K.solid(-68.8, 9.5, 0.4, 0.8, 0, 0.85, 'wood'); K.container('medicine', -68.8, 9.5, 0.85, 'Nurse\'s desk', 0, H);
+    D.face(DA, 'retablo', -73, 1.9, 7.0 + 0.23, 0, 0.5, 0.65);
     K.chaos(-73, 4, () => { K.blood(-72, 5, 0.9); K.blood(-74.5, 3.5, 0.6); K.barricade(-73, 3.0, 0.1); }, 'clinic');
   }
 
@@ -478,16 +505,18 @@ export function buildMap(K) {
     const S = K.room(54.5, 12, 7, 6, PI / 2, { h: 3.2, t: 0.3, mat: 'd_plaster2', inMat: 'd_plasterIn', floor: 'concrete', roof: 'flat', roofMat: 'concrete', parapet: true,
       doors: [{ side: 'n', at: -1.6, w: 1.0, col: 0xd8d6d0, dir: -1, front: true }], windows: [{ side: 'n', at: 1.2, w: 2.2, sill: 0.9, top: 2.3 }], name: 'gas station kiosk', home: false, inside: [[0, 0]] });
     S.yTop = () => 3.42;
-    blk(55.5, 0, 13.6, 1.2, 1.0, 0.35, 0, 'd_greyWood', 'wood'); K.container('register', 55.5, 13.6, 1.0, 'Kiosk counter', 0, S);
-    blk(52.3, 0, 12, 0.3, 1.8, 2.0, 0, 'd_greyWood', 'wood'); K.container('store', 52.3, 12, 1.0, 'Kiosk shelves', 0, S);
-    blk(55.5, 0, 9.6, 0.5, 1.8, 0.35, 0, 'd_white', 'metal'); K.container('cooler', 55.5, 9.6, 1.0, 'Soda fridge', 0, S);
+    D.abox(D.A, { nz: 'drawers3', side: 'white', top: 'white' }, 55.5, 0, 13.6, 1.2, 0.96, 0.35, 0); K.box(55.5, 0.96, 13.6, 1.24, 1.0, 0.38, 0, 'dzLaminate'); K.solid(55.5, 13.6, 1.2, 0.35, 0, 1.0, 'wood'); K.container('register', 55.5, 13.6, 1.0, 'Kiosk counter', 0, S);
+    D.abox(D.A, { nz: 'microwave', side: 'steel', top: 'steel' }, 55.0, 1.0, 13.7, 0.18, 1.2, 0.2, 0);
+    K.solid(52.3, 12, 0.3, 2.0, 0, 1.8, 'wood'); for (const uz of [11, 13]) D.abox(DA, { px: 'shelf', side: 'wood', top: 'wood' }, 52.3, 0, uz, 0.3, 1.8, 1.0, 0); K.container('store', 52.3, 12, 1.0, 'Kiosk shelves', 0, S);
+    D.drinksFridge(55.5, 9.6, 0, { w: 1.0, h: 1.8, d: 0.7 }); K.container('cooler', 55.5, 9.6, 1.0, 'Soda fridge', 0, S);
     const Gr = K.room(54.5, 23, 7, 6.5, PI / 2, { h: 3.6, t: 0.3, mat: 'd_mudBrick', inMat: 'd_plasterIn', floor: 'concrete', roof: 'flat', roofMat: 'd_corrRust', parapet: false,
       doors: [{ side: 'n', at: 1.2, w: 2.8, col: 0x8a8c8e, dir: -1, front: true, hp: 320 }], name: 'Rafi\'s garage', home: false, inside: [[0, 0]] });
     Gr.yTop = () => 3.82;
     sign(['TALLER RAFI', 'MECÁNICO'], 57.9, 3.0, 23, PI / 2, 2.8, 0.7, '#e8c040', '#1a1a1a');
     note('rafi', 57.95, 21.0, 1.2);
-    blk(52.0, 0, 21.0, 0.35, 0.95, 1.4, 0, 'd_greyWood', 'wood'); K.container('garage', 52.0, 21.0, 0.95, 'Workbench', 0, Gr);
-    blk(52.0, 0, 25.2, 0.4, 1.2, 0.4, 0, 'd_red', 'metal'); K.container('shed', 52.0, 25.2, 1.0, 'Tool chest', 0, Gr);
+    blk(52.0, 0, 21.0, 0.35, 0.95, 1.4, 0, f => f === 'top' ? 'dzButcher' : 'd_greyWood', 'wood'); K.container('garage', 52.0, 21.0, 0.95, 'Workbench', 0, Gr);
+    D.face(DA, 'tools', 51.6, 1.75, 21.0, PI / 2, 2.6, 1.3); K.box(52.0, 0.95, 21.6, 0.08, 1.1, 0.1, 0, 'd_blueWood'); K.box(51.95, 0.95, 20.4, 0.2, 1.05, 0.12, 0, 'd_red');
+    D.abox(DA, { px: 'toolchest', side: 'toolchest', top: 'toolchest' }, 52.0, 0, 25.2, 0.4, 1.2, 0.4, 0); K.solid(52.0, 25.2, 0.4, 0.4, 0, 1.2, 'metal'); K.container('shed', 52.0, 25.2, 1.0, 'Tool chest', 0, Gr);
     for (let k = 0; k < 5; k++) inst(G.tire, 'rubber', mat4(51.9, k * 0.22, 23.2, R()));
     for (let k = 0; k < 3; k++) { inst(G.barrel, k % 2 ? 'rust' : 'red', mat4(58.6, 0, 18 + k * 0.7)); }
     K.solid(58.6, 18.7, 0.32, 1.0, 0, 0.9, 'metal');

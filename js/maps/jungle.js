@@ -8,7 +8,7 @@
 // camp where you start, the harbour shack, and the dock where the RIO LENTO waits.
 // Coordinates: metres, y up, ground y = 0 on the valley floor (K.terrain carves the river, raises the mountain and
 // the ridges, slopes the beach into the sea).
-import { jungleKit, rng, smooth, clamp, lerp, fbm } from './jungle.kit.js';
+import { jungleKit, jungleDecor, rng, smooth, clamp, lerp, fbm } from './jungle.kit.js';
 
 // the river's centre line (x at a given z) — also used by the story / tests
 export const RIVER_X = z => -25 + 22 * Math.sin((z + 95) * 0.022);
@@ -57,6 +57,40 @@ export function buildMap(K) {
   const R = rng(20261122), rr = (a, b) => a + R() * (b - a);
   const mat4 = K.mat4;
   const P = (x, z, yaw) => { const c = Math.cos(yaw), s = Math.sin(yaw); return (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c]; };
+  // ---- designed props (decor.js): camp cots, lab benches with glassware, shelves of supplies, footlockers ----
+  const { D, JA } = jungleDecor(K);
+  const glassM = K.MAT.glass || K.MAT.frosted;
+  // a folding canvas cot: steel side rails, X legs, the sling, a sleeping bag and a pillow (hx across, hz along: local)
+  const cot = (x, z, yaw, y0 = 0, bag = 'fabric2', hx = 0.38, hz = 0.95, label = 'Cot', kind = 'nightstand', solidIt = true) => {
+    const Q = P(x, z, yaw), top = y0 + 0.42;
+    for (const sx of [-1, 1]) { const [a, b] = Q(sx * hx, 0); K.box(a, top - 0.05, b, 0.02, top - 0.01, hz, yaw, 'jMetalDark'); }
+    for (const lz of [-hz + 0.12, hz - 0.12]) for (const sx of [-1, 1]) { const [a0, b0] = Q(sx * hx, lz - 0.12), [a1, b1] = Q(-sx * hx, lz + 0.12); K.wbeam([a0, y0, b0], [a1, top - 0.04, b1], 0.02, 0.02, M.jMetalDark, false); }
+    K.box(x, top - 0.04, z, hx - 0.01, top, hz - 0.02, yaw, 'jCanvasGreen');
+    { const [a, b] = Q(0, -0.12); K.box(a, top, b, hx - 0.05, top + 0.08, hz - 0.2, yaw, bag); }
+    { const [a, b] = Q(0, hz - 0.2); K.box(a, top, b, hx - 0.08, top + 0.1, 0.14, yaw, 'white'); }
+    if (solidIt) K.solid(x, z, hx, hz, yaw, top, 'metal', y0, { vault: true });
+    return Q;
+  };
+  // lab glassware along a bench top: beakers, flasks, a test-tube rack, a microscope, a sample tray
+  const glassware = (x, z, yaw, y, len) => {
+    const Q = P(x, z, yaw), Rg = rng(Math.round(x * 7 + z * 13));
+    for (let lx = -len / 2 + 0.2; lx < len / 2 - 0.15; lx += 0.32) {
+      const k = Rg(), [a, b] = Q(lx, (Rg() - 0.5) * 0.25);
+      if (k < 0.3) { K.xadd(D.G.cylY, glassM, K.mat4(a, y, b, 0, 0.045, 0.12, 0.045), false); K.xadd(D.G.cylY, [K.MAT.greenPaint, K.MAT.yellowPaint, M.jCrystal || K.MAT.bluePaint][(Rg() * 3) | 0] || K.MAT.metal, K.mat4(a, y, b, 0, 0.04, 0.06, 0.04), false); }
+      else if (k < 0.5) { K.xadd(D.G.sphere, glassM, K.mat4(a, y + 0.07, b, 0, 0.07, 0.07, 0.07), false); K.xadd(D.G.cylY, glassM, K.mat4(a, y + 0.12, b, 0, 0.018, 0.1, 0.018), false); }
+      else if (k < 0.7) { K.box(a, y, b, 0.12, y + 0.06, 0.04, yaw, 'jMetalDark'); for (let t = 0; t < 5; t++) { const [c, d] = Q(lx - 0.09 + t * 0.045, 0); K.xadd(D.G.cylY, glassM, K.mat4(c, y + 0.02, d, 0, 0.008, 0.13, 0.008), false); } }
+      else if (k < 0.85) { K.box(a, y, b, 0.08, y + 0.03, 0.1, yaw, 'black'); K.box(a, y + 0.03, b, 0.025, y + 0.3, 0.025, yaw, 'black'); K.xadd(D.G.cylY, K.MAT.white || K.MAT.metal, K.mat4(a, y + 0.18, b, 0, 0.03, 0.16, 0.03), false); }
+      else { K.box(a, y, b, 0.14, y + 0.025, 0.1, yaw, 'white'); for (let t = 0; t < 4; t++) K.xadd(D.G.can, glassM, K.mat4(a - 0.09 + t * 0.06, y + 0.025, b, 0, 0.4, 0.5, 0.4), false); }
+    }
+  };
+  // a lab bench: grey cupboards (designed fronts both sides), a black epoxy top, glassware
+  const labBench = (x, z, yaw, len = 2.4, y0 = 0) => {
+    const Q = P(x, z, yaw), n = Math.max(1, Math.round(len / 1.2));
+    for (let i = 0; i < n; i++) { const [a, b] = Q(-len / 2 + len / n * (i + 0.5), 0); D.abox(JA, { pz: 'labBench', nz: 'labBench', side: 'olive', top: 'olive' }, a, y0, b, len / n / 2 - 0.003, y0 + 0.88, 0.36, yaw); }
+    K.box(x, y0 + 0.88, z, len / 2 + 0.02, y0 + 0.92, 0.39, yaw, 'dzGranite');
+    glassware(x, z, yaw, y0 + 0.92, len);
+    return K.solid(x, z, len / 2, 0.38, yaw, y0 + 0.92, 'wood', y0);
+  };
   const notes = [];
   // a prop box with its own picture on the front (local +z) face — the fridge, the cooler, the generator — and a
   // plain patch of the same texture (pr: u0, v0, u1, v1) on the other faces, so labels are never cut or repeated
@@ -359,7 +393,7 @@ export function buildMap(K) {
     { const tp = new THREE.PlaneGeometry(2.6, 1.9, 6, 4).rotateX(-Math.PI / 2), tpp = tp.attributes.position; for (let i = 0; i < tpp.count; i++) tpp.setY(i, Math.abs(Math.sin(tpp.getX(i) * 3.1 + tpp.getZ(i) * 2.3)) * 0.04); tp.computeVertexNormals();
       K.xadd(tp, M.jTarp || M.jCanvasGreen, mat4(92.5, 0.05, -132, 0.4), false); }
     for (const pts of [[[90, -138.5], [93, -131], [96, -127]], [[90.4, -138.5], [99, -133], [104.3, -126]]]) for (let i = 0; i + 1 < pts.length; i++) K.wbeam([pts[i][0], 0.06, pts[i][1]], [pts[i + 1][0], 0.06, pts[i + 1][1]], 0.02, 0.02, K.MAT.black || K.MAT.metal, false);
-    const bench = (x, z, yaw, len = 2.4) => { K.block(x, 0, z, len / 2, 0.92, 0.38, yaw, 'counter', 'wood'); };
+    const bench = (x, z, yaw, len = 2.4) => labBench(x, z, yaw, len);
     bench(100, -138.5, 0); bench(95, -138.5, 0); bench(104.6, -130, Math.PI / 2); bench(104.6, -124, Math.PI / 2);
     // the radio on its bench: a steel set with dials, the handset, the aerial cable running up the crawl
     const rmat = K.std({ map: J.signTex(['◉  ◉  ◉', 'HF-150  TX/RX'], '#3a4038', '#c8d0b8', 256, 128, 'bold 26px Helvetica'), roughness: 0.5, metalness: 0.4 });
@@ -376,7 +410,8 @@ export function buildMap(K) {
     for (const [x, z] of [[88, -139.6], [88.7, -139.8]]) { K.xadd(G.drum, M.jDrumRust, mat4(x, 0, z, R())); }
     K.solid(88.35, -139.7, 0.75, 0.35, 0, 0.9, 'metal');
     // cots
-    for (const [x, z] of [[89, -116.5], [92.5, -116.5]]) { K.block(x, 0.0, z, 0.95, 0.45, 0.4, 0, f => f === 'top' ? 'fabric1' : 'jMetalDark', 'metal'); K.container('nightstand', x, z, 0.45, 'Cot', 0); }
+    for (const [x, z] of [[89, -116.5], [92.5, -116.5]]) { cot(x, z, Math.PI / 2, 0.12, 'fabric1', 0.4, 0.95); K.container('nightstand', x, z, 0.45, 'Cot', 0); }
+    for (const [x, z, yw] of [[100.5, -135.6, 0.1], [101.3, -135.4, -0.2]]) { D.abox(JA, { pz: 'crate', nz: 'crate', px: 'crate', nx: 'crate', top: 'crate' }, x, 0.12, z, 0.35, 0.62, 0.25, yw); K.solid(x, z, 0.35, 0.25, yw, 0.62, 'wood', 0, { vault: true }); }
     // a work lamp on a stand: the one real light down here (warm, buzzing)
     K.inst(G.pole, K.MAT.metal, mat4(96, 0, -127, 0, 0.4, 2.4, 0.4)); K.xadd(new THREE.SphereGeometry(0.16, 12, 8), M.jLampOn, mat4(96, 2.45, -127), false);
     const lab = K.light(96, 2.6, -127, 0xffd8a0, 10, 18);
@@ -532,8 +567,9 @@ export function buildMap(K) {
     K.box(x, 0, z, w / 2 - 0.05, 0.025, d / 2 - 0.05, yaw, f => f === 'top' ? (big ? 'jTarp' : 'jCanvasGreen') : null);
     K.region(...K.rectOf(x, z, w / 2, d / 2, yaw), 'paved', 'wood');
     // a cot and a footlocker inside
-    { const [a, b] = Q(-w / 2 + 0.6, -0.2); K.block(a, 0, b, 0.38, 0.42, 0.95, yaw, f => f === 'top' ? 'fabric2' : 'jMetalDark', 'metal'); K.container('nightstand', a, b, 0.42, 'Cot', yaw); }
-    { const [a, b] = Q(w / 2 - 0.55, -d / 2 + 0.6); K.block(a, 0, b, 0.4, 0.45, 0.28, yaw, 'darkWood', 'wood'); K.container('closet', a, b, 0.45, label === 'Tent' ? 'Footlocker' : label, yaw); }
+    { const [a, b] = Q(-w / 2 + 0.6, -0.2); cot(a, b, yaw); K.container('nightstand', a, b, 0.42, 'Cot', yaw); }
+    { const [a, b] = Q(w / 2 - 0.55, -d / 2 + 0.6); D.abox(JA, { pz: 'footlocker', side: 'olive', top: 'olive' }, a, 0, b, 0.4, 0.45, 0.28, yaw); K.solid(a, b, 0.4, 0.28, yaw, 0.45, 'wood'); K.container('closet', a, b, 0.45, label === 'Tent' ? 'Footlocker' : label, yaw);
+      const [c, e] = Q(w / 2 - 0.5, -d / 2 + 1.25); K.xadd(D.G.cylY, K.MAT.darkMetal || M.jMetalDark, K.mat4(c, 0, e, 0, 0.09, 0.32, 0.09), false); K.xadd(D.G.sphere, M.jLampOut, K.mat4(c, 0.36, e, 0, 0.07, 0.09, 0.07), false); }   // a hurricane lamp
     return Q;
   };
   {
@@ -547,7 +583,12 @@ export function buildMap(K) {
     // the mess tarp: a blue tarp on poles over a folding table
     for (const [lx, lz] of [[-2.2, -1.6], [2.2, -1.6], [-2.2, 1.6], [2.2, 1.6]]) { K.inst(G.pole, M.jPole, mat4(66 + lx, 0, 100 + lz, 0, 0.5, 2.4, 0.5)); K.solid(66 + lx, 100 + lz, 0.06, 0.06, 0, 2.4, 'wood'); }
     K.xadd(new THREE.PlaneGeometry(5, 3.8, 6, 6).rotateX(-Math.PI / 2).translate(0, 0, 0), M.jTarp, mat4(66, 2.45, 100, 0, 1, 1, 1, 0.06, 0.03), true);
-    K.block(66, 0, 100, 1.0, 0.75, 0.45, 0, f => f === 'top' ? 'counter' : 'jShelf', 'metal');
+    K.solid(66, 100, 1.0, 0.45, 0, 0.75, 'metal', 0, { vault: true }); K.box(66, 0.71, 100, 1.0, 0.75, 0.45, 0, f => f === 'bot' ? 'jMetalDark' : 'dzLaminate');   // a folding table
+    for (const lx of [-0.9, 0.9]) for (const s2 of [-1, 1]) K.wbeam([66 + lx - 0.08 * s2, 0, 100 - 0.4], [66 + lx + 0.08 * s2, 0.71, 100 + 0.4], 0.02, 0.02, M.jMetalDark, false);
+    D.abox(JA, { pz: 'olive', side: 'olive', top: 'stove' }, 65.55, 0.75, 100, 0.32, 0.86, 0.2, 0);   // the camp stove, a kettle on it, pots, mugs, a coffee tin
+    K.xadd(D.G.kettle, K.MAT.chrome || K.MAT.metal, K.mat4(65.4, 0.86, 100, 0.5), false); K.xadd(D.G.pot, M.jMetalDark, K.mat4(65.72, 0.86, 100, 0, 0.8, 0.7, 0.8), false);
+    for (let i = 0; i < 4; i++) K.xadd(D.G.can, [K.MAT.white, K.MAT.redPaint, K.MAT.bluePaint, K.MAT.white][i] || K.MAT.metal, K.mat4(66.3 + i * 0.13, 0.75, 100.15 - (i % 2) * 0.1, 0, 1.1, 0.9, 1.1), false);
+    K.xadd(D.G.board, K.MAT.dzButcher, K.mat4(66.6, 0.75, 99.85, 0.2), false);
     K.container('kitchen', 66, 100, 0.8, 'Camp stove & food box', 0); K.container('cooler', 64.4, 101.1, 0.3, 'Cooler', 0);
     propBox(64.4, 0, 101.1, 0.35, 0.42, 0.25, 0, M.jCooler, 'plastic', [0.05, 0.1, 0.3, 0.4]);
     K.crateStack(70, 96, 0.4, 2); K.crateStack(71.2, 94.2, -0.2, 1);
@@ -564,8 +605,9 @@ export function buildMap(K) {
   {
     const H = K.room(27, 108.5, 7, 5, 0, { h: 2.7, mat: 'plank', inMat: 'plank', floor: 'floorWood', roof: 'gable', roofMat: 'jThatch', ridge: 1.4, doors: [{ side: 'n', at: 1.5, w: 0.95, dir: -1, col: 0x3a5a6a }], windows: [{ side: 'e', at: 0, w: 1.0 }, { side: 'w', at: 0.5, w: 1.0 }, { side: 's', at: -1.5, w: 1.4 }], name: 'the harbour shack', home: false, inside: [[0, 0], [-1.8, -0.6]] });
     void H;
-    K.block(24.6, 0, 110, 0.8, 0.9, 0.35, 0, 'counter', 'wood'); K.container('shelf', 24.6, 110.1, 0.9, 'Bait shelf', 0);
-    K.block(29.8, 0, 106.7, 0.5, 1.6, 0.25, 0, 'cabinet', 'wood'); K.container('cabinet', 29.8, 107, 0.9, 'Tool cupboard', Math.PI);
+    D.abox(JA, { nz: 'supplies', pz: 'supplies', side: 'olive', top: 'olive' }, 24.6, 0, 110, 0.8, 0.9, 0.35, 0); K.solid(24.6, 110, 0.8, 0.35, 0, 0.9, 'wood'); K.container('shelf', 24.6, 110.1, 0.9, 'Bait shelf', 0);
+    D.abox(D.A, { pz: 'cabWood2', nz: 'cabWood2', side: 'white', top: 'white' }, 29.8, 0, 106.7, 0.5, 1.6, 0.25, 0); K.solid(29.8, 106.7, 0.5, 0.25, 0, 1.6, 'wood'); K.container('cabinet', 29.8, 107, 0.9, 'Tool cupboard', Math.PI);
+    D.face(JA, 'tools', 27.4, 1.55, 110.84, Math.PI, 1.3, 1.0); D.face(JA, 'map', 24.6, 1.75, 110.84, Math.PI, 0.9, 0.7);
     K.container('cooler', 25, 107, 0.3, 'Fish cooler', 0); propBox(25, 0, 107, 0.4, 0.45, 0.3, 0, M.jCooler, 'plastic', [0.05, 0.1, 0.3, 0.4]);
     for (const [x, z] of [[33, 111.5], [33.7, 112.2], [32.6, 112.6]]) K.xadd(G.drum, M.jDrumBlue, mat4(x, 0, z, R())); K.solid(33.2, 112.1, 0.9, 0.9, 0, 0.9, 'metal');
   }
@@ -636,32 +678,32 @@ export function buildMap(K) {
     void c; void s; void name;
   }
   stiltHut(-86, -46, 0.25, 5.4, 4.2, 2.3, 'hut1', (Q, Y) => {
-    { const [a, b] = Q(-1.8, -1.2); K.block(a, Y, b, 0.95, Y + 0.45, 0.4, 0.25, f => f === 'top' ? 'fabric0' : 'jMetalDark', 'metal'); K.container('nightstand', a, b, Y + 0.45, 'Cot', 0.25); }
-    { const [a, b] = Q(-1.9, 1.5); K.block(a, Y, b, 0.6, Y + 1.7, 0.25, 0.25, 'cabinet', 'wood'); K.container('closet', a, b, Y + 1.0, 'Clothes rail', 0.25); }
-    { const [a, b] = Q(0.8, 1.6); K.block(a, Y, b, 0.6, Y + 0.75, 0.3, 0.25, 'darkWood', 'wood'); K.container('dresser', a, b, Y + 0.75, 'Writing desk', 0.25); notes.push({ x: a, z: b, y: Y + 0.8, id: 'priya' }); }
+    { const [a, b] = Q(-1.8, -1.2); cot(a, b, 0.25 + Math.PI / 2, Y, 'fabric0', 0.4, 0.95); K.container('nightstand', a, b, Y + 0.45, 'Cot', 0.25); }
+    { const [a, b] = Q(-1.9, 1.5); D.abox(D.A, { nz: 'cabWood2', side: 'white', top: 'white' }, a, Y, b, 0.6, Y + 1.7, 0.25, 0.25); K.solid(a, b, 0.6, 0.25, 0.25, Y + 1.7, 'wood', Y); K.container('closet', a, b, Y + 1.0, 'Clothes rail', 0.25); }
+    { const [a, b] = Q(0.8, 1.6); D.abox(D.A, { nz: 'drawers3', side: 'white', top: 'white' }, a, Y, b, 0.6, Y + 0.72, 0.3, 0.25); K.box(a, Y + 0.72, b, 0.62, Y + 0.76, 0.32, 0.25, 'dzWoodDark'); K.solid(a, b, 0.6, 0.3, 0.25, Y + 0.75, 'wood', Y); K.container('dresser', a, b, Y + 0.75, 'Writing desk', 0.25); notes.push({ x: a, z: b, y: Y + 0.8, id: 'priya' });
+      const [c, e] = Q(0.8, 2.02); D.face(JA, 'map', c, Y + 1.45, e, 0.25 + Math.PI, 1.0, 0.75); const [f, h] = Q(0.4, 1.65); K.xadd(D.G.cylY, M.jLampOut, K.mat4(f, Y + 0.76, h, 0, 0.05, 0.2, 0.05), false); }
   });
   stiltHut(-80, -18, -0.15, 6.0, 4.4, 2.5, 'hut2', (Q, Y) => {
-    { const [a, b] = Q(-2.0, -1.3); K.block(a, Y, b, 0.95, Y + 0.45, 0.4, -0.15, f => f === 'top' ? 'fabric3' : 'jMetalDark', 'metal'); K.container('nightstand', a, b, Y + 0.45, 'Cot', -0.15); }
-    { const [a, b] = Q(-0.2, 1.7); K.block(a, Y, b, 1.1, Y + 1.0, 0.3, -0.15, 'jShelf', 'metal'); K.container('shelf', a, b, Y + 1.0, 'Supply shelves', -0.15, null, { fixed: [['flashlight', 1], ['battery', 1]] }); }
-    { const [a, b] = Q(1.4, -1.5); K.block(a, Y, b, 0.4, Y + 0.5, 0.3, -0.15, 'darkWood', 'wood'); K.container('medicine', a, b, Y + 0.5, 'First-aid locker', -0.15); }
+    { const [a, b] = Q(-2.0, -1.3); cot(a, b, -0.15 + Math.PI / 2, Y, 'fabric3', 0.4, 0.95); K.container('nightstand', a, b, Y + 0.45, 'Cot', -0.15); }
+    { const [a, b] = Q(-0.2, 1.7); D.abox(JA, { nz: 'supplies', side: 'olive', top: 'olive' }, a, Y, b, 1.1, Y + 1.0, 0.3, -0.15); K.solid(a, b, 1.1, 0.3, -0.15, Y + 1.0, 'metal', Y); K.container('shelf', a, b, Y + 1.0, 'Supply shelves', -0.15, null, { fixed: [['flashlight', 1], ['battery', 1]] }); }
+    { const [a, b] = Q(1.4, -1.5); D.abox(JA, { pz: 'footlocker', side: 'olive', top: 'olive' }, a, Y, b, 0.4, Y + 0.5, 0.3, -0.15); K.solid(a, b, 0.4, 0.3, -0.15, Y + 0.5, 'wood', Y); K.container('medicine', a, b, Y + 0.5, 'First-aid locker', -0.15); }
   });
   // the lab hut: a ground-level plank building with a tin-ish thatch roof; benches, the sample fridge, the log
   {
     K.room(-64, -40, 9, 6, 0.1, { h: 2.7, mat: 'plank', inMat: 'plank', floor: 'floorWood', roof: 'gable', roofMat: 'jThatch', ridge: 1.6, doors: [{ side: 'n', at: 2.2, w: 0.95, dir: -1, col: 0x4a5a3a }], windows: [{ side: 'n', at: -1.8, w: 1.4 }, { side: 'e', at: 0, w: 1.2 }, { side: 's', at: 0, w: 1.6 }], name: 'the lab hut', home: false, inside: [[0, 0], [-2.5, 0.5], [2.5, -1]] });
     const Q = P(-64, -40, 0.1);
-    { const [a, b] = Q(-1.2, -2.5); K.block(a, 0, b, 2.0, 0.92, 0.36, 0.1, f => f === 'top' ? 'counter' : 'cabinet', 'wood'); K.container('medicine', a, b, 0.92, 'Lab bench', 0.1); notes.push({ x: a, z: b, y: 0.95, id: 'campLog' }); }
+    { const [a, b] = Q(-1.2, -2.5); labBench(a, b, 0.1, 4.0); K.container('medicine', a, b, 0.92, 'Lab bench', 0.1); notes.push({ x: a, z: b, y: 0.95, id: 'campLog' }); }
     { const [a, b] = Q(-4.0, 0.6); propBox(a, 0, b, 0.5, 1.7, 0.35, 0.1 + Math.PI / 2, M.jFridge, 'metal', [0.0, 0.05, 0.08, 0.3]); K.container('fridge', a, b, 1.0, 'Sample fridge', 0.1 + Math.PI / 2); }
-    { const [a, b] = Q(3.6, -1.4); K.block(a, 0, b, 0.45, 1.8, 0.9, 0.1, 'jShelf', 'metal'); K.container('pharmacy', a, b, 1.0, 'Chemical shelves', 0.1 - Math.PI / 2); }
-    { const [a, b] = Q(1.2, 1.9); K.block(a, 0, b, 0.7, 0.75, 0.4, 0.1, 'darkWood', 'wood'); K.container('cabinet', a, b, 0.75, 'Desk', 0.1); }
-    // microscopes and sample racks on the bench
-    for (let i = 0; i < 3; i++) { const [a, b] = Q(-2.4 + i * 1.2, -2.5); K.xadd(new THREE.CylinderGeometry(0.04, 0.06, 0.32, 8), K.MAT.white || K.MAT.trim, mat4(a, 1.08, b, 0)); }
+    { const [a, b] = Q(3.6, -1.4); D.abox(JA, { nx: 'reagents', side: 'olive', top: 'olive' }, a, 0, b, 0.45, 1.8, 0.9, 0.1); K.solid(a, b, 0.45, 0.9, 0.1, 1.8, 'metal'); K.container('pharmacy', a, b, 1.0, 'Chemical shelves', 0.1 - Math.PI / 2); }
+    { const [a, b] = Q(1.2, 1.9); D.abox(D.A, { nz: 'drawers3', side: 'white', top: 'white' }, a, 0, b, 0.7, 0.71, 0.4, 0.1); K.box(a, 0.71, b, 0.72, 0.75, 0.42, 0.1, 'dzWoodDark'); K.solid(a, b, 0.7, 0.4, 0.1, 0.75, 'wood'); K.container('cabinet', a, b, 0.75, 'Desk', 0.1);
+      const [c, e] = Q(0.6, 2.84); D.face(JA, 'map', c, 1.6, e, 0.1 + Math.PI, 1.0, 0.75); D.microwave(...Q(0.9, 1.95).flatMap((v, i) => i ? [v] : [v, 0.75]), 0.1 + Math.PI); }   // a field laptop-ish monitor on the desk, the route map over it
   }
   // the supply hut (ground level, padlocked door was forced)
   {
     K.room(-92, -30, 5, 4, -0.3, { h: 2.5, mat: 'plank', inMat: 'plank', floor: 'floorWood', roof: 'gable', roofMat: 'jThatch', ridge: 1.2, doors: [{ side: 'e', at: 0, w: 0.95, dir: 1, col: 0x5a4a32 }], windows: [{ side: 'n', at: 0, w: 1.0 }], name: 'the supply hut', home: false });
     const Q = P(-92, -30, -0.3);
-    { const [a, b] = Q(-1.6, 0); K.block(a, 0, b, 0.4, 1.8, 1.4, -0.3, 'jShelf', 'metal'); K.container('pantry', a, b, 1.0, 'Food shelves', -0.3 + Math.PI / 2); }
-    { const [a, b] = Q(0.6, -1.3); K.block(a, 0, b, 0.8, 0.6, 0.35, -0.3, 'darkWood', 'wood'); K.container('shed', a, b, 0.6, 'Tool chest', -0.3); }
+    { const [a, b] = Q(-1.6, 0); K.solid(a, b, 0.4, 1.4, -0.3, 1.8, 'metal'); for (const lz of [-0.7, 0.7]) { const [c, e] = Q(-1.6, lz); D.abox(JA, { px: 'supplies', side: 'olive', top: 'olive' }, c, 0, e, 0.4, 1.8, 0.7, -0.3); } K.container('pantry', a, b, 1.0, 'Food shelves', -0.3 + Math.PI / 2); }
+    { const [a, b] = Q(0.6, -1.3); D.abox(JA, { pz: 'crate', side: 'crate', top: 'crate' }, a, 0, b, 0.8, 0.6, 0.35, -0.3); K.solid(a, b, 0.8, 0.35, -0.3, 0.6, 'wood'); K.container('shed', a, b, 0.6, 'Tool chest', -0.3); }
     for (const [lx, lz] of [[0.9, 1.2], [1.5, 1.2]]) { const [a, b] = Q(lx, lz); K.xadd(G.drum, M.jDrumRed, mat4(a, 0, b, R())); }
     { const [a, b] = Q(1.2, 1.2); K.solid(a, b, 0.65, 0.32, -0.3, 0.9, 'metal'); }
   }
@@ -784,9 +826,9 @@ export function buildMap(K) {
 
   // ================================================================ the ranger station (west, on stilts) and the plane wreck
   stiltHut(-84, 60, Math.PI / 2, 6.4, 4.6, 2.8, 'ranger', (Q, Y) => {
-    { const [a, b] = Q(-2.2, -1.4); K.block(a, Y, b, 0.95, Y + 0.45, 0.4, Math.PI / 2, f => f === 'top' ? 'fabric4' : 'jMetalDark', 'metal'); K.container('nightstand', a, b, Y + 0.45, 'Bunk', Math.PI / 2); }
-    { const [a, b] = Q(-0.4, 1.8); K.block(a, Y, b, 1.0, Y + 0.8, 0.35, Math.PI / 2, 'darkWood', 'wood'); K.container('police', a, b, Y + 0.8, 'Ranger\'s gun locker', Math.PI / 2, null, { fixed: [['ammo9', 10]] }); }
-    { const [a, b] = Q(1.3, -1.6); K.block(a, Y, b, 0.45, Y + 1.6, 0.3, Math.PI / 2, 'cabinet', 'wood'); K.container('kitchen', a, b, Y + 1.0, 'Kitchen cupboard', Math.PI / 2); }
+    { const [a, b] = Q(-2.2, -1.4); cot(a, b, Math.PI, Y, 'fabric4', 0.4, 0.95); K.container('nightstand', a, b, Y + 0.45, 'Bunk', Math.PI / 2); }
+    { const [a, b] = Q(-0.4, 1.8); D.abox(JA, { nz: 'gunCab', pz: 'gunCab', side: 'olive', top: 'olive' }, a, Y, b, 1.0, Y + 0.8, 0.35, Math.PI / 2); K.solid(a, b, 1.0, 0.35, Math.PI / 2, Y + 0.8, 'metal', Y); K.container('police', a, b, Y + 0.8, 'Ranger\'s gun locker', Math.PI / 2, null, { fixed: [['ammo9', 10]] }); }
+    { const [a, b] = Q(1.3, -1.6); D.abox(D.A, { pz: 'cabWood2', nz: 'cabWood2', side: 'white', top: 'white' }, a, Y, b, 0.45, Y + 1.6, 0.3, Math.PI / 2); K.solid(a, b, 0.45, 0.3, Math.PI / 2, Y + 1.6, 'wood', Y); K.container('kitchen', a, b, Y + 1.0, 'Kitchen cupboard', Math.PI / 2); }
   });
   {
     // an old twin-prop plane, years in the trees: fuselage, a wing torn off, the tail up in the canopy

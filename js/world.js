@@ -148,7 +148,7 @@ class Builder {
       gg.computeBoundingSphere();
       const m = new THREE.Mesh(gg, MAT[A.key] || MAT.concrete);
       const glass = A.key === 'glass' || A.key === 'glassLit' || A.key === 'shopGlass' || A.key === 'frosted';
-      m.castShadow = !glass && !A.key.startsWith('road') && A.key !== 'walk' && A.key !== 'drive' && !A.key.startsWith('floor') && !A.key.startsWith('rug');
+      m.castShadow = !glass && !A.key.startsWith('road') && A.key !== 'walk' && A.key !== 'drive' && !A.key.startsWith('floor') && !A.key.startsWith('rug') && !A.key.startsWith('tile');   // (wall tiles: flat on the wall, no shadow worth a pass)
       m.receiveShadow = true;
       if (glass) m.renderOrder = 2;
       group.add(m);
@@ -357,6 +357,42 @@ export function makeWorld(scene, renderer) {
     g.lineWidth = 5; g.beginPath(); g.moveTo(64, 64); g.lineTo(64 + Math.sin(0.3 * 6.283) * 30, 64 - Math.cos(0.3 * 6.283) * 30); g.stroke();   // ten-thirty
     g.lineWidth = 3; g.beginPath(); g.moveTo(64, 64); g.lineTo(64, 64 + 46); g.stroke();
     const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; MAT.clockFace = std({ map: t, alphaTest: 0.5, roughness: 0.4 }); }
+  // ---- the interior design pass (Maple Hollow): real wood with knots, painted shaker doors, stone and butcher-block
+  // worktops, brushed stainless appliances, tiled backsplashes and bathrooms, woven upholstery, quilted bedding,
+  // patterned rugs, titled book spines. Each look is one texture and one material shared by every house; merged
+  // props (hm) add triangles, not draw calls. ----
+  MAT.walnut = std({ ...TX.relief(TX.woodGrainTexture([122, 82, 54], 14), 0.6), roughness: 0.48 });          // stained furniture wood
+  MAT.oak = std({ ...TX.relief(TX.woodGrainTexture([196, 156, 108], 15), 0.6), roughness: 0.55 });            // natural oak cabinets
+  MAT.cabinetSage = std({ map: TX.cabinetTexture([170, 186, 160], 16), roughness: 0.55 });                    // painted sage-green
+  MAT.counterG = std({ ...TX.relief(TX.counterTexture('granite', 21), 0.3), roughness: 0.22, envMapIntensity: 1.2 });
+  MAT.counterB = std({ ...TX.relief(TX.counterTexture('butcher', 22), 0.5), roughness: 0.5 });
+  MAT.counterM = std({ map: TX.counterTexture('marble', 23), roughness: 0.15, envMapIntensity: 1.2 });
+  MAT.counterL = std({ map: TX.counterTexture('laminate', 24), roughness: 0.4 });
+  MAT.steel = std({ map: TX.brushedSteelTexture(31), color: 0xe4e6e8, roughness: 0.32, metalness: 0.65, envMapIntensity: 1.3 });
+  MAT.fridgeDoor = std({ map: TX.fridgeDoorTexture(), color: 0xe4e6e8, roughness: 0.32, metalness: 0.65, envMapIntensity: 1.3 });
+  MAT.applFace = std({ map: TX.applianceAtlas(), roughness: 0.25, metalness: 0.3, envMapIntensity: 1.2 });
+  MAT.tileSubway = std({ ...TX.relief(TX.wallTileTexture('subway', [236, 236, 230], 51), 0.8), roughness: 0.12, envMapIntensity: 1.1 });
+  MAT.tileSubway2 = std({ ...TX.relief(TX.wallTileTexture('subway', [150, 176, 170], 52), 0.8), roughness: 0.12, envMapIntensity: 1.1 });
+  MAT.tileBath = std({ ...TX.relief(TX.wallTileTexture('square', [232, 236, 238], 53), 0.8), roughness: 0.1, envMapIntensity: 1.1 });
+  MAT.tileBath2 = std({ ...TX.relief(TX.wallTileTexture('square', [196, 214, 226], 54), 0.8), roughness: 0.1, envMapIntensity: 1.1 });
+  [[96, 104, 120], [128, 90, 72], [84, 104, 84], [150, 138, 116], [72, 72, 84]].forEach((c, i) => { MAT['uph' + i] = std({ ...TX.relief(TX.upholsteryTexture(c, 11 + i), 0.8), roughness: 1 }); });
+  MAT.mattressQ = std({ ...TX.relief(TX.beddingTexture('mattress', 61), 0.8), roughness: 0.95 }); MAT.mattressQ.map.repeat.set(2, 3);
+  MAT.pillowM = std({ ...TX.relief(TX.beddingTexture('pillow', 62), 0.6), roughness: 0.95 });
+  for (let i = 0; i < 3; i++) { MAT['quilt' + i] = std({ ...TX.relief(TX.beddingTexture('quilt' + i, 63 + i), 0.7), roughness: 0.95 }); MAT['quilt' + i].map.repeat.set(2, 2); }
+  MAT.knit = std({ ...TX.relief(TX.beddingTexture('knit', 66), 0.9), roughness: 1 }); MAT.knit.map.repeat.set(6, 3);
+  for (const [k, kind] of [['rugPersian', 'persian'], ['rugModern', 'modern'], ['rugRunner', 'runner'], ['bathMat', 'bath']]) MAT[k] = std({ ...TX.relief(TX.rugTexture(kind, 71), 0.8), roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  MAT.books = std({ map: TX.bookAtlasTexture(), roughness: 0.75 });
+  // a painted / stained cupboard face for each carcass material, cached per (material, style, proportions): the door
+  // leaves and drawer fronts are meshes of their own already, so a textured face costs nothing extra to draw
+  const FACE = new Map(), FACECOL = new Map([[MAT.cabinet, [226, 214, 190, true]], [MAT.cabinetSage, [170, 186, 160, true]], [MAT.oak, [196, 156, 108, false]], [MAT.walnut, [122, 82, 54, false]], [MAT.darkWood, [122, 82, 54, false]], [MAT.white, [226, 226, 222, true]]]);
+  function faceMat(base, style, aspect) {
+    const fc = FACECOL.get(base); if (!fc) return base;
+    const k = base.uuid + style + (Math.round(aspect * 4) / 4); if (FACE.has(k)) return FACE.get(k);
+    const t = TX.cabinetDoorTexture(style, fc.slice(0, 3), aspect, fc[3], 3);
+    const m = std({ map: t, roughness: fc[3] ? 0.5 : 0.45, ...(t.userData.normal ? { normalMap: t.userData.normal, normalScale: new THREE.Vector2(0.9, 0.9) } : {}) });
+    FACE.set(k, m); return m;
+  }
+  W.faceMat = faceMat;
   // ---- shading touches that cost nothing per object: baked contact darkening and living foliage ----
   // (world-space tricks in the materials' shaders, so the merged town and the instanced props get them for free)
   const FOL = { fTime: { value: 0 }, fSun: { value: new THREE.Vector3(0, 1, 0) }, fSunCol: { value: new THREE.Color(0) } };
@@ -423,7 +459,7 @@ export function makeWorld(scene, renderer) {
   foliage(MAT.leaves, 0.045); foliage(MAT.leaves2, 0.045); foliage(MAT.needles, 0.025); foliage(MAT.hedge, 0.008);
   W.MAT = MAT;
   // metres per texture repeat for each material
-  const TILE = { roadWhite: 1.5, roadLine: 1.5, mulch: 1.2, ceilTile: 0.6, ceiling: 3, road: 6, walk: 1.5, drive: 3, concrete: 3, curb: 1.5, brick: 2, trim: 1, plank: 1.5, fence: 1.5, bark: 1.5, floorWood: 2.4, floorCarpet: 2, floorCarpet2: 2, floorTile: 1.2, floorTile2: 1.2, cabinet: 1, darkWood: 1, counter: 1.5, dirt: 3, gravel: 2, rug0: 2, rug1: 2 };
+  const TILE = { roadWhite: 1.5, roadLine: 1.5, mulch: 1.2, ceilTile: 0.6, ceiling: 3, road: 6, walk: 1.5, drive: 3, concrete: 3, curb: 1.5, brick: 2, trim: 1, plank: 1.5, fence: 1.5, bark: 1.5, floorWood: 2.4, floorCarpet: 2, floorCarpet2: 2, floorTile: 1.2, floorTile2: 1.2, cabinet: 1, darkWood: 1, counter: 1.5, counterG: 1.5, counterB: 1.5, counterM: 1.5, counterL: 1.5, walnut: 1, oak: 1, cabinetSage: 1, steel: 1, tileSubway: 0.6, tileSubway2: 0.6, tileBath: 0.6, tileBath2: 0.6, dirt: 3, gravel: 2, rug0: 2, rug1: 2 };
   for (let i = 0; i < 8; i++) TILE['siding' + i] = 1;
   for (let i = 0; i < 6; i++) TILE['paint' + i] = 2.5;
   for (let i = 0; i < 5; i++) TILE['fabric' + i] = 0.8;
@@ -548,7 +584,7 @@ export function makeWorld(scene, renderer) {
       else if (k === 'jar') ref = inst(GEO.jar, MAT.jarGlass, m);
       else if (k === 'bottle') ref = inst(GEO.bottle, MAT['bottle' + Math.floor(Math.random() * 2)], m);
       else if (k === 'box') ref = inst(GEO.cereal, MAT['book' + Math.floor(Math.random() * 6)], m);
-      else if (k === 'book') ref = inst(GEO.item, MAT['book' + Math.floor(Math.random() * 6)], mat4(x, y, z, ry, 1.6, 4.6, 1.5));
+      else if (k === 'book') ref = inst(bookGeo(Math.floor(Math.random() * 8), 'px', true), MAT.books, mat4(x, y, z, ry, 0.17, 0.23, 0.065));   // a hardback, its spine (and title) to the room
       else if (k === 'cloth') ref = inst(GEO.folded, MAT['fabric' + Math.floor(Math.random() * 5)], m);
       else if (k === 'trash') ref = inst(GEO.bag, MAT.trashBag, m);
       else if (k === 'carton') ref = inst(GEO.carton, MAT.white, m);
@@ -798,6 +834,36 @@ export function makeWorld(scene, renderer) {
     wheel: new THREE.CylinderGeometry(0.34, 0.34, 0.24, 16).rotateZ(Math.PI / 2),
   };
   const FURN = new Map();   // cached furniture part geometries (drawer fronts, trays, pulls, knobs)
+  // ---- design-pass detail geometry (shared; merged into the house chunks by hm, so it costs triangles, not draws) ----
+  const strip = g => { const n = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(n.attributes)) if (!['position', 'normal', 'uv'].includes(k)) n.deleteAttribute(k); return n; };
+  // a cast-iron burner grate: a square frame, a cross of fingers, the burner cap in the middle (sits on y 0)
+  GEO.grate = mergeGeometries([
+    ...[[-1, 0], [1, 0], [0, -1], [0, 1]].map(([sx, sz]) => strip(new THREE.BoxGeometry(sx ? 0.012 : 0.23, 0.016, sx ? 0.23 : 0.012).translate(sx * 0.109, 0.022, sz * 0.109))),
+    strip(new THREE.BoxGeometry(0.23, 0.012, 0.012).translate(0, 0.03, 0)), strip(new THREE.BoxGeometry(0.012, 0.012, 0.23).translate(0, 0.03, 0)),
+    ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => strip(new THREE.BoxGeometry(0.012, 0.02, 0.012).translate(sx * 0.109, 0.01, sz * 0.109))),
+    strip(new THREE.CylinderGeometry(0.035, 0.04, 0.014, 14).translate(0, 0.007, 0)),
+  ]);
+  // a bar pull on two posts (along y, standing off +z), a mushroom knob, a fridge's two long handles
+  const barPull = (L, r = 0.0075, off = 0.03) => mergeGeometries([strip(new THREE.CylinderGeometry(r, r, L, 8).translate(0, 0, off)), ...[-1, 1].map(s => strip(new THREE.CylinderGeometry(r * 0.75, r * 0.75, off, 6).rotateX(Math.PI / 2).translate(0, s * (L / 2 - 0.012), off / 2)))]);
+  GEO.knobRound = mergeGeometries([strip(new THREE.CylinderGeometry(0.006, 0.008, 0.02, 8).rotateX(Math.PI / 2).translate(0, 0, 0.01)), strip(new THREE.SphereGeometry(0.016, 10, 6).scale(1, 1, 0.7).translate(0, 0, 0.026))]);
+  GEO.knob2 = new THREE.CylinderGeometry(0.022, 0.024, 0.03, 16).rotateX(Math.PI / 2).translate(0, 0, 0.015);   // a stove control knob (faces +z)
+  // a plane showing one region of an atlas texture (u0 v0 u1 v1)
+  const ATLASG = new Map();
+  function atlasPlane(r4) { const k = r4.join(); if (!ATLASG.has(k)) { const g = new THREE.PlaneGeometry(1, 1), uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, r4[0] + uv.getX(i) * (r4[2] - r4[0]), r4[1] + uv.getY(i) * (r4[3] - r4[1])); ATLASG.set(k, g); } return ATLASG.get(k); }
+  // a book: a unit box mapped onto column i of the book atlas — the spine on face `sp` ('nz' on a shelf, 'px' for the
+  // ones you can take), the covers on the two faces across its thickness, page edges on the rest. `y0`: base at y 0.
+  const BOOKG = new Map();
+  function bookGeo(i, sp = 'nz', y0 = false) {
+    const k = i + sp + y0; if (BOOKG.has(k)) return BOOKG.get(k);
+    const g = new THREE.BoxGeometry(1, 1, 1), uv = g.attributes.uv, faces = ['px', 'nx', 'py', 'ny', 'pz', 'nz'];
+    const covers = sp === 'nz' || sp === 'pz' ? ['px', 'nx'] : ['pz', 'nz'], u0 = i / 8, u1 = (i + 1) / 8;
+    for (let f = 0; f < 6; f++) {
+      const name = faces[f], [v0, v1] = name === sp ? [0.5, 1] : covers.includes(name) ? [0.25, 0.5] : [0.02, 0.23];
+      for (let q = 0; q < 4; q++) { const j = f * 4 + q; uv.setXY(j, u0 + uv.getX(j) * (u1 - u0), v0 + uv.getY(j) * (v1 - v0)); }
+    }
+    if (y0) g.translate(0, 0.5, 0);
+    BOOKG.set(k, g); return g;
+  }
   W.treeSpots = [];
   const FALLEN_AT = [];   // root plates of trees the outbreak blows down (a map registers them before planting): nothing stands there
   // a printed label whose text always fits: shrinks the font until the widest line sits inside 90% of the canvas (and the lines don't overlap)
@@ -1521,6 +1587,16 @@ export function makeWorld(scene, renderer) {
     const hbox = (x0, y0, z0, x1, y1, z1, mat, shadow = true) => hm(GEO.ubox, mat, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, 0, x1 - x0, y1 - y0, z1 - z0, 0, 0, shadow);
     const brickFront = r() < 0.3; r();   // (that roll once picked a hip roof: every roof is a gable now, with an attic under it)
     const cur = 'curtain' + Math.floor(r() * 5);
+    // the design of this house's insides, from its own hash (not r(): the furniture and loot rolls stay as they were)
+    const DH = ((seed * 2246822519 + 3266489917) >>> 0), dpick = (n, sh) => ((DH >>> sh) % n);
+    // three looks (kept few so a chunk of town merges into few materials): cream shaker + granite, sage shaker +
+    // butcher block with sage tiles, oak raised-panel + marble; the sofa, rug and quilt vary on their own
+    const STY = dpick(3, 0);
+    const KC = ['cabinet', 'cabinetSage', 'oak'][STY], CT = ['counterG', 'counterB', 'counterM'][STY];
+    const BS = STY === 1 ? 'tileSubway2' : 'tileSubway', BT = STY === 1 ? 'tileBath2' : 'tileBath';
+    const UPH = 'uph' + dpick(5, 12), QLT = 'quilt' + dpick(3, 16), RUG = ['rugPersian', 'rugModern'][dpick(2, 18)];
+    const DOOR = KC === 'oak' ? 'raised' : 'shaker';
+    const unM = (k) => flip < 0 ? -k : k;   // a scale along house x that undoes the mirror (printed faces, book titles read right)
     // ---- floors (per room) ----
     const floorBox = (x0, z0, x1, z1, key) => { const [cx, cz] = P((x0 + x1) / 2, (z0 + z1) / 2); B.box(cx, 0, cz, Math.abs(x1 - x0) / 2, 0.03, Math.abs(z1 - z0) / 2, yaw, f => f === 'top' ? key : null, TILE); };
     const fLiving = r() < 0.5 ? 'floorWood' : 'floorCarpet', fBed = r() < 0.5 ? 'floorCarpet2' : 'floorCarpet', fKit = r() < 0.5 ? 'floorTile' : 'floorTile2';
@@ -1708,7 +1784,7 @@ export function makeWorld(scene, renderer) {
         // the hatch door folded down under the top section, spring arms to the frame, a pull cord with a wooden handle
         { const a = at(0.62), b = at(1); hbeam([LX, a[1] + un[1] * 0.07, a[2] + un[2] * 0.07], [LX, b[1] + un[1] * 0.07, b[2] + un[2] * 0.07], 0.7, 0.022, AK.ceilBoard, true); }
         for (const sx of [-0.36, 0.36]) { const p = at(0.82); hbeam([LX + sx, WH - 0.05, HT[3] - 0.55], [LX + sx, p[1] + un[1] * 0.05, p[2] + un[2] * 0.05], 0.012, 0.03, MAT.metal); }
-        { const p = at(0.62); const q = [LX + 0.2, p[1] + un[1] * 0.09, p[2] + un[2] * 0.09]; hbeam(q, [q[0], q[1] - 0.85, q[2] + 0.02], 0.006, 0.006, MAT.white); hm(GEO.ucyl, MAT.darkWood, q[0], q[1] - 0.9, q[2] + 0.02, 0, 0.035, 0.1, 0.035, 0, 0, false); }
+        { const p = at(0.62); const q = [LX + 0.2, p[1] + un[1] * 0.09, p[2] + un[2] * 0.09]; hbeam(q, [q[0], q[1] - 0.85, q[2] + 0.02], 0.006, 0.006, MAT.white); hm(GEO.ucyl, MAT.walnut, q[0], q[1] - 0.9, q[2] + 0.02, 0, 0.035, 0.1, 0.035, 0, 0, false); }
       });
       H.ladderG = LG;
       // standing on it, bumping into it: a channel between its stiles, nothing under the high end, zombies kept off
@@ -1750,7 +1826,7 @@ export function makeWorld(scene, renderer) {
         const cbox = (lx, lz, w, d, h, y0, ry, m = AK.card) => { hm(GEO.ubox, m, lx, AY + y0 + h / 2, lz, ry, w, h, d); return y0 + h; };
         // an old steamer trunk (something might still be in it)
         { const tx = -4.95, tz = 1.05;
-          hm(AK.trunkG, MAT.darkWood, tx, AY + 0.25, tz); hm(AK.lidG, MAT.darkWood, tx, AY + 0.49, tz);
+          hm(AK.trunkG, MAT.walnut, tx, AY + 0.25, tz); hm(AK.lidG, MAT.walnut, tx, AY + 0.49, tz);
           for (const oz of [-0.3, 0.3]) hbox(tx - 0.3, AY + 0.02, tz + oz - 0.03, tx + 0.3, AY + 0.5, tz + oz + 0.03, MAT.darkMetal, false);   // straps
           for (const ox of [-1, 1]) for (const oz of [-1, 1]) hbox(tx + ox * 0.29 - 0.03, AY, tz + oz * 0.46 - 0.03, tx + ox * 0.29 + 0.03, AY + 0.07, tz + oz * 0.46 + 0.03, AK.brass, false);   // brass corners
           hbox(tx + 0.28, AY + 0.4, tz - 0.05, tx + 0.31, AY + 0.5, tz + 0.05, AK.brass, false);   // the hasp
@@ -1773,7 +1849,7 @@ export function makeWorld(scene, renderer) {
         { const ax = 4.55, az = -1.2;
           hm(RBg(0.78, 0.22, 0.74, 0.05), AK.oldFab, ax, AY + 0.27, az); hm(RBg(0.78, 0.6, 0.16, 0.06), AK.oldFab, ax, AY + 0.62, az - 0.32, 0, 1, 1, 1, -0.12);
           for (const ox of [-0.35, 0.35]) hm(RBg(0.12, 0.42, 0.74, 0.05), AK.oldFab, ax + ox, AY + 0.37, az);
-          for (const ox of [-0.32, 0.32]) for (const oz of [-0.3, 0.3]) hm(GEO.ucyl, MAT.darkWood, ax + ox, AY + 0.08, az + oz, 0, 0.04, 0.16, 0.04, 0, 0, false);
+          for (const ox of [-0.32, 0.32]) for (const oz of [-0.3, 0.3]) hm(GEO.ucyl, MAT.walnut, ax + ox, AY + 0.08, az + oz, 0, 0.04, 0.16, 0.04, 0, 0, false);
           prop(ax - 0.42, az - 0.42, ax + 0.42, az + 0.4, 0.95, 'cloth'); }
         { const lx = 5.35, lz = 1.0; hm(GEO.ucyl, MAT.darkMetal, lx, AY + 0.012, lz, 0, 0.26, 0.025, 0.26, 0, 0, false); hm(GEO.ucyl, AK.brass, lx, AY + 0.65, lz, 0, 0.022, 1.28, 0.022, 0, 0, false); hm(GEO.shade, AK.oldFab, lx, AY + 1.35, lz, 0, 1.2, 1.2, 1.2, 0, 0.18, false); prop(lx - 0.15, lz - 0.15, lx + 0.15, lz + 0.15, 1.4, 'metal'); }
         { hm(GEO.ucyl, AK.rug, -0.45, AY + 0.13, -1.75, 0, 0.26, 2.1, 0.26, 0, Math.PI / 2, false); prop(-1.5, -1.9, 0.6, -1.6, 0.26, 'cloth'); }
@@ -1781,7 +1857,7 @@ export function makeWorld(scene, renderer) {
           const [fx, fz] = P(-4.85, -1.35), [sx, sz] = P(-4.2, -1.1); container('atticCase', fx, fz, 0.45, 'Old suitcases', yaw, H, { attic: true, floorY: AY, hidden: true, stand: { x: sx, z: sz, yaw: Math.atan2(fx - sx, fz - sz) } }); }
         { const fx = 5.4, fz = -0.15; hm(GEO.ucyl, MAT.white, fx, AY + 0.02, fz, 0, 0.3, 0.04, 0.3, 0, 0, false); hm(GEO.ucyl, MAT.white, fx, AY + 0.4, fz, 0, 0.03, 0.75, 0.03, 0, 0, false); hm(AK.fanG, AK.fanM, fx, AY + 0.82, fz, -Math.PI / 2, 1, 1, 1, 0, 0, false); prop(fx - 0.18, fz - 0.18, fx + 0.18, fz + 0.18, 1.0, 'plastic'); }
         // old picture frames leaning on the gable wall
-        for (let k = 0; k < 3; k++) { const fz = 1.35 - k * 0.12, fh = 0.5 + k * 0.12; hm(GEO.ubox, MAT.darkWood, -5.78 + k * 0.03, AY + fh / 2, fz, 0, 0.03, fh, 0.62 - k * 0.08, 0, -0.18, false); }
+        for (let k = 0; k < 3; k++) { const fz = 1.35 - k * 0.12, fh = 0.5 + k * 0.12; hm(GEO.ubox, MAT.walnut, -5.78 + k * 0.03, AY + fh / 2, fz, 0, 0.03, fh, 0.62 - k * 0.08, 0, -0.18, false); }
       });
       H.atticG = AG;
       H.bulb = [...P(0, 0.35), 4.87];
@@ -2018,7 +2094,7 @@ export function makeWorld(scene, renderer) {
     function hollow(U, out, inn, shelves = [], top = null, noTop = false) {
       const { W, H: Ht, D } = U;
       U.box(0, 0, -D / 2 + t2 / 2, W / 2, Ht, t2 / 2, f => f === 'pz' ? inn : out);                 // back
-      for (const sx of [-1, 1]) U.box(sx * (W / 2 - t2 / 2), 0, 0, t2 / 2, Ht, D / 2, f => (f === 'px') === (sx < 0) ? inn : out);   // sides
+      for (const sx of [-1, 1]) U.box(sx * (W / 2 - t2 / 2), 0, 0, t2 / 2, Ht, D / 2, f => (f === 'px') === (sx * flip < 0) ? inn : out);   // sides (the mirror swaps which face is inside)
       U.box(0, 0, 0, W / 2 - t2, 0.07, D / 2 - 0.02, f => f === 'top' ? inn : out);                // plinth / floor
       if (!noTop) U.box(0, Ht - t2, 0, W / 2, Ht, D / 2, f => f === 'top' && top ? top : f === 'bot' ? inn : out);
       for (const y of shelves) U.box(0, y, 0, W / 2 - t2, y + 0.018, D / 2 - 0.03, inn);
@@ -2027,9 +2103,17 @@ export function makeWorld(scene, renderer) {
     // a hinged door: hinge at bx (unit space), the leaf runs toward dir (+1 → +x); it swings out ~100°
     function leaf(U, bx, ya, yb, w, dir, mat, knob = MAT.metal, maxA = 1.75) {
       const piv = new THREE.Group(); piv.position.set(bx, ya, U.D / 2 + 0.012); U.g.add(piv);
-      const m = new THREE.Mesh(doorGeo2(w - 0.006, yb - ya - 0.006), mat); m.position.set(dir * w / 2, (yb - ya) / 2, 0); m.castShadow = true; m.receiveShadow = true; piv.add(m);
-      const kh = Math.min(0.12, (yb - ya) * 0.4), kk = 'k' + kh.toFixed(3); if (!FURN.has(kk)) FURN.set(kk, new RoundedBoxGeometry(0.018, kh, 0.022, 2, 0.007));
-      const k = new THREE.Mesh(FURN.get(kk), knob); k.position.set(dir * (w - 0.06), (yb - ya) * (yb - ya > 1 ? 0.5 : 0.75), 0.024); piv.add(k);
+      // the face: shaker / raised panels on cupboards, louvres on a tall closet door, the fridge's own printed door
+      const hh = yb - ya, fridge = mat === MAT.steel, style = hh > 1.5 ? 'louvre' : mat === MAT.walnut || mat === MAT.oak ? 'raised' : DOOR;
+      const face = fridge ? MAT.fridgeDoor : faceMat(mat, style, (w - 0.006) / (hh - 0.006));
+      const m = new THREE.Mesh(doorGeo2(w - 0.006, hh - 0.006), face); m.position.set(dir * w / 2, hh / 2, 0); m.scale.x = flip; m.castShadow = true; m.receiveShadow = true; piv.add(m);
+      // the hardware: brushed bar pulls on painted doors, round knobs on stained wood, long handles on the fridge
+      let kg, ky = hh * (hh > 1 ? 0.5 : 0.75);
+      if (fridge) { kg = FURN.get('kfr') || (FURN.set('kfr', mergeGeometries([barPull(0.42, 0.011, 0.045).translate(0, 0.62, 0), barPull(0.78, 0.011, 0.045).translate(0, -0.2, 0)])), FURN.get('kfr')); ky = hh * 0.5; knob = MAT.chrome; }
+      else if (face !== mat && (mat === MAT.walnut || mat === MAT.oak || mat === MAT.walnut)) { kg = GEO.knobRound; knob = MAT.brass || (MAT.brass = std({ color: 0xb08a4a, roughness: 0.3, metalness: 0.9 })); }
+      else if (face !== mat) { const L = Math.min(0.16, hh * 0.42), kk = 'kb' + L.toFixed(3); if (!FURN.has(kk)) FURN.set(kk, barPull(L)); kg = FURN.get(kk); if (knob === MAT.metal) knob = MAT.chrome; }
+      else { const kh = Math.min(0.12, hh * 0.4), kk = 'k' + kh.toFixed(3); if (!FURN.has(kk)) FURN.set(kk, new RoundedBoxGeometry(0.018, kh, 0.022, 2, 0.007)); kg = FURN.get(kk); }
+      const k = new THREE.Mesh(kg, knob); k.position.set(dir * (w - (fridge ? 0.07 : 0.06)), ky, fridge ? 0.011 : kg === GEO.knobRound || face !== mat ? 0.011 : 0.024); piv.add(k);
       return { o: piv, kind: 'hinge', a: -dir * Math.min(1.75, maxA), knob: k };
     }
     // a drawer: front panel and a tray behind it; slides out
@@ -2037,18 +2121,18 @@ export function makeWorld(scene, renderer) {
       const g = new THREE.Group(); g.position.set(bx, ya, U.D / 2 - 0.0); U.g.add(g);
       const h = yb - ya, d = U.D - 0.08, key = w.toFixed(2) + '|' + h.toFixed(2) + '|' + d.toFixed(2);
       if (!FURN.has('f' + key)) {
-        FURN.set('f' + key, new RoundedBoxGeometry(w - 0.01, h - 0.01, 0.022, 2, 0.005).translate(0, h / 2, 0.011));
+        FURN.set('f' + key, new RoundedBoxGeometry(w - 0.01, h - 0.01, 0.022, 2, 0.005).translate(0, h / 2, 0.011));   // (UV 0..1 on its face: the drawer front's own texture)
         // the tray behind the front: bottom, two sides, back — one geometry
         FURN.set('t' + key, mergeGeometries([new THREE.BoxGeometry(w - 0.06, 0.012, d).translate(0, 0.03, -d / 2), new THREE.BoxGeometry(0.012, h * 0.6, d).translate(-w / 2 + 0.04, h * 0.33, -d / 2), new THREE.BoxGeometry(0.012, h * 0.6, d).translate(w / 2 - 0.04, h * 0.33, -d / 2), new THREE.BoxGeometry(w - 0.06, h * 0.6, 0.012).translate(0, h * 0.33, -d)]));
         // a bar pull on two little posts
         const pw = Math.min(0.18, w * 0.4);
         FURN.set('p' + key, mergeGeometries([new THREE.CylinderGeometry(0.007, 0.007, pw, 8).rotateZ(Math.PI / 2).translate(0, 0, 0.036), ...[-1, 1].map(sx => new THREE.CylinderGeometry(0.005, 0.005, 0.03, 6).rotateX(Math.PI / 2).translate(sx * (pw / 2 - 0.012), 0, 0.022))]));
       }
-      const fr = new THREE.Mesh(FURN.get('f' + key), mat); fr.castShadow = true; fr.receiveShadow = true; g.add(fr);
+      const fr = new THREE.Mesh(FURN.get('f' + key), faceMat(mat, 'drawer', (w - 0.01) / (h - 0.01))); fr.castShadow = true; fr.receiveShadow = true; g.add(fr);
       // what's behind the front is only drawn while the drawer is (being) opened
       const inner = new THREE.Group(); inner.visible = false; g.add(inner);
       const tr = new THREE.Mesh(FURN.get('t' + key), MAT.cabinet); tr.receiveShadow = true; inner.add(tr);
-      const pull = new THREE.Mesh(FURN.get('p' + key), MAT.metal); pull.position.set(0, h * 0.55, 0); g.add(pull);
+      const pull = new THREE.Mesh(FURN.get('p' + key), mat === MAT.walnut || mat === MAT.oak ? (MAT.brass || (MAT.brass = std({ color: 0xb08a4a, roughness: 0.3, metalness: 0.9 }))) : MAT.chrome); pull.position.set(0, h * 0.55, 0); g.add(pull);
       // something in the drawer
       for (let k = 0; k < 3; k++) { const o = new THREE.Mesh(GEO.item, MAT['book' + Math.floor(r() * 6)]); o.position.set((r() - 0.5) * (w - 0.2), 0.06, -0.08 - r() * (d - 0.2)); o.rotation.y = r() * 3; o.scale.set(0.8 + r(), 0.6, 0.8 + r()); inner.add(o); (U.items ||= []).push(propItem({ mesh: o }, 'misc')); }
       return { o: g, kind: 'slide', d: dist, knob: pull, inner };
@@ -2075,12 +2159,12 @@ export function makeWorld(scene, renderer) {
     const OC = (kind, U, label, y, parts) => { const st = U.stand(); const [fx, fz] = U.world(0, U.D / 2 + 0.3); return container(kind, fx, fz, y, label, yaw, H, { parts, stand: st, items: (U.items ||= []) }); };
     const fab = 'fabric' + Math.floor(r() * 5), fab2 = 'fabric' + Math.floor(r() * 5);
     const RB = (w, h, d, rad = 0.04, seg = 2) => { const k = 'rb' + [w, h, d, rad, seg].map(v => v.toFixed(3)).join(); if (!FURN.has(k)) FURN.set(k, new RoundedBoxGeometry(w, h, d, seg, Math.min(rad, w / 2.05, h / 2.05, d / 2.05))); return FURN.get(k); };
-    const leg = (x, z, y1, w = 0.035, m = MAT.darkWood) => hbox(x - w / 2, 0, z - w / 2, x + w / 2, y1, z + w / 2, m, false);
+    const leg = (x, z, y1, w = 0.035, m = MAT.walnut) => hbox(x - w / 2, 0, z - w / 2, x + w / 2, y1, z + w / 2, m, false);
     // living room (front left: x -6..1, z 0.4..5)
     { // the couch: a base on short legs, three seat cushions, three back cushions leaning back, rounded arms
-      const fm = MAT[fab];
+      const fm = MAT[UPH];
       solid(...P(-5.4, 2.6), 0.48, 1.2, yaw, 0.5, 'cloth');
-      for (const [lx, lz] of [[-5.8, 1.5], [-5.02, 1.5], [-5.8, 3.7], [-5.02, 3.7]]) hm(GEO.ucyl, MAT.darkWood, lx, 0.05, lz, 0, 0.05, 0.1, 0.05, 0, 0, false);
+      for (const [lx, lz] of [[-5.8, 1.5], [-5.02, 1.5], [-5.8, 3.7], [-5.02, 3.7]]) hm(GEO.ucyl, MAT.walnut, lx, 0.05, lz, 0, 0.05, 0.1, 0.05, 0, 0, false);
       hm(RB(0.92, 0.24, 2.36, 0.05), fm, -5.42, 0.22, 2.6);
       hm(RB(0.18, 0.5, 2.36, 0.06), fm, -5.79, 0.59, 2.6);
       for (const sz of [-1, 1]) hm(RB(0.92, 0.3, 0.2, 0.08), fm, -5.42, 0.48, 2.6 + sz * 1.08);
@@ -2089,28 +2173,31 @@ export function makeWorld(scene, renderer) {
         hm(RB(0.17, 0.46, 0.66, 0.07), fm, -5.62, 0.63, 2.6 + i * 0.66, 0, 1, 1, 1, 0, 0.16);
       }
       hm(RB(0.12, 0.34, 0.34, 0.05), MAT[fab2], -5.5, 0.62, 3.45, 0.4, 1, 1, 1, 0, 0.3);   // a throw pillow
+      hm(RB(0.12, 0.32, 0.32, 0.05), MAT[QLT], -5.52, 0.62, 1.78, -0.3, 1, 1, 1, 0, 0.25, false);   // and a patterned one
+      // a knitted throw over the near arm, hanging down its outside
+      hm(RB(0.74, 0.025, 0.3, 0.012), MAT.knit, -5.4, 0.645, 1.5, 0.05, 1, 1, 1, 0, 0, false); hm(RB(0.7, 0.34, 0.025, 0.012), MAT.knit, -5.4, 0.47, 1.36, 0.05, 1, 1, 1, 0.12, 0, false);
     }
     { // the coffee table: a top, a shelf underneath, four legs
       solid(...P(-3.8, 2.6), 0.45, 0.6, yaw, 0.44, 'wood');
-      hm(RB(0.9, 0.04, 1.2, 0.012), MAT.darkWood, -3.8, 0.42, 2.6);
-      hbox(-4.2, 0.12, 2.06, -3.4, 0.14, 3.14, MAT.darkWood);
+      hm(RB(0.9, 0.04, 1.2, 0.012), MAT.walnut, -3.8, 0.42, 2.6);
+      hbox(-4.2, 0.12, 2.06, -3.4, 0.14, 3.14, MAT.walnut);
       for (const [lx, lz] of [[-4.21, 2.04], [-3.39, 2.04], [-4.21, 3.16], [-3.39, 3.16]]) leg(lx, lz, 0.4, 0.04);
       hm(RB(0.16, 0.025, 0.22, 0.004), MAT.book2, -3.7, 0.452, 2.4, 0.3, 1, 1, 1, 0, 0, false);   // a magazine
       hm(GEO.ucyl, MAT.white, -3.95, 0.49, 2.85, 0, 0.08, 0.1, 0.08, 0, 0, false);                 // a mug
     }
     { // TV cabinet: two doors, DVDs and junk inside
-      const U = unit(-0.6, 2.6, -Math.PI / 2, 1.8, 0.55, 0.44); hollow(U, 'darkWood', 'cabinet', [0.28], 'darkWood');
+      const U = unit(-0.6, 2.6, -Math.PI / 2, 1.8, 0.55, 0.44); hollow(U, 'walnut', 'cabinet', [0.28], 'walnut');
       stock(U, 0.075, 14, 0.12, ['dvd']); stock(U, 0.3, 10, 0.12, ['dvd', 'dvd', 'dvd', 'jar']);   // DVDs (under 0.2 m: they fit under the shelf)
       solid(...P(-0.6, 2.6), 0.22, 0.9, yaw, 0.55, 'wood');
-      OC('cabinet', U, 'TV cabinet', 0.4, [leaf(U, -0.9, 0.07, 0.52, 0.89, 1, MAT.darkWood), leaf(U, 0.9, 0.07, 0.52, 0.89, -1, MAT.darkWood)]);
+      OC('cabinet', U, 'TV cabinet', 0.4, [leaf(U, -0.9, 0.07, 0.52, 0.89, 1, MAT.walnut), leaf(U, 0.9, 0.07, 0.52, 0.89, -1, MAT.walnut)]);
     }
     { // the TV: a thin bezel on a pedestal stand, a glossy black screen facing the couch
       hm(RB(0.24, 0.02, 0.4, 0.008), MAT.black, -0.6, 0.56, 2.6); hbox(-0.62, 0.57, 2.57, -0.58, 0.68, 2.63, MAT.black);
       hm(RB(0.06, 0.72, 1.26, 0.012), MAT.black, -0.6, 1.02, 2.6);
-      hm(GEO.uplane, MAT.screen, -0.632, 1.025, 2.6, -Math.PI / 2, 1.19, 0.65, 1, 0, 0, false);
+      hm(atlasPlane(TX.APPL_UV.tv), MAT.applFace, -0.632, 1.025, 2.6, -Math.PI / 2, unM(1.19), 0.65, 1, 0, 0, false);
     }
     { // the bookshelf: an open carcass (back, sides, four shelves) with books standing (and leaning) on them
-      const U = unit(-5.05, 4.72, Math.PI, 1.2, 1.9, 0.36); hollow(U, 'darkWood', 'darkWood', [0.47, 0.93, 1.39], 'darkWood');
+      const U = unit(-5.05, 4.72, Math.PI, 1.2, 1.9, 0.36); hollow(U, 'walnut', 'walnut', [0.47, 0.93, 1.39], 'walnut');
       solid(...P(-5.05, 4.72), 0.6, 0.18, yaw, 1.9, 'wood');
       for (let i = 0; i < 4; i++) {
         const y = i === 0 ? 0.07 : 0.488 + (i - 1) * 0.46;
@@ -2120,106 +2207,137 @@ export function makeWorld(scene, renderer) {
           if ((i === 1 || i === 2) && [-5.47, -5.07, -4.67].some(m => Math.abs(x + 0.02 - m) < 0.1)) { x += 0.05; continue; }
           if (r() < 0.12) { x += 0.08 + r() * 0.1; continue; }   // a gap
           const t = 0.025 + r() * 0.035, hh = 0.2 + r() * 0.12, dd = 0.15 + r() * 0.06, lean = r() < 0.08 && x < -4.7 ? 0.25 : 0;
-          hm(GEO.ubox, MAT['book' + Math.floor(r() * 6)], x + t / 2 + lean * hh * 0.5, y + hh / 2 * Math.cos(lean), 4.78 - dd / 2, 0, t, hh, dd, 0, -lean, false);
+          hm(bookGeo((Math.floor(r() * 6) + ((x * 97 | 0) & 7) + (DH & 7)) % 8), MAT.books, x + t / 2 + lean * hh * 0.5, y + hh / 2 * Math.cos(lean), 4.78 - dd / 2, 0, unM(t), hh, dd, 0, -lean, false);
           x += t + 0.003 + lean * hh;
         }
       }
     }
     { const bs = C('shelf', -5.05, 4.15, 1.0, 'Bookshelf'); const bl = []; for (const i of [1, 2]) for (const k of [0, 2, 4]) { const [x, z] = P(-5.55 + k * 0.2 + 0.08, 4.66); bl.push(['book', x, 0.488 + (i - 1) * 0.46, z, yaw + Math.PI / 2]); } addItems(bs, bl); }
-    { const [x, z] = P(-3.5, 2.6); B.box(x, 0.03, z, 1.4, 0.04, 1.6, yaw, f => f === 'top' ? (r() < 0.5 ? 'rug0' : 'rug1') : null, TILE); }
+    r();   // (the dice the old plain rug used: the rug is drawn with the kitchen's tiles now, its design from DH)
     // a floor lamp by the couch
     { hm(GEO.ucyl, MAT.darkMetal, -5.5, 0.012, 1.0, 0, 0.28, 0.025, 0.28, 0, 0, false); hm(GEO.ucyl, MAT.darkMetal, -5.5, 0.78, 1.0, 0, 0.025, 1.5, 0.025, 0, 0, false); hm(GEO.shade, MAT.lampShade, -5.5, 1.48, 1.0, 0, 1.3, 1.3, 1.3); solid(...P(-5.5, 1.0), 0.15, 0.15, yaw, 1.6, 'metal'); }
     // kitchen (back left: x -6..2.5, z -5..0.4)
     { // the counter along the back wall: a cupboard (two doors) and a stack of three drawers; the sink under the window
-      const U = unit(-0.55, -4.6, 0, 3.2, 0.86, 0.6); hollow(U, 'cabinet', 'cabinet', [0.42], null, true);
+      const U = unit(-0.55, -4.6, 0, 3.2, 0.86, 0.6); hollow(U, KC, KC, [0.42], null, true);
       // the worktop, with a hole for the sink (local x -0.9, under the window)
-      hm(GEO.sinkTop, MAT.counter, -0.55, 0.86, -4.6 + 0.02);
-      U.box(0, 0.07, 0, 0.011, 0.86, 0.28, 'cabinet');   // divider
+      hm(GEO.sinkTop, MAT[CT], -0.55, 0.86, -4.6 + 0.02);
+      U.box(0, 0.07, 0, 0.011, 0.86, 0.28, KC);   // divider
       { const UL = { ...U, W: 1.5, world: (bx, bz) => U.world(bx - 0.8, bz) };   // the cupboard half only (the drawers are the other half)
         stock(UL, 0.075, 4, 0.25, ['can', 'can', 'box', 'jar']); stock(UL, 0.44, 4, 0.25, ['can', 'box', 'jar']); U.items = UL.items; }
       solid(...P(-0.55, -4.6), 1.6, 0.3, yaw, 0.9, 'wood');
-      OC('kitchen', { ...U, stand: (d = 0.62) => { const [fx, fz] = U.world(-0.8, U.D / 2 + d), [cx2, cz2] = U.world(-0.8, U.D / 2); return { x: fx, z: fz, yaw: Math.atan2(cx2 - fx, cz2 - fz) }; }, world: (bx, bz) => U.world(bx - 0.8, bz) }, 'Kitchen cabinets', 0.9, [leaf(U, -1.58, 0.08, 0.84, 0.78, 1, MAT.cabinet), leaf(U, -0.02, 0.08, 0.84, 0.78, -1, MAT.cabinet)]);
+      OC('kitchen', { ...U, stand: (d = 0.62) => { const [fx, fz] = U.world(-0.8, U.D / 2 + d), [cx2, cz2] = U.world(-0.8, U.D / 2); return { x: fx, z: fz, yaw: Math.atan2(cx2 - fx, cz2 - fz) }; }, world: (bx, bz) => U.world(bx - 0.8, bz) }, 'Kitchen cabinets', 0.9, [leaf(U, -1.58, 0.08, 0.84, 0.78, 1, MAT[KC]), leaf(U, -0.02, 0.08, 0.84, 0.78, -1, MAT[KC])]);
       U.items = [];   // the drawers have their own things (not the cupboard's)
-      OC('kitchen2', { ...U, stand: (d = 0.62) => { const [fx, fz] = U.world(0.8, U.D / 2 + d), [cx2, cz2] = U.world(0.8, U.D / 2); return { x: fx, z: fz, yaw: Math.atan2(cx2 - fx, cz2 - fz) }; }, world: (bx, bz) => U.world(bx + 0.8, bz) }, 'Kitchen drawers', 0.9, [drawerPart(U, 0.8, 0.62, 0.85, 1.56, MAT.cabinet, 0.38), drawerPart(U, 0.8, 0.35, 0.6, 1.56, MAT.cabinet, 0.32), drawerPart(U, 0.8, 0.08, 0.33, 1.56, MAT.cabinet, 0.28)]);
+      OC('kitchen2', { ...U, stand: (d = 0.62) => { const [fx, fz] = U.world(0.8, U.D / 2 + d), [cx2, cz2] = U.world(0.8, U.D / 2); return { x: fx, z: fz, yaw: Math.atan2(cx2 - fx, cz2 - fz) }; }, world: (bx, bz) => U.world(bx + 0.8, bz) }, 'Kitchen drawers', 0.9, [drawerPart(U, 0.8, 0.62, 0.85, 1.56, MAT[KC], 0.38), drawerPart(U, 0.8, 0.35, 0.6, 1.56, MAT[KC], 0.32), drawerPart(U, 0.8, 0.08, 0.33, 1.56, MAT[KC], 0.28)]);
       // the stainless basin and a gooseneck tap
       hm(GEO.basin, MAT.metal, -0.9, 0.9, -4.58); hm(GEO.ucyl, MAT.darkMetal, -0.9, 0.727, -4.58, 0, 0.07, 0.004, 0.07, 0, 0, false);
       hm(GEO.ucyl, MAT.chrome, -0.9, 0.93, -4.84, 0, 0.05, 0.06, 0.05); hm(GEO.tap, MAT.chrome, -0.9, 0.9, -4.84);
       hm(GEO.ucyl, MAT.chrome, -0.72, 0.93, -4.84, 0, 0.03, 0.05, 0.03, 0, 0, false);
     }
     { // the side counter: the pantry cupboard in the middle
-      const U = unit(-5.6, -2.6, Math.PI / 2, 3.2, 0.86, 0.6); hollow(U, 'cabinet', 'cabinet', [0.42]);
-      U.box(0, 0.86, 0.02, 1.62, 0.9, 0.33, 'counter');
+      const U = unit(-5.6, -2.6, Math.PI / 2, 3.2, 0.86, 0.6); hollow(U, KC, KC, [0.42]);
+      U.box(0, 0.86, 0.02, 1.62, 0.9, 0.33, CT);
       stock(U, 0.075, 7, 0.25, ['can', 'cereal', 'box', 'jar']); stock(U, 0.44, 7, 0.25, ['can', 'can', 'cereal', 'jar', 'bottle']);
       solid(...P(-5.6, -2.6), 0.3, 1.6, yaw, 0.9, 'wood');
-      OC('pantry', U, 'Pantry', 0.9, [leaf(U, -1.6, 0.08, 0.84, 0.79, 1, MAT.cabinet), leaf(U, -0.8, 0.08, 0.84, 0.79, 1, MAT.cabinet), leaf(U, 0.79, 0.08, 0.84, 0.79, -1, MAT.cabinet), leaf(U, 1.6, 0.08, 0.84, 0.79, -1, MAT.cabinet)]);   // all four doors: the stock runs the whole width
-      hm(RB(0.36, 0.28, 0.2, 0.02), MAT.appliance, -5.7, 1.04, -3.6, Math.PI / 2);   // a toaster
+      OC('pantry', U, 'Pantry', 0.9, [leaf(U, -1.6, 0.08, 0.84, 0.79, 1, MAT[KC]), leaf(U, -0.8, 0.08, 0.84, 0.79, 1, MAT[KC]), leaf(U, 0.79, 0.08, 0.84, 0.79, -1, MAT[KC]), leaf(U, 1.6, 0.08, 0.84, 0.79, -1, MAT[KC])]);   // all four doors: the stock runs the whole width
+      hm(RB(0.36, 0.28, 0.2, 0.02), MAT.steel, -5.7, 1.04, -3.6, Math.PI / 2, 1, 1, 1, 0, 0, false);   // a toaster
       for (const ox of [-0.045, 0.045]) hm(GEO.ubox, MAT.black, -5.7 + ox, 1.181, -3.6, Math.PI / 2, 0.25, 0.004, 0.032, 0, 0, false);   // its two bread slots
       hm(GEO.ubox, MAT.black, -5.7, 1.1, -3.6 + 0.185, Math.PI / 2, 0.03, 0.025, 0.05, 0, 0, false);   // the lever
       // a microwave: a steel box, a dark glass door window, the keypad strip
-      hm(RB(0.5, 0.29, 0.36, 0.02), MAT.appliance, -5.64, 1.045, -1.55, Math.PI / 2);
-      hm(GEO.uplane, MAT.black, -5.458, 1.045, -1.6, Math.PI / 2, 0.32, 0.19, 1, 0, 0, false);
-      hm(GEO.uplane, MAT.darkMetal, -5.458, 1.045, -1.38, Math.PI / 2, 0.09, 0.21, 1, 0, 0, false);
+      hm(RB(0.5, 0.29, 0.36, 0.02), MAT.steel, -5.64, 1.045, -1.55, Math.PI / 2, 1, 1, 1, 0, 0, false);
+      hm(atlasPlane(TX.APPL_UV.micro), MAT.applFace, -5.458, 1.045, -1.55, Math.PI / 2, unM(0.47), 0.26, 1, 0, 0, false);   // its glass door, keypad and clock
+      for (const sz of [-0.17, 0.17]) hm(GEO.ucyl, MAT.black, -5.62, 0.9, -1.55 + sz, 0, 0.03, 0.012, 0.03, 0, 0, false);   // little feet
       hm(GEO.ucyl, MAT.redPaint, -5.72, 1.0, -2.2, 0, 0.16, 0.2, 0.16);                // a kettle-ish canister
     }
     // wall cabinets either side of the window (doors that open, a shelf inside)
     for (const [cx2, w2] of [[-1.925, 0.41], [0.47, 1.1]]) {
-      const U = unit(cx2, -4.73, 0, w2, 0.72, 0.34, 1.45); hollow(U, 'cabinet', 'cabinet', [0.36]);
-      if (w2 < 0.6) leaf(U, -w2 / 2, 0.01, 0.71, w2, 1, MAT.cabinet); else { leaf(U, -w2 / 2, 0.01, 0.71, w2 / 2, 1, MAT.cabinet); leaf(U, w2 / 2, 0.01, 0.71, w2 / 2, -1, MAT.cabinet); }
+      const U = unit(cx2, -4.73, 0, w2, 0.72, 0.34, 1.45); hollow(U, KC, KC, [0.36]);
+      if (w2 < 0.6) leaf(U, -w2 / 2, 0.01, 0.71, w2, 1, MAT[KC]); else { leaf(U, -w2 / 2, 0.01, 0.71, w2 / 2, 1, MAT[KC]); leaf(U, w2 / 2, 0.01, 0.71, w2 / 2, -1, MAT[KC]); }
     }
     { // the fridge: a white box with shelves of food, the door swings wide
-      const U = unit(1.75, -4.55, 0, 0.8, 1.85, 0.7); hollow(U, 'appliance', 'porcelain', [0.5, 0.92, 1.3, 1.45]);
+      const U = unit(1.75, -4.55, 0, 0.8, 1.85, 0.7); hollow(U, 'steel', 'porcelain', [0.5, 0.92, 1.3, 1.45]);
       stock(U, 0.088, 3, 0.3, ['bottle', 'carton']); stock(U, 0.518, 4, 0.3, ['carton', 'jar', 'bottle']); stock(U, 0.938, 4, 0.3, ['jar', 'box', 'can']); stock(U, 1.468, 3, 0.25, ['box', 'carton']);
       solid(...P(1.75, -4.55), 0.4, 0.35, yaw, 1.85, 'metal');
-      const d1 = leaf(U, 0.4, 0.02, 1.84, 0.8, -1, MAT.appliance, MAT.darkMetal);
+      const d1 = leaf(U, 0.4, 0.02, 1.84, 0.8, -1, MAT.steel, MAT.darkMetal);
+      U.box(0, 0.0, 0.33, 0.37, 0.018, 0.012, 'black');   // the kick grille under the door
       OC('fridge', U, 'Fridge', 1.2, [d1]);
     }
     { // the stove: four burners, a control panel with knobs at the back, an oven door with a window, a hood above
-      F(-5.6, -0.6, 0.32, 0.4, 0, 0.9, f => f === 'top' ? 'black' : 'appliance', 'metal');
-      for (const [bx, bz] of [[-5.72, -0.82], [-5.72, -0.4], [-5.45, -0.82], [-5.45, -0.4]]) hm(GEO.burner, MAT.darkMetal, bx, 0.905, bz, 0, 1, 1, 1, 0, 0, false);
-      hbox(-5.92, 0.9, -1.0, -5.84, 1.06, -0.2, MAT.appliance);
-      for (let k = 0; k < 4; k++) hm(GEO.knob, MAT.black, -5.83, 0.99, -0.86 + k * 0.17, 0, 1, 1, 1, 0, Math.PI / 2, false);
-      hbox(-5.285, 0.12, -0.96, -5.27, 0.78, -0.24, MAT.appliance); hbox(-5.272, 0.3, -0.86, -5.266, 0.64, -0.34, MAT.screen, false);
+      F(-5.6, -0.6, 0.32, 0.4, 0, 0.9, f => f === 'top' ? 'black' : 'steel', 'metal');
+      // four burners under cast-iron grates; a steel backguard with printed dials and a clock, the knobs on it
+      for (const [bx, bz] of [[-5.72, -0.82], [-5.72, -0.4], [-5.45, -0.82], [-5.45, -0.4]]) { hm(GEO.burner, MAT.darkMetal, bx, 0.905, bz, 0, 1, 1, 1, 0, 0, false); hm(GEO.grate, MAT.black, bx, 0.9, bz, 0, 1, 1, 1, 0, 0, false); }
+      hbox(-5.92, 0.9, -1.0, -5.84, 1.06, -0.2, MAT.steel);
+      hm(atlasPlane(TX.APPL_UV.panel), MAT.applFace, -5.8385, 0.98, -0.6, Math.PI / 2, unM(0.8), 0.16, 1, 0, 0, false);
+      for (const kz of [-0.29, -0.41, -0.79, -0.91]) hm(GEO.knob2, MAT.black, -5.838, 0.975, kz, Math.PI / 2, 1, 1, 1, 0, 0, false);
+      // the oven door: a steel panel, the glass window with the rack behind it, a bar handle on two posts, a drawer under
+      hbox(-5.285, 0.12, -0.96, -5.27, 0.78, -0.24, MAT.steel);
+      hm(atlasPlane(TX.APPL_UV.oven), MAT.applFace, -5.2695, 0.47, -0.6, Math.PI / 2, unM(0.72), 0.6, 1, 0, 0, false);
       hm(GEO.ucyl, MAT.chrome, -5.23, 0.72, -0.6, 0, 0.024, 0.62, 0.024, Math.PI / 2, 0, false);
-      hm(RB(0.5, 0.18, 0.8, 0.02), MAT.appliance, -5.67, 1.66, -0.6);   // the range hood
+      for (const sz of [-0.28, 0.28]) hm(GEO.ucyl, MAT.chrome, -5.255, 0.72, -0.6 + sz, 0, 0.012, 0.05, 0.012, 0, Math.PI / 2, false);
+      hbox(-5.285, 0.03, -0.96, -5.27, 0.11, -0.24, MAT.black, false);
+      hm(RB(0.5, 0.18, 0.8, 0.02), MAT.steel, -5.67, 1.66, -0.6);   // the range hood
+      hm(GEO.ubox, MAT.darkMetal, -5.62, 1.569, -0.6, 0, 0.36, 0.004, 0.66, 0, 0, false);   // its filter
     }
     { // the table: a rounded top on four legs; a fruit bowl on it
       solid(...P(-2.2, -1.6), 0.6, 0.45, yaw, 0.77, 'wood');
-      hm(RB(1.2, 0.04, 0.9, 0.015), MAT.darkWood, -2.2, 0.75, -1.6);
+      hm(RB(1.2, 0.04, 0.9, 0.015), MAT.walnut, -2.2, 0.75, -1.6);
       for (const [ax, az] of [[-2.73, -1.98], [-1.67, -1.98], [-2.73, -1.22], [-1.67, -1.22]]) leg(ax, az, 0.73, 0.05);
       hm(GEO.bowl, MAT.ceramicDS, -2.1, 0.77, -1.55, 0, 1, 1, 1, 0, 0, false);
       for (let k = 0; k < 5; k++) hm(GEO.fruit, [MAT.redPaint, MAT.yellowPaint, MAT.orange][k % 3], -2.1 + Math.cos(k * 1.3) * 0.06, 0.83 + (k > 2 ? 0.04 : 0), -1.55 + Math.sin(k * 1.3) * 0.06, 0, 1, 1, 1, 0, 0, false);
     }
+    // ---- tiles on the walls (world-mapped, so the grout lines run true across every piece): the kitchen backsplash
+    // round the windows, up behind the stove to the hood; the tub surround and a wainscot round the bathroom ----
+    const wtile = (x0, z0, x1, z1, y0, y1, key) => { const [cx, cz] = P((x0 + x1) / 2, (z0 + z1) / 2); B.box(cx, y0, cz, Math.abs(x1 - x0) / 2, y1, Math.abs(z1 - z0) / 2, yaw, ALL(key), TILE); };
+    for (const [x0, x1] of [[-2.15, -1.69], [-0.11, 1.05]]) wtile(x0, -4.9, x1, -4.888, 0.9, 1.45, BS);
+    for (const [z0, z1, y1] of [[-4.2, -3.29, 1.45], [-1.71, -1.0, 1.45], [-1.0, -0.2, 1.57]]) wtile(-5.9, z0, -5.888, z1, 0.9, y1, BS);
+    { // the bathroom: a tub surround to 2 m (only to the sill under the frosted window), a 1 m wainscot with a cap
+      wtile(4.69, -4.9, 5.9, -4.888, 0.58, 2.0, BT); wtile(5.888, -4.888, 5.9, -2.7, 0.58, 2.0, BT); wtile(5.888, -2.7, 5.9, -1.7, 0.58, 1.2, BT);
+      const cap = (x0, z0, x1, z1) => hbox(Math.min(x0, x1), 0.99, Math.min(z0, z1), Math.max(x0, x1), 1.02, Math.max(z0, z1), MAT.porcelain, false);
+      for (const [x0, z0, x1, z1] of [[2.6, -4.9, 4.6, -4.888], [2.6, -4.888, 2.612, 0.3], [5.888, -1.7, 5.9, 0.3], [2.612, 0.288, 3.0, 0.3], [4.45, 0.288, 5.888, 0.3]]) {
+        wtile(x0, z0, x1, z1, 0.1, 0.99, BT);
+        cap(x0 + (x1 - x0 < 0.05 ? -0.008 : 0), z0 + (z1 - z0 < 0.05 ? -0.008 : 0), x1 + (x1 - x0 < 0.05 ? 0.008 : 0), z1 + (z1 - z0 < 0.05 ? 0.008 : 0));
+      }
+      for (const [x0, z0, x1, z1] of [[5.876, -4.876, 5.9, -1.7]]) hbox(x0, 2.0, z0, x1, 2.03, z1, MAT.porcelain, false);
+      hbox(4.69, 2.0, -4.9, 5.9, 2.03, -4.876, MAT.porcelain, false);
+    }
+    // ---- rugs: one patterned piece each (the whole design on it), a runner at the sink, a bath mat ----
+    hm(GEO.ubox, MAT[RUG], -3.5, 0.036, 2.6, 0, 2.8, 0.008, 3.2, 0, 0, false);
+    hm(GEO.ubox, MAT.rugRunner, -0.4, 0.036, -3.85, Math.PI / 2, 0.6, 0.008, 1.5, 0, 0, false);
+    hm(GEO.ubox, MAT.bathMat, 4.25, 0.036, -3.25, 0, 0.5, 0.012, 0.8, 0, 0, false);
     // two chairs: a seat on four legs, back posts and two slats
     for (const [ax, az] of [[-2.2, -2.4], [-2.2, -0.8]]) {
       const bk = az < -1.6 ? -1 : 1;
-      hm(RB(0.44, 0.035, 0.44, 0.01), MAT.darkWood, ax, 0.45, az);
+      hm(RB(0.44, 0.035, 0.44, 0.01), MAT.walnut, ax, 0.45, az);
       for (const ox of [-0.19, 0.19]) for (const oz of [-0.19, 0.19]) leg(ax + ox, az + oz, oz * bk > 0 ? 0.96 : 0.44);
-      for (const y of [0.68, 0.86]) hbox(ax - 0.19, y, az + bk * 0.19 - 0.01, ax + 0.19, y + 0.06, az + bk * 0.19 + 0.01, MAT.darkWood, false);
+      for (const y of [0.68, 0.86]) hbox(ax - 0.19, y, az + bk * 0.19 - 0.01, ax + 0.19, y + 0.06, az + bk * 0.19 + 0.01, MAT.walnut, false);
       solid(...P(ax, az), 0.22, 0.22, yaw, 0.9, 'wood');
     }
     // bedroom (front right: x 1..6, z 0.4..5)
     { // the bed: a frame on legs, a thick mattress, a duvet folded back, two plump pillows, a padded headboard
       solid(...P(4.3, 3.4), 1.0, 1.6, yaw, 0.68, 'wood');
-      hm(RB(2.02, 0.22, 3.12, 0.03), MAT.darkWood, 4.3, 0.29, 3.4);
+      hm(RB(2.02, 0.22, 3.12, 0.03), MAT.walnut, 4.3, 0.29, 3.4);
       for (const [lx, lz] of [[3.35, 1.86], [5.25, 1.86]]) leg(lx, lz, 0.2, 0.06);
-      hm(RB(1.9, 0.24, 2.95, 0.07, 3), MAT.mattress, 4.3, 0.52, 3.43);
-      hm(RB(1.98, 0.07, 2.15, 0.03), MAT[fab2], 4.3, 0.665, 2.92); for (const sx of [-1, 1]) hm(RB(0.05, 0.28, 2.15, 0.025), MAT[fab2], 4.3 + sx * 0.975, 0.53, 2.92); hm(RB(1.98, 0.28, 0.05, 0.025), MAT[fab2], 4.3, 0.53, 1.86);   // it drapes down the sides and the foot hm(RB(1.98, 0.09, 0.32, 0.04), MAT[fab2], 4.3, 0.68, 4.0, 0, 1, 1, 1, -0.06);
-      for (const px of [3.83, 4.77]) hm(RB(0.62, 0.14, 0.42, 0.06, 3), MAT.mattress, px, 0.72, 4.58, (r() - 0.5) * 0.12);
-      hm(RB(2.06, 0.9, 0.08, 0.03), MAT.darkWood, 4.3, 0.45, 4.86);
+      hm(RB(1.9, 0.24, 2.95, 0.07, 3), MAT.mattressQ, 4.3, 0.52, 3.43);
+      const qm = MAT[QLT];
+      hm(RB(1.98, 0.07, 2.15, 0.03), qm, 4.3, 0.665, 2.92); for (const sx of [-1, 1]) hm(RB(0.05, 0.28, 2.15, 0.025), qm, 4.3 + sx * 0.975, 0.53, 2.92); hm(RB(1.98, 0.28, 0.05, 0.025), qm, 4.3, 0.53, 1.86);   // it drapes down the sides and the foot
+      hm(RB(1.98, 0.09, 0.32, 0.04), qm, 4.3, 0.68, 4.0, 0, 1, 1, 1, -0.06);   // turned back at the top
+      hm(RB(2.02, 0.035, 0.46, 0.015), MAT.knit, 4.3, 0.715, 2.2, 0, 1, 1, 1, 0, 0, false); hm(RB(2.02, 0.2, 0.03, 0.012), MAT.knit, 4.3, 0.61, 1.96, 0, 1, 1, 1, 0, 0, false);   // a knitted throw across the foot
+      for (const px of [3.83, 4.77]) hm(RB(0.62, 0.14, 0.42, 0.06, 3), MAT.pillowM, px, 0.72, 4.58, (r() - 0.5) * 0.12, 1, 1, 1, 0, 0, false);
+      hm(RB(0.5, 0.3, 0.12, 0.05, 3), MAT[QLT], 4.3, 0.8, 4.45, 0, 1, 1, 1, -0.25, 0, false);   // a cushion propped in front of them
+      hm(RB(2.06, 0.9, 0.08, 0.03), MAT.walnut, 4.3, 0.45, 4.86, Math.PI);   // the headboard   // a panelled headboard
     }
-    { const U = unit(5.6, 4.6, Math.PI, 0.5, 0.6, 0.5); hollow(U, 'darkWood', 'cabinet', [], 'darkWood');
+    { const U = unit(5.6, 4.6, Math.PI, 0.5, 0.6, 0.5); hollow(U, 'walnut', 'walnut', [], 'walnut');
       solid(...P(5.6, 4.6), 0.25, 0.25, yaw, 0.6, 'wood');
-      OC('nightstand', U, 'Nightstand', 0.6, [drawerPart(U, 0, 0.36, 0.56, 0.46, MAT.darkWood, 0.3), drawerPart(U, 0, 0.1, 0.34, 0.46, MAT.darkWood, 0.26)]);
+      OC('nightstand', U, 'Nightstand', 0.6, [drawerPart(U, 0, 0.36, 0.56, 0.46, MAT.walnut, 0.3), drawerPart(U, 0, 0.1, 0.34, 0.46, MAT.walnut, 0.26)]);
       // a table lamp and an alarm clock on it
       hm(GEO.ucyl, MAT.porcelain, 5.62, 0.75, 4.68, 0, 0.11, 0.3, 0.11); hm(GEO.shade, MAT.lampShade, 5.62, 1.0, 4.68);
       hm(RB(0.12, 0.07, 0.05, 0.01), MAT.black, 5.5, 0.635, 4.48, 0.4, 1, 1, 1, 0, 0, false); }
-    { const U = unit(1.4, 3.85, Math.PI / 2, 1.4, 1.2, 0.5); hollow(U, 'darkWood', 'cabinet', [], 'darkWood');
+    { const U = unit(1.4, 3.85, Math.PI / 2, 1.4, 1.2, 0.5); hollow(U, 'walnut', 'walnut', [], 'walnut');
       solid(...P(1.4, 3.85), 0.25, 0.7, yaw, 1.2, 'wood');
-      OC('dresser', U, 'Dresser', 1.0, [drawerPart(U, 0, 0.82, 1.16, 1.36, MAT.darkWood, 0.34), drawerPart(U, 0, 0.45, 0.8, 1.36, MAT.darkWood, 0.3), drawerPart(U, 0, 0.08, 0.43, 1.36, MAT.darkWood, 0.26)]); }
+      OC('dresser', U, 'Dresser', 1.0, [drawerPart(U, 0, 0.82, 1.16, 1.36, MAT.walnut, 0.34), drawerPart(U, 0, 0.45, 0.8, 1.36, MAT.walnut, 0.3), drawerPart(U, 0, 0.08, 0.43, 1.36, MAT.walnut, 0.26)]); }
     { // the closet: coats on a rail, boxes on the shelf
       const U = unit(5.65, 1.3, -Math.PI / 2, 1.6, 2.1, 0.6); hollow(U, 'cabinet', 'cabinet', [1.72], 'cabinet');
       U.box(0, 1.6, 0, 0.76, 1.62, 0.012, 'metal');   // the rail
-      for (let k = 0; k < 7; k++) { if (r() < 0.2) continue; const bx = -0.62 + k * 0.2; U.box(bx, 0.62 + r() * 0.2, 0, 0.03, 1.58, 0.24, 'fabric' + Math.floor(r() * 5)); U.box(bx, 1.575, 0, 0.012, 1.592, 0.215, 'darkWood'); U.box(bx, 1.592, 0, 0.005, 1.62, 0.005, 'metal'); }   // each coat on a wooden hanger hooked over the rail
+      for (let k = 0; k < 7; k++) { if (r() < 0.2) continue; const bx = -0.62 + k * 0.2; U.box(bx, 0.62 + r() * 0.2, 0, 0.03, 1.58, 0.24, 'fabric' + Math.floor(r() * 5)); U.box(bx, 1.575, 0, 0.012, 1.592, 0.215, 'walnut'); U.box(bx, 1.592, 0, 0.005, 1.62, 0.005, 'metal'); }   // each coat on a wooden hanger hooked over the rail
       stock(U, 1.74, 4, 0.2, ['box', 'cloth', 'cloth']);
       solid(...P(5.65, 1.3), 0.3, 0.8, yaw, 2.1, 'wood');
       OC('closet', U, 'Closet', 1.1, [leaf(U, -0.8, 0.08, 2.06, 0.79, 1, MAT.cabinet, MAT.metal, Math.PI / 2), leaf(U, 0.8, 0.08, 2.06, 0.79, -1, MAT.cabinet, MAT.metal, Math.PI / 2)]);   // against a wall: 90° and no further
@@ -2252,7 +2370,8 @@ export function makeWorld(scene, renderer) {
     }
     { // the vanity against the wall: a cabinet, a top with a basin sunk in it, a tap
       F(5.6, -0.55, 0.25, 0.45, 0, 0.82, f => f === 'top' ? null : 'cabinet', 'wood');
-      hm(GEO.vanityTop, MAT.porcelain, 5.6, 0.82, -0.55); hm(GEO.washBasin, MAT.porcelainDS, 5.6, 0.85, -0.55);
+      for (const sz of [-1, 1]) { hm(doorGeo2(0.42, 0.64), faceMat(MAT.cabinet, DOOR, 0.42 / 0.64), 5.339, 0.45, -0.55 + sz * 0.215, -Math.PI / 2, 1, 1, 1, 0, 0, false); hm(GEO.knobRound, MAT.chrome, 5.328, 0.66, -0.55 + sz * 0.05, -Math.PI / 2, 1, 1, 1, 0, 0, false); }
+      hm(GEO.vanityTop, MAT.counterM, 5.6, 0.82, -0.55); hm(GEO.washBasin, MAT.porcelainDS, 5.6, 0.85, -0.55);
       hm(GEO.ucyl, MAT.chrome, 5.8, 0.9, -0.55, 0, 0.04, 0.1, 0.04); hm(GEO.ucyl, MAT.chrome, 5.73, 0.95, -0.55, 0, 0.022, 0.15, 0.022, 0, Math.PI / 2, false);
       for (const sz of [-0.12, 0.12]) hm(GEO.ucyl, MAT.chrome, 5.8, 0.88, -0.55 + sz, 0, 0.035, 0.04, 0.035, 0, 0, false);
       hm(GEO.ucyl, MAT.chrome, 5.88, 1.95, -0.55, 0, 0.03, 0.55, 0.03, Math.PI / 2, 0, false);   // a light bar over the mirror
@@ -2262,7 +2381,7 @@ export function makeWorld(scene, renderer) {
       stock(U, 0.075, 6, 0.04, ['pills', 'meds', 'pills']); stock(U, 0.32, 6, 0.04, ['pills', 'meds']);   // pill bottles and packs of tablets
       OC('medicine', { ...U, stand: () => U.stand(0.98) }, 'Medicine cabinet', 1.2, [leaf(U, -0.35, 0.0, 0.62, 0.7, 1, MAT.mirror, MAT.white)]);
     }
-    hbox(2.6, 1.3, -3.42, 2.64, 1.32, -2.78, MAT.chrome, false); hbox(2.6, 0.92, -3.36, 2.67, 1.31, -2.84, MAT[fab2], false);   // a towel on a rail
+    hbox(2.6, 1.3, -3.42, 2.64, 1.32, -2.78, MAT.chrome, false); hbox(2.6, 0.92, -3.36, 2.67, 1.31, -2.84, MAT[UPH], false);   // a towel on a rail
     // ---- the things on every wall: ceiling lights, switches, sockets, pictures, a clock ----
     for (const [lx, lz] of [[-2.5, 2.7], [3.5, 2.6], [-2.0, -2.3], [4.2, -2.3]]) hm(GEO.ceilLight, MAT.fixture, lx, WH - 0.12, lz, 0, 1, 1, 1, 0, 0, false);
     // switch plates by the latch side of each doorway, sockets low on the walls (each [x, y, z, facing])
@@ -2272,7 +2391,7 @@ export function makeWorld(scene, renderer) {
     // pictures: one over the sofa wall, one by the TV, one over the dresser
     for (const [lx, ly, lz, fy, pw, ph] of [[-4.6, 1.6, 0.515, 0, 0.7, 0.5], [0.885, 1.55, 4.05, -Math.PI / 2, 0.5, 0.62], [1.115, 1.75, 3.85, Math.PI / 2, 0.6, 0.45]]) {
       const pi = Math.floor(r() * 4);
-      hm(GEO.ubox, MAT.darkWood, lx, ly, lz, fy, pw + 0.06, ph + 0.06, 0.03, 0, 0, false);
+      hm(GEO.ubox, MAT.walnut, lx, ly, lz, fy, pw + 0.06, ph + 0.06, 0.03, 0, 0, false);
       hm(GEO.uplane, MAT['art' + pi], lx + Math.sin(fy) * 0.016, ly, lz + Math.cos(fy) * 0.016, fy, pw, ph, 1, 0, 0, false);
     }
     // the kitchen clock
@@ -3257,12 +3376,15 @@ export function makeWorld(scene, renderer) {
     W.houses.push({ id: houseN++, x, z, yaw, flip: 1, hw: Wd / 2, hd: Dp / 2, name: 'QUICK STOP', roof: rg, rooms: [[-Wd / 2, -Dp / 2, Wd / 2, Dp / 2, 'tile']], inside: [P(-2.25, 1.0), P(2.25, -2.0), P(6.4, -3.0), P(-6.4, -3.2)], store: true });
     W.boxes.push({ x, z, hx: Wd / 2, hz: Dp / 2, yaw, c, s: sn, y0: WH, y1: WH + 0.3, mat: 'concrete', r: Math.hypot(Wd, Dp) / 2, noWalk: true });
     // aisles of shelves
+    const PROMO = [[['HOT DEAL', '2 FOR $5', 'CHIPS · DIPS'], '#c81e1e', '#fff4d8'], [['SALE', 'SOUP', '99¢'], '#f4e6b0', '#a01810'], [['NEW!', 'MAPLE', 'CRUNCH'], '#1a4a8a', '#f8e060']].map(([l, bg, fg]) => std({ map: fitLab(l, bg, fg, 256, 400, 'bold 64px Helvetica'), roughness: 0.6 }));
     for (const lx of [-4.5, 0, 4.5]) {
       const [cx, cz] = P(lx, -0.8);
       inst(aoGeo, aoMat, mat4(cx, 0.035, cz, yaw, 1.9, 1, 6.6), false);   // dark on the floor round its foot
       solid(cx, cz, 0.45, 2.6, yaw, 1.7, 'metal');   // open shelving: a back panel, end posts, a plinth and the shelf boards
       B.box(cx, 0, cz, 0.05, 1.7, 2.6, yaw, ALL('shelfMetal'), TILE); B.box(cx, 0, cz, 0.45, 0.15, 2.6, yaw, ALL('shelfMetal'), TILE); B.box(cx, 1.66, cz, 0.45, 1.7, 2.6, yaw, ALL('shelfMetal'), TILE);
       for (const e of [-2.58, 2.58]) { const [ex, ez] = P(lx, -0.8 + e); B.box(ex, 0, ez, 0.45, 1.7, 0.02, yaw, ALL('shelfMetal'), TILE); }
+      // an end-cap promo card on each end of the run (three designs, shared)
+      for (const e of [-1, 1]) sm(GEO.uplane, PROMO[(lx / 4.5 + 1 + (e > 0 ? 1 : 0)) % 3], lx, 0.95, -0.8 + e * 2.632, e > 0 ? 0 : Math.PI, 0.8, 1.25, 1, 0, 0, false);
       for (let k = 0; k < 4; k++) B.box(cx, 0.15 + k * 0.42, cz, 0.47, 0.18 + k * 0.42, 2.62, yaw, ALL('darkMetal'), TILE);
       for (const sd of [-1, 1]) productRows(lx, sd);
       // price strips along every shelf edge
@@ -3307,7 +3429,10 @@ export function makeWorld(scene, renderer) {
       container('cooler', ...P(-3, fz + 0.5), 1.2, 'Drinks cooler', yaw, null, { parts: [doors[2], doors[3]], stand: stF(-3), items: coolerB.filter(b => b[0] < 0).map(b => b[1]) });
       container('cooler', ...P(3, fz + 0.5), 1.2, 'Drinks cooler', yaw, null, { parts: [doors[8], doors[9]], stand: stF(3), items: coolerB.filter(b => b[0] > 0).map(b => b[1]) });
     }
-    { const [cx, cz] = P(-5.8, 3.6); block(cx, 0, cz, 1.6, 1.05, 0.5, yaw, f => f === 'top' ? 'counter' : 'cabinet', 'wood');
+    { const [cx, cz] = P(-5.8, 3.6); block(cx, 0, cz, 1.6, 1.05, 0.5, yaw, f => f === 'top' ? 'counterL' : 'oak', 'wood');
+      // a kick plate and a steel edge on the counter; a lottery poster on the customer's side
+      sbox(-7.4, 0, 4.1, -4.2, 0.1, 4.112, MAT.darkMetal, false); sbox(-7.4, 1.03, 4.1, -4.2, 1.055, 4.115, MAT.steel, false);
+      sm(GEO.uplane, std({ map: fitLab(['LOTTO', 'TICKETS', 'SOLD HERE'], '#f2c21a', '#1a3a8a', 256, 192, 'bold 46px Helvetica'), roughness: 0.6 }), -4.75, 0.6, 4.105, 0, 0.62, 0.46, 1, 0, 0, false);
       // the till on the counter, its cash drawer slides out
       const TG = new THREE.Group(); TG.position.set(x, 0, z); TG.rotation.y = yaw; level.add(TG);
       // the till sits on its cash drawer (the drawer front faces the cashier and slides out toward them); its screen
@@ -3447,12 +3572,14 @@ export function makeWorld(scene, renderer) {
     const fascia = new THREE.MeshStandardMaterial({ map: (() => { const t = fitLab(['GAS & GO'], '#e9e6de', '#b8241c', 2048, 128, 'bold 84px Helvetica'); return t; })(), roughness: 0.5 });
     const stripe = new THREE.MeshStandardMaterial({ color: 0xb8241c, roughness: 0.45 });
     for (const [lx, lz] of [[-5, 0.5], [5, 0.5], [-5, 5.5], [5, 5.5]]) {
-      add(rbx(0.55, 4.5, 0.55, 0.08), MAT.white, lx, 2.25, lz);
+      add(rbx(0.55, 4.5, 0.55, 0.08), MAT.cladding || (MAT.cladding = std({ map: TX.brushedSteelTexture(32, true), color: 0xf4f4f2, roughness: 0.35, metalness: 0.35 })), lx, 2.25, lz);   // brushed aluminium cladding
       add(rbx(0.8, 0.35, 0.8, 0.05), MAT.concrete, lx, 0.17, lz);
       add(new THREE.BoxGeometry(0.57, 0.15, 0.57), stripe, lx, 1.2, lz);
       solid(...P(lx, lz), 0.29, 0.29, yaw, 4.6, 'metal'); solid(...P(lx, lz), 0.4, 0.4, yaw, 0.36, 'concrete');
     }
-    add(new THREE.BoxGeometry(13.2, 0.3, 9.2), MAT.white, 0, 4.65, 3);                           // the deck
+    // the deck: white fascia sides, a soffit of long linear metal panels underneath
+    { const sof = std({ map: ctex(512, 512, (g) => { g.fillStyle = '#e6e8ea'; g.fillRect(0, 0, 512, 512); for (let x = 0; x < 512; x += 11.6) { g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(x, 0, 1.4, 512); g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(x + 1.6, 0, 1, 512); } g.fillStyle = 'rgba(0,0,0,0.12)'; for (const y of [128, 256, 384]) g.fillRect(0, y, 512, 2); }), roughness: 0.4, metalness: 0.2 });
+      add(new THREE.BoxGeometry(13.2, 0.3, 9.2), [MAT.white, MAT.white, MAT.white, sof, MAT.white, MAT.white], 0, 4.65, 3); }
     for (const [lz, w, ry] of [[3 + 4.62, 13.3, 0], [3 - 4.62, 13.3, Math.PI]]) { add(new THREE.BoxGeometry(w, 0.85, 0.08), fascia, 0, 4.95, lz, 0, ry); }
     for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.08, 0.85, 9.3), MAT.white, sx * 6.62, 4.95, 3);
     for (const [lz] of [[3 + 4.67], [3 - 4.67]]) add(new THREE.BoxGeometry(13.35, 0.14, 0.04), stripe, 0, 4.58, lz);
@@ -3527,8 +3654,8 @@ export function makeWorld(scene, renderer) {
           });
         }
         // the till counter by the right-hand wall: a wood-front cabinet, a worktop, the register, cigarettes behind
-        add(rbx(0.62, 0.95, 1.5, 0.03), MAT.cabinet, 3.25, 0.475, -5.6);
-        add(rbx(0.7, 0.05, 1.58, 0.02), MAT.counter, 3.25, 0.975, -5.6);
+        add(rbx(0.62, 0.95, 1.5, 0.03), MAT.oak, 3.25, 0.475, -5.6);
+        add(rbx(0.7, 0.05, 1.58, 0.02), MAT.counterL, 3.25, 0.975, -5.6);
         add(rbx(0.34, 0.2, 0.3, 0.03), MAT.black, 3.2, 1.1, -5.9); add(new THREE.BoxGeometry(0.22, 0.14, 0.02), MAT.darkMetal, 3.2, 1.27, -5.98, -0.3, 0, 0, false);
         add(new THREE.PlaneGeometry(1.4, 0.7), MAT.cigs, 3.74, 1.75, -5.6, 0, -Math.PI / 2, 0, false); }
       const ice = new THREE.MeshStandardMaterial({ map: fitLab(['ICE'], '#e8eef4', '#2050a0', 256, 128, 'bold 80px Helvetica'), roughness: 0.4 });

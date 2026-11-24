@@ -496,3 +496,58 @@ export function install(K) {
   }
   return { M, G };
 }
+
+// ---------------------------------------------------------------- designed fronts (decor.js): the village's own cells
+// shop shelves full of goods, the café's chalk menu, a painted retablo for the chapel altar, a carved chest front, a
+// wardrobe, the mechanic's tool wall and chest. One atlas → one material for all of them.
+import { decor, P2 as S, XCELLS, rgb as drgb } from './decor.js';
+const DCELLS = [
+  ['wood', (g, w, h, r) => S.grain(g, 0, 0, w, h, r, [128, 86, 50]), { rough: 0.75, metal: 0 }],
+  // a shop shelf bay: tins, rice and flour bags, bottles of oil, soap boxes, tea packets
+  ['shelf', (g, w, h, r) => {
+    S.grain(g, 0, 0, w, h, r, [96, 66, 40], false);
+    for (let j = 0; j < 4; j++) { const y1 = (j + 1) * h / 4; g.fillStyle = '#5a3a20'; g.fillRect(0, y1 - 7, w, 7); g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, y1 - 7 - h / 4 * 0.85, w, h / 4 * 0.85 - 7);
+      let x = 4; while (x < w - 12) { const k = r(); let bw, bh;
+        if (k < 0.3) { bw = 16; bh = h / 4 * 0.42; g.fillStyle = '#c8ccd0'; g.fillRect(x, y1 - 7 - bh, bw, bh); g.fillStyle = ['#c82a1a', '#e8b020', '#2a7a3a', '#2a4ab0'][(r() * 4) | 0]; g.fillRect(x, y1 - 7 - bh * 0.78, bw, bh * 0.5); g.fillStyle = '#fff'; g.fillRect(x + 3, y1 - 7 - bh * 0.6, bw - 6, 3); }
+        else if (k < 0.5) { bw = 12; bh = h / 4 * 0.7; g.fillStyle = ['#d8b030', '#a8c040', '#e8e0c0'][(r() * 3) | 0]; g.fillRect(x + 2, y1 - 7 - bh * 0.8, bw - 4, bh * 0.8); g.fillRect(x + 4, y1 - 7 - bh, bw - 8, bh * 0.2); g.fillStyle = '#c82a1a'; g.fillRect(x + 2, y1 - 7 - bh * 0.5, bw - 4, bh * 0.2); }
+        else if (k < 0.75) { bw = 30; bh = h / 4 * 0.6; g.fillStyle = r() < 0.5 ? '#f0ead8' : '#d8c8a0'; g.beginPath(); g.moveTo(x, y1 - 7); g.lineTo(x + 3, y1 - 7 - bh); g.lineTo(x + bw - 3, y1 - 7 - bh); g.lineTo(x + bw, y1 - 7); g.fill(); g.fillStyle = ['#2a6a3a', '#a82a1a', '#2a4a8a'][(r() * 3) | 0]; g.fillRect(x + 6, y1 - 7 - bh * 0.6, bw - 12, bh * 0.25); }
+        else { bw = 22; bh = h / 4 * 0.5; g.fillStyle = ['#e85a20', '#2a8ad8', '#f0d020', '#8a3ac8', '#30a060'][(r() * 5) | 0]; g.fillRect(x, y1 - 7 - bh, bw, bh); g.fillStyle = 'rgba(255,255,255,0.7)'; g.fillRect(x + 3, y1 - 7 - bh * 0.7, bw - 6, bh * 0.25); }
+        x += bw + 2; } }
+  }, { rough: 0.7, metal: 0 }],
+  // the café's chalkboard menu
+  ['menu', (g, w, h, r) => {
+    S.grain(g, 0, 0, w, h, r, [110, 70, 40]); g.fillStyle = '#1e2a24'; g.fillRect(10, 10, w - 20, h - 20); S.speck(g, 10, 10, w - 20, h - 20, 1500, ['rgba(255,255,255,0.05)'], r);
+    S.text(g, 'CAFÉ OASIS', w / 2, h * 0.13, h * 0.09, '#f0e6cc', 'center', 'bold', 'Georgia, serif');
+    [['QAHWA (coffee)', '2'], ['SHAI · mint tea', '1'], ['FALAFEL', '3'], ['FUL MEDAMES', '3'], ['HUMMUS & BREAD', '2'], ['DATES', '1'], ['LEMONADE', '2']].forEach(([a, b], i) => { const y = h * (0.27 + i * 0.1); S.text(g, a, w * 0.1, y, h * 0.052, '#e8e4d8', 'left', 'normal', 'Georgia, serif', w * 0.62); S.text(g, b, w * 0.88, y, h * 0.055, '#f0c860', 'right', 'bold', 'Georgia, serif'); });
+    g.strokeStyle = '#f0c860'; g.lineWidth = 2; g.beginPath(); g.moveTo(w * 0.2, h * 0.2); g.lineTo(w * 0.8, h * 0.2); g.stroke();
+  }, { rough: 0.9, metal: 0 }],
+  // a painted retablo (the saint, a gold frame) for the chapel altar
+  ['retablo', (g, w, h, r) => {
+    g.fillStyle = '#b8902a'; g.fillRect(0, 0, w, h); S.bevel(g, 0, 0, w, h, 8, 0.4); g.fillStyle = '#2a3a6a'; g.fillRect(w * 0.1, h * 0.08, w * 0.8, h * 0.84);
+    const gr = g.createRadialGradient(w / 2, h * 0.3, 4, w / 2, h * 0.3, w * 0.3); gr.addColorStop(0, '#f8e8a0'); gr.addColorStop(1, 'rgba(248,232,160,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#e8c8a0'; g.beginPath(); g.arc(w / 2, h * 0.3, w * 0.08, 0, 7); g.fill();
+    g.fillStyle = '#7a2a1a'; g.beginPath(); g.moveTo(w * 0.38, h * 0.4); g.lineTo(w * 0.62, h * 0.4); g.lineTo(w * 0.7, h * 0.85); g.lineTo(w * 0.3, h * 0.85); g.fill();
+    g.fillStyle = '#e8dcc0'; g.beginPath(); g.moveTo(w * 0.44, h * 0.4); g.lineTo(w * 0.56, h * 0.4); g.lineTo(w * 0.6, h * 0.85); g.lineTo(w * 0.4, h * 0.85); g.fill();
+    g.strokeStyle = '#f0d060'; g.lineWidth = 3; g.beginPath(); g.arc(w / 2, h * 0.3, w * 0.12, 0, 7); g.stroke();
+    for (let i = 0; i < 12; i++) { g.fillStyle = ['#c82a1a', '#f0c020', '#e8e8e8'][i % 3]; g.beginPath(); g.arc(w * (0.15 + (i % 6) * 0.14), h * (i < 6 ? 0.9 : 0.12), 5, 0, 7); g.fill(); }
+  }, { rough: 0.5, metal: 0.3 }],
+  // a carved cedar chest front with brass corners
+  ['chest', (g, w, h, r) => {
+    S.grain(g, 0, 0, w, h, r, [120, 58, 34], false); S.bevel(g, 0, 0, w, h, 4, 0.4);
+    for (let i = 0; i < 3; i++) { const x = w * (0.06 + i * 0.31), ww = w * 0.27; S.inset(g, x, h * 0.18, ww, h * 0.64, 3, 0.4); g.strokeStyle = 'rgba(40,20,10,0.6)'; g.lineWidth = 3; g.beginPath(); for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + Math.PI / 4; g.moveTo(x + ww / 2, h * 0.5); g.lineTo(x + ww / 2 + Math.cos(a) * ww * 0.35, h * 0.5 + Math.sin(a) * h * 0.25); } g.stroke(); g.beginPath(); g.arc(x + ww / 2, h * 0.5, ww * 0.18, 0, 7); g.stroke(); }
+    g.fillStyle = '#c8a050'; for (const [x, y] of [[0, 0], [w - 24, 0], [0, h - 24], [w - 24, h - 24]]) g.fillRect(x, y, 24, 24);
+    g.fillStyle = '#2a2018'; g.fillRect(w / 2 - 10, h * 0.06, 20, 26); g.fillStyle = '#c8a050'; g.fillRect(w / 2 - 6, h * 0.08, 12, 14);
+  }, { rough: 0.6, metal: 0.15 }],
+  // a tall painted wardrobe: two doors with carved arches, ring pulls
+  ['wardrobe', (g, w, h, r) => {
+    S.grain(g, 0, 0, w, h, r, [60, 110, 92]); g.fillStyle = 'rgba(60,110,92,0.6)'; g.fillRect(0, 0, w, h);
+    for (const x0 of [0, w / 2]) { S.bevel(g, x0 + 4, 4, w / 2 - 8, h - 8, 3, 0.35); g.strokeStyle = '#e8d8a8'; g.lineWidth = 3; g.beginPath(); g.moveTo(x0 + w * 0.08, h * 0.9); g.lineTo(x0 + w * 0.08, h * 0.3); g.quadraticCurveTo(x0 + w / 4, h * 0.08, x0 + w * 0.42, h * 0.3); g.lineTo(x0 + w * 0.42, h * 0.9); g.closePath(); g.stroke();
+      g.fillStyle = '#c84a2a'; g.beginPath(); g.arc(x0 + w / 4, h * 0.42, 8, 0, 7); g.fill(); }
+    g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(w / 2 - 1.5, 0, 3, h); for (const x of [w / 2 - 12, w / 2 + 12]) { g.strokeStyle = '#c8a050'; g.lineWidth = 3; g.beginPath(); g.arc(x, h * 0.52, 7, 0, 7); g.stroke(); }
+  }, { rough: 0.65, metal: 0 }],
+  ['tools', ...XCELLS.tools],
+  ['toolchest', ...XCELLS.toolchest],
+];
+let DD = null;
+export function desertDecor(K) { const D = decor(K); if (!DD || DD.D !== D) DD = { D, DA: D.atlas('desert', DCELLS) }; return DD; }
+void drgb;

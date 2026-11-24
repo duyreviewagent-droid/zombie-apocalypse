@@ -384,3 +384,63 @@ export function bakePerson(kind, pose = 'stand') {
   geo.computeBoundingBox(); geo.computeBoundingSphere();
   return { geo, mats };
 }
+
+// ---------------------------------------------------------------- designed fronts (decor.js): the stadium's own cells
+// match shirts on pegs, the tactics board, club-shop merchandise, the lounge's back bar, breaker panels, TV screens.
+import { decor, P2 as S, XCELLS } from './decor.js';
+const shirt = (col, col2, num, name) => (g, w, h, r) => {
+  g.fillStyle = '#2a2622'; g.fillRect(0, 0, w, h);
+  g.fillStyle = col; g.beginPath(); g.moveTo(w * 0.3, h * 0.05); g.lineTo(w * 0.42, h * 0.1); g.lineTo(w * 0.58, h * 0.1); g.lineTo(w * 0.7, h * 0.05); g.lineTo(w * 0.98, h * 0.22); g.lineTo(w * 0.88, h * 0.38); g.lineTo(w * 0.78, h * 0.32); g.lineTo(w * 0.78, h * 0.97); g.lineTo(w * 0.22, h * 0.97); g.lineTo(w * 0.22, h * 0.32); g.lineTo(w * 0.12, h * 0.38); g.lineTo(w * 0.02, h * 0.22); g.closePath(); g.fill();
+  g.fillStyle = col2; g.fillRect(w * 0.22, h * 0.12, w * 0.56, h * 0.04); g.fillRect(w * 0.02, h * 0.2, w * 0.2, h * 0.03); g.fillRect(w * 0.78, h * 0.2, w * 0.2, h * 0.03);
+  for (let x = 0; x < w; x += 3) { g.fillStyle = 'rgba(0,0,0,0.05)'; g.fillRect(x, 0, 1, h); }
+  S.text(g, name, w / 2, h * 0.3, h * 0.07, col2, 'center', 'bold', undefined, w * 0.5);
+  S.text(g, String(num), w / 2, h * 0.58, h * 0.3, col2, 'center', 'bold', 'Impact, Arial Black, sans-serif');
+  g.fillStyle = 'rgba(0,0,0,0.15)'; g.fillRect(w * 0.22, h * 0.8, w * 0.56, h * 0.17);
+};
+const SCELLS = [
+  ['shirtH', shirt('#8a1c2a', '#9cc8e8', 9, 'HARBOR'), { rough: 0.9, metal: 0 }],
+  ['shirtH2', shirt('#8a1c2a', '#9cc8e8', 4, 'HARBOR'), { rough: 0.9, metal: 0 }],
+  ['shirtA', shirt('#d8b020', '#1a1a1a', 10, 'AWAY'), { rough: 0.9, metal: 0 }],
+  ['shirtA2', shirt('#d8b020', '#1a1a1a', 7, 'AWAY'), { rough: 0.9, metal: 0 }],
+  ['tactics', (g, w, h, r) => {   // a whiteboard with the pitch, the team in a 4-4-2, arrows
+    g.fillStyle = '#f4f6f6'; g.fillRect(0, 0, w, h); g.strokeStyle = '#8a9096'; g.lineWidth = 6; g.strokeRect(3, 3, w - 6, h - 6);
+    g.strokeStyle = '#2a8a3a'; g.lineWidth = 2; g.strokeRect(w * 0.08, h * 0.1, w * 0.84, h * 0.8); g.beginPath(); g.moveTo(w / 2, h * 0.1); g.lineTo(w / 2, h * 0.9); g.stroke(); g.beginPath(); g.arc(w / 2, h / 2, h * 0.12, 0, 7); g.stroke();
+    g.strokeRect(w * 0.08, h * 0.3, w * 0.12, h * 0.4); g.strokeRect(w * 0.8, h * 0.3, w * 0.12, h * 0.4);
+    const pos = [[0.12, 0.5], [0.25, 0.2], [0.25, 0.4], [0.25, 0.6], [0.25, 0.8], [0.4, 0.2], [0.4, 0.4], [0.4, 0.6], [0.4, 0.8], [0.55, 0.4], [0.55, 0.6]];
+    for (const [x, y] of pos) { g.fillStyle = '#c81a1a'; g.beginPath(); g.arc(w * x, h * y, 7, 0, 7); g.fill(); }
+    g.strokeStyle = '#1a3ac8'; g.lineWidth = 3; for (const [x, y] of [[0.65, 0.3], [0.65, 0.7], [0.75, 0.5]]) { g.beginPath(); g.moveTo(w * x - 6, h * y - 6); g.lineTo(w * x + 6, h * y + 6); g.moveTo(w * x + 6, h * y - 6); g.lineTo(w * x - 6, h * y + 6); g.stroke(); }
+    g.strokeStyle = '#111'; g.lineWidth = 2; g.beginPath(); g.moveTo(w * 0.4, h * 0.4); g.quadraticCurveTo(w * 0.55, h * 0.2, w * 0.68, h * 0.35); g.stroke();
+    S.text(g, 'PRESS HIGH · WIN 2ND BALLS', w / 2, h * 0.96, h * 0.05, '#c81a1a', 'center', 'bold', undefined, w * 0.9);
+  }, { rough: 0.2, metal: 0 }],
+  ['merch', (g, w, h, r) => {   // a club-shop bay: scarves, folded shirts, mugs, caps, balls
+    g.fillStyle = '#e8e6e0'; g.fillRect(0, 0, w, h);
+    for (let j = 0; j < 4; j++) { const y1 = (j + 1) * h / 4; g.fillStyle = '#a8adb2'; g.fillRect(0, y1 - 5, w, 5);
+      for (let i = 0; i < 5; i++) { const x = 4 + i * (w - 8) / 5, bw = (w - 8) / 5 - 6, bh = h / 4 * 0.5, k = (i + j * 2) % 5;
+        if (k === 0) { for (let q = 0; q < 3; q++) { g.fillStyle = q % 2 ? '#9cc8e8' : '#8a1c2a'; g.fillRect(x, y1 - 5 - bh + q * bh / 3, bw, bh / 3); } }
+        else if (k === 1) { g.fillStyle = '#8a1c2a'; g.fillRect(x, y1 - 5 - bh * 0.6, bw, bh * 0.6); g.fillStyle = '#9cc8e8'; g.fillRect(x, y1 - 5 - bh * 0.6, bw, 3); S.text(g, '9', x + bw / 2, y1 - 5 - bh * 0.3, bh * 0.4, '#9cc8e8'); }
+        else if (k === 2) { for (let q = 0; q < 3; q++) { g.fillStyle = '#f4f4f0'; g.fillRect(x + q * bw / 3 + 1, y1 - 5 - bh * 0.55, bw / 3 - 3, bh * 0.55); g.fillStyle = '#8a1c2a'; g.fillRect(x + q * bw / 3 + 2, y1 - 5 - bh * 0.4, bw / 3 - 5, bh * 0.15); } }
+        else if (k === 3) { g.fillStyle = '#8a1c2a'; g.beginPath(); g.ellipse(x + bw / 2, y1 - 5 - bh * 0.25, bw / 2, bh * 0.3, 0, Math.PI, 0); g.fill(); g.fillStyle = '#9cc8e8'; g.fillRect(x + bw * 0.3, y1 - 5 - bh * 0.1, bw * 0.7, 4); }
+        else { g.fillStyle = '#f4f4f4'; g.beginPath(); g.arc(x + bw / 2, y1 - 5 - bh * 0.45, bh * 0.42, 0, 7); g.fill(); g.fillStyle = '#111'; g.beginPath(); g.arc(x + bw / 2, y1 - 5 - bh * 0.45, bh * 0.14, 0, 7); g.fill(); }
+        g.fillStyle = '#fff'; g.fillRect(x + bw * 0.25, y1 - 4, bw * 0.5, 4); } }
+  }, { rough: 0.8, metal: 0 }],
+  ['barBack', (g, w, h, r) => {   // the back bar: mirrored shelves of bottles, lit from below (glows)
+    g.fillStyle = '#2a1e16'; g.fillRect(0, 0, w, h); g.fillStyle = '#5a6a7a'; g.fillRect(w * 0.03, h * 0.05, w * 0.94, h * 0.9);
+    const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, 'rgba(255,255,255,0.2)'); gr.addColorStop(1, 'rgba(0,0,0,0.2)'); g.fillStyle = gr; g.fillRect(w * 0.03, h * 0.05, w * 0.94, h * 0.9);
+    for (let j = 0; j < 3; j++) { const y1 = h * (0.35 + j * 0.3); g.fillStyle = '#d8c890'; g.fillRect(w * 0.03, y1, w * 0.94, 5);
+      for (let x = w * 0.05; x < w * 0.94; x += 13) { const c = ['#3a6a2a', '#8a4a1a', '#d8c060', '#e8e8e0', '#6a1a1a', '#2a3a6a'][(r() * 6) | 0], bh = h * (0.14 + r() * 0.08); g.fillStyle = c; g.fillRect(x, y1 - bh, 10, bh * 0.75); g.fillRect(x + 3, y1 - bh - 6, 4, bh * 0.3); g.fillStyle = 'rgba(255,255,255,0.75)'; g.fillRect(x + 1, y1 - bh * 0.5, 8, bh * 0.2); g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(x + 1, y1 - bh * 0.7, 2, bh * 0.6); } }
+  }, { rough: 0.2, metal: 0.2, glow: 0.45 }],
+  ['breaker', (g, w, h, r) => {   // a grey switchgear door: rows of breakers, warning labels, a meter
+    g.fillStyle = '#9aa0a4'; g.fillRect(0, 0, w, h); S.bevel(g, 4, 4, w - 8, h - 8, 3, 0.3);
+    g.fillStyle = '#d8b020'; g.fillRect(w * 0.1, h * 0.05, w * 0.8, h * 0.08); S.text(g, '⚡ 415 V  DANGER', w / 2, h * 0.09, h * 0.05, '#111', 'center', 'bold', undefined, w * 0.75);
+    g.fillStyle = '#e8e8e4'; g.beginPath(); g.arc(w * 0.3, h * 0.24, w * 0.1, 0, 7); g.fill(); g.strokeStyle = '#111'; g.lineWidth = 2; g.beginPath(); g.moveTo(w * 0.3, h * 0.24); g.lineTo(w * 0.36, h * 0.2); g.stroke();
+    for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) { const x = w * (0.1 + i * 0.135), y = h * (0.38 + j * 0.09); g.fillStyle = '#1a1c1e'; g.fillRect(x, y, w * 0.1, h * 0.07); g.fillStyle = (i + j) % 7 ? '#e8e8e4' : '#c82020'; g.fillRect(x + w * 0.035, y + h * 0.01, w * 0.03, h * 0.03); }
+    g.fillStyle = '#c81a1a'; g.fillRect(w * 0.82, h * 0.45, w * 0.06, h * 0.12);
+  }, { rough: 0.45, metal: 0.4 }],
+  ['screen', ...XCELLS.screen],
+  ['kitbag', (g, w, h, r) => {   // a kit hamper: wicker, a claret strap, the club badge
+    g.fillStyle = '#b8945a'; g.fillRect(0, 0, w, h); for (let y = 0; y < h; y += 8) for (let x = (y / 8) % 2 * 8; x < w; x += 16) { g.fillStyle = 'rgba(80,50,20,0.35)'; g.fillRect(x, y, 8, 8); }
+    g.fillStyle = '#8a1c2a'; g.fillRect(0, h * 0.3, w, h * 0.1); g.fillRect(0, h * 0.7, w, h * 0.1); g.fillStyle = '#f4f0e4'; g.beginPath(); g.arc(w / 2, h * 0.55, h * 0.12, 0, 7); g.fill(); S.text(g, 'HCFC', w / 2, h * 0.55, h * 0.07, '#8a1c2a');
+  }, { rough: 0.95, metal: 0 }],
+];
+let SD = null;
+export function stadiumDecor(K) { const D = decor(K); if (!SD || SD.D !== D) SD = { D, SA: D.atlas('stadium', SCELLS) }; return SD; }

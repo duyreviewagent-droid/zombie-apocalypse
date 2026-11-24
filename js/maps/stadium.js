@@ -13,7 +13,7 @@ import * as LOOT from '../loot.js';
 import { tier } from '../tex.js';
 const ITEMS = LOOT.ITEMS || {}, LOOT_PANEL = !!(LOOT.LOOT_KINDS && LOOT.LOOT_KINDS.panel);
 import { makeMatch } from './stadium.match.js';
-import { textures, signAtlas, barsTexture, geos, builder, rng, bakePerson, personSource, HOME, AWAY } from './stadium.kit.js';
+import { textures, signAtlas, barsTexture, geos, builder, rng, bakePerson, personSource, HOME, AWAY, stadiumDecor } from './stadium.kit.js';
 const Q_HAS = k => { try { return new URLSearchParams(location.search).has(k); } catch { return false; } };
 const Q_NOREAL = () => Q_HAS('noreal');   // (test hooks: ?noreal — the far crowd figures only; ?nomatch — nobody on the pitch)
 
@@ -70,6 +70,7 @@ export function buildMap(K) {
   K.bounds(-112, -112, 112, 112);
   K.preset('stadium');
   const T = textures(17), G = geos(), Bd = builder(K), R = rng(2024);
+  const { D: DZ, SA } = stadiumDecor(K);   // designed fronts: kiosk kitchens, dressing-room kit, the bar, the club shop
   const { box, rect, wall } = Bd;
   const std = K.std;
   // ---------------------------------------------------------------- materials
@@ -236,9 +237,13 @@ export function buildMap(K) {
     sbox(st, u0 + 0.2, vc - 0.3, u1 - 0.2, vc, 2.35, 3.0, { side: 'sdBand', bot: 'darkMetal' }, { solid: false });
     { const [x, z] = P(st, (u0 + u1) / 2, vc + 0.02); sign([kn1, kn2], x, 2.68, z, yaw + Math.PI, 5.6, 0.62, kcol); }
     // behind the counter: a back counter with a fryer, a pie warmer, a drinks fridge, a till
-    sbox(st, u0 + 0.2, v0 + 0.25, u1 - 0.2, v0 + 0.85, 0, 0.92, { top: 'counter', side: 'appliance' }, { surf: 'metal' });
+    sbox(st, u0 + 0.2, v0 + 0.25, u1 - 0.2, v0 + 0.85, 0, 0.92, null, { surf: 'metal' });
+    // the back counter is a real little kitchen: undercounter fridges, a sink, a fryer, a hot cabinet; a lit menu over it
+    { const [x, z] = P(st, (u0 + u1) / 2 - 0.9, v0 + 0.55); DZ.kitchenRun(x, z, yaw + Math.PI, [{ k: 'steelDoor', w: 1.6 }, { k: 'sink', w: 0.8 }, { k: kn1 === 'BAR' ? 'steelDoor' : 'hob', w: 0.8 }, { k: 'steelDoor', w: 0.6 }], { steel: true, top: 'dzSteel', splash: 'dzTileW', splashH: 0.9, d: 0.6, solid: false }); }
     { const [x, z] = P(st, u0 + 1.2, v0 + 0.5); K.WX(G.box, MAT.chrome, x, 1.12, z, yaw, 0.7, 0.4, 0.5); K.WX(G.box, MAT.shopGlass, x + 0, 1.34, z, yaw, 0.68, 0.02, 0.48); }
-    { const [x, z] = P(st, u1 - 1.0, v0 + 0.55); K.WX(G.box, MAT.appliance, x, 1.0, z, yaw, 0.7, 2.0, 0.6); const [gx, gz] = P(st, u1 - 1.0, v0 + 0.86); K.WX(G.box, MAT.shopGlass, gx, 1.0, gz, yaw, 0.62, 1.8, 0.02); }
+    { const [x, z] = P(st, u1 - 1.0, v0 + 0.55); DZ.drinksFridge(x, z, yaw + Math.PI, { w: 0.7, h: 2.0, d: 0.6, solid: false }); }
+    { const [x, z] = P(st, (u0 + u1) / 2 - 0.9, v0 + 0.03); DZ.board(DZ.A, 'menu', x, 2.3, z, yaw + Math.PI, 1.5, 0.75); }
+    if (kn1 === 'HOT DRINKS' || kn1 === 'BURGERS') { const [x, z] = P(st, u0 + 3.7, v0 + 0.55); DZ.coffee(x, 0.92, z, yaw + Math.PI); }
     const [fx, fz] = P(st, u1 - 1.0, v0 + 1.0);
     K.container('fridge', fx, fz, 1.0, 'Drinks fridge', yaw);
     const [rx, rz] = P(st, u0 + 3, vc - 0.3); K.WX(G.box, MAT.darkMetal, rx, 1.18, rz, yaw, 0.36, 0.2, 0.3);
@@ -262,6 +267,8 @@ export function buildMap(K) {
       sbox(st, uc + 0.85 + k * 1.1, st.back - 2.0, uc + 0.9 + k * 1.1, st.back - 0.5, 0.15, 2.0, 'sdLocker', { surf: 'wood' }); }
     sbox(st, uc - 4.3, st.back - 5.6, uc - 1.0, st.back - 5.1, 0, 0.82, { top: 'counter', side: 'sdTile' });
     for (let k = 0; k < 4; k++) { const [ux, uz] = P(st, uc - 3.9 + k * 0.8, st.back - 5.35); K.inst(G.sink, MAT.porcelain, K.mat4(ux, 0.02, uz, yaw + Math.PI)); K.inst(G.tap, MAT.chrome, K.mat4(ux, 0, uz, yaw + Math.PI)); }
+    sbox(st, uc - 4.25, st.back - 5.62, uc - 1.05, st.back - 5.6, 1.15, 1.95, { [pf(st)]: 'chrome', [bf(st)]: 'chrome', side: 'darkMetal' }, { solid: false });   // the mirror over the basins
+    sbox(st, uc - 0.75, st.back - 5.6, uc - 0.4, st.back - 5.42, 1.1, 1.4, 'chrome', { solid: false });   // a hand dryer
     const [sx, sz] = P(st, uc - 2.5, st.back - 5.8); sign(label, sx, 2.5, sz, yaw, 1.6, 0.4, '#1a4a7a');
     return H;
   }
@@ -411,12 +418,16 @@ export function buildMap(K) {
     const r = RN[id], u0 = r.u0 + 0.25, u1 = r.u1 - 0.25, colM = id === 'home' ? MAT.sdSeatC : MAT.sdSeatY;
     sbox(N, u0, CONC + 0.25, u1, CONC + 0.75, 0, 0.45, { top: 'darkWood', side: 'darkWood' }, { surf: 'wood', extra: { vault: true } });
     sbox(N, u0, CONC + 0.2, u1, CONC + 0.35, 0.45, 2.2, 'sdLocker', { surf: 'wood' });
-    for (let u = u0 + 0.6; u < u1 - 0.4; u += 0.9) {   // a shirt on each peg, boots under the bench
-      const [x, z] = P(N, u, CONC + 0.45); K.inst(G.box, colM, K.mat4(x, 1.55, z, 0, 0.5, 0.62, 0.06));
+    let shN = 0;
+    for (let u = u0 + 0.6; u < u1 - 0.4; u += 0.9) {   // a numbered shirt on each peg, boots under the bench, a towel
+      const [x, z] = P(N, u, CONC + 0.45); DZ.face(SA, (id === 'home' ? 'shirtH' : 'shirtA') + (shN++ % 2 ? '2' : ''), x, 1.55, z, Math.PI, 0.56, 0.68);
+      { const [tx2, tz2] = P(N, u + 0.3, CONC + 0.6); K.WX(G.box, MAT.white, tx2, 0.5, tz2, 0, 0.3, 0.06, 0.25); }
       K.inst(G.box, MAT.black, K.mat4(x - 0.08, 0.05, z + 0.25 * (N.o[1] < 0 ? -1 : 1), 0, 0.1, 0.1, 0.28));
     }
     for (let k = 0; k < 3; k++) { const [x, z] = P(N, u0 + 3 + k * 6, CONC + 0.5); K.container(k === 1 ? 'dresser' : 'closet', x, z, 1.2, 'Player\'s locker', 0); }
-    const [tx, tz] = P(N, (u0 + u1) / 2 + (id === 'home' ? 4 : -4), 14.6); K.WX(G.box, MAT.white, tx, 1.5, tz + 0.03, 0, 2.4, 1.2, 0.04);   // tactics board (on the corridor-side wall)
+    const [tx, tz] = P(N, (u0 + u1) / 2 + (id === 'home' ? 4 : -4), 14.6); DZ.face(SA, 'tactics', tx, 1.5, tz + 0.06, 0, 2.4, 1.2);   // tactics board (on the corridor-side wall)
+    for (let k = 0; k < 2; k++) { const [hx, hz] = P(N, (u0 + u1) / 2 + (id === 'home' ? -2 : 2) + k * 1.1, 13.9); DZ.abox(SA, { side: 'kitbag', top: 'kitbag' }, hx, 0, hz, 0.45, 0.6, 0.3, 0); K.solid(hx, hz, 0.45, 0.3, 0, 0.6, 'wood', 0, { vault: true }); }   // kit hampers
+    { const [bx3, bz3] = P(N, (u0 + u1) / 2 + 0.4, 11.6); for (let q = 0; q < 6; q++) K.WX(G.cyl, q % 2 ? MAT.white : colM, bx3 - 0.2 + (q % 3) * 0.2, 0.9, bz3 + (q < 3 ? -0.1 : 0.1), 0, 0.06, 0.2, 0.06); }   // water bottles on the massage table
     K.WX(G.box, MAT.darkMetal, tx, 1.5, tz, 0, 2.5, 1.3, 0.02);
     const [mx, mz] = P(N, (u0 + u1) / 2, 11.6); K.block(mx, 0, mz, 0.95, 0.8, 0.35, 0, f => f === 'top' ? 'fabric4' : 'metal', 'metal');   // massage table
     // showers at the far end
@@ -425,7 +436,7 @@ export function buildMap(K) {
     for (let k = 0; k < 3; k++) { const [x, z] = P(N, ush + 0.6 + k * 1.2, CONC + 3.2); K.WX(G.cyl, MAT.chrome, x, 2.2, z, 0, 0.18, 0.05, 0.18); }
   }
   { const r = RN.physio; const [x, z] = P(N, -28, 11.6); K.block(x, 0, z, 0.35, 0.8, 0.95, 0, f => f === 'top' ? 'fabric4' : 'metal', 'metal');
-    const [cx, cz] = P(N, -30.5, 14.5); K.block(cx, 0, cz, 0.9, 1.9, 0.25, 0, 'cabinet', 'wood'); K.container('medicine', cx, cz, 1.2, 'Medical cabinet', 0);
+    const [cx, cz] = P(N, -30.5, 14.5); DZ.medCabinet(cx, cz, 0, { w: 1.8, d: 0.5 }); K.container('medicine', cx, cz, 1.2, 'Medical cabinet', 0);
     const [ix, iz] = P(N, -26, 9.5); K.block(ix, 0, iz, 0.9, 0.8, 0.55, 0, f => f === 'top' ? 'darkMetal' : 'porcelain', 'metal');   // the ice bath
   }
   { const [x, z] = P(N, 28, 14.3); K.block(x, 0, z, 1.0, 0.76, 0.4, 0, f => f === 'top' ? 'darkWood' : 'cabinet', 'wood'); K.container('cabinet', x, z, 0.8, 'Referee\'s desk', 0);
@@ -466,14 +477,13 @@ export function buildMap(K) {
     const H = K.room((x0 + x1) / 2, (z0 + z1) / 2, Math.abs(x1 - x0), Math.abs(z1 - z0), 0, { h: 3.0, mat: 'sdBlock', inMat: 'paint1', floor: 'sdTile', roof: null, ceiling: true, home: false, name: 'FIRST AID', doors: [{ side: 'n', at: 2.5, w: 1.1, col: 0x2a7a3a }] });
     H.yTop = () => 3.1;
     const [bx2, bz2] = P(N, -47.5, 27); K.block(bx2, 0, bz2, 0.4, 0.7, 1.0, 0, f => f === 'top' ? 'mattress' : 'metal', 'metal');
-    const [mx, mz] = P(N, -44, 29.5); K.block(mx, 0, mz, 1.0, 1.9, 0.25, 0, 'white', 'metal'); K.container('medicine', mx, mz, 1.2, 'First aid supplies', 0);
+    const [mx, mz] = P(N, -44, 29.5); DZ.medCabinet(mx, mz, 0, { w: 2.0, d: 0.5 }); K.container('medicine', mx, mz, 1.2, 'First aid supplies', 0);
     const [sx, sz] = P(N, -45, 21.85); sign(['FIRST AID'], sx, 2.6, sz, 0, 1.6, 0.45, '#1a7a3a');
   }
   { const [x0, z0] = P(N, 38, 21), [x1, z1] = P(N, 50, 30);
     const H = K.room((x0 + x1) / 2, (z0 + z1) / 2, Math.abs(x1 - x0), Math.abs(z1 - z0), 0, { h: 3.0, mat: 'sdBlock', inMat: 'paint0', floor: 'floorTile', roof: null, ceiling: true, home: false, name: 'CLUB SHOP', doors: [{ side: 'n', at: -3, w: 1.6, glassDoor: true }], windows: [{ side: 'n', at: 2.5, w: 4, sill: 0.4, top: 2.6 }] });
     H.yTop = () => 3.1;
-    for (let k = 0; k < 3; k++) { const [x, z] = P(N, 41 + k * 3, 26); K.block(x, 0, z, 1.1, 1.6, 0.35, 0, 'shelfMetal', 'metal'); K.container('store', x, z, 1.0, 'Shop shelves', 0);
-      for (let j = 0; j < 6; j++) K.inst(G.box, j % 2 ? MAT.sdSeatC : MAT.sdSeatB, K.mat4(x - 0.9 + j * 0.36, 1.0 + (j % 3) * 0.3, z, 0, 0.3, 0.04, 0.4)); }
+    for (let k = 0; k < 3; k++) { const [x, z] = P(N, 41 + k * 3, 26); DZ.abox(SA, { pz: 'merch', nz: 'merch', side: 'steel', top: 'steel' }, x, 0, z, 1.1, 1.6, 0.35, 0); K.solid(x, z, 1.1, 0.35, 0, 1.6, 'metal'); K.container('store', x, z, 1.0, 'Shop shelves', 0); }
     const [rx, rz] = P(N, 47, 22.5); K.block(rx, 0, rz, 1.2, 1.0, 0.45, 0, f => f === 'top' ? 'counter' : 'cabinet', 'wood'); K.container('register', rx, rz, 1.0, 'Shop till', 0);
     const [sx, sz] = P(N, 44, 20.85); sign(['CLUB SHOP'], sx, 2.6, sz, 0, 2.2, 0.5, HOME.col);
   }
@@ -526,6 +536,9 @@ export function buildMap(K) {
     const [sx, sz] = P(N, 0, 14.85); sign(['PRESS'], sx, L1 + 2.75, sz, 0, 1.6, 0.36, '#1a1a1a'); }
   // the hospitality lounge: a long bar, tables
   { const [x, z] = P(N, -31, 29.2); K.block(x, L1, z, 9, L1 + 1.08, 0.4, 0, f => f === 'top' ? 'counter' : 'darkWood', 'wood'); cUp('cooler', x - 3, z, L1 + 1.0, 'Behind the bar', 0); cUp('kitchen2', x + 4, z, L1 + 1.0, 'Bar fridge', 0);
+    { const [bx3, bz3] = P(N, -31, 29.93); DZ.face(SA, 'barBack', bx3 - 4.5, L1 + 1.75, bz3, 0, 8.6, 1.5); DZ.face(SA, 'barBack', bx3 + 4.5, L1 + 1.75, bz3, 0, 8.6, 1.5);
+      for (let q = 0; q < 6; q++) { const [px, pz] = P(N, -38 + q * 2.6, 29.2); K.WX(G.box, MAT.chrome, px, L1 + 1.08, pz, 0, 0.06, 0.4, 0.06); K.WX(G.box, q % 2 ? MAT.sdSeatC : MAT.black, px, L1 + 1.45, pz, 0, 0.05, 0.14, 0.05); }   // beer pumps
+      for (let q = 0; q < 3; q++) { const [fx, fz] = P(N, -39 + q * 8, 29.77); DZ.abox(DZ.A, { nz: 'drinks', pz: 'drinks', side: 'white', top: 'steel' }, fx, L1, fz, 0.45, L1 + 0.85, 0.18, 0); } }
     for (let k = 0; k < 6; k++) { const [tx, tz] = P(N, -46 + k * 6, 24.5); K.block(tx, L1, tz, 0.6, L1 + 0.74, 0.6, 0, f => f === 'top' ? 'white' : 'black', 'wood', true, { vault: true }); for (const a of [0, 1.57, 3.14, 4.71]) K.inst(G.chair, MAT.darkWood, K.mat4(tx + Math.sin(a) * 0.95, L1, tz + Math.cos(a) * 0.95, a + Math.PI)); } }
   // the police control room: a wall of CCTV monitors over the pitch-side window, desks, the radio
   { for (let k = 0; k < 5; k++) { const [x, z] = P(N, -10 + k * 3.4, 29.3); K.block(x, L1, z, 1.4, L1 + 0.75, 0.4, 0, f => f === 'top' ? 'counter' : 'black', 'wood'); for (let j = 0; j < 2; j++) K.inst(G.monitor, MAT.screen, K.mat4(x - 0.4 + j * 0.8, L1 + 0.75, z, Math.PI)); }
@@ -533,11 +546,15 @@ export function buildMap(K) {
     const [cx, cz] = P(N, -8, 22); cUp('cabinet', cx, cz, L1 + 0.9, 'Briefing table', 0);
     K.block(cx, L1, cz, 1.6, L1 + 0.74, 0.7, 0, f => f === 'top' ? 'white' : 'black', 'wood', true, { vault: true }); }
   // the kitchen, the office
-  { const [x, z] = P(N, 20, 29.4); K.block(x, L1, z, 6, L1 + 0.92, 0.35, 0, f => f === 'top' ? 'counter' : 'appliance', 'metal'); cUp('kitchen', x - 3, z, L1 + 0.95, 'Catering kitchen', 0); cUp('fridge', x + 4, z, L1 + 1.0, 'Walk-in fridge', 0);
+  { const [x, z] = P(N, 20, 29.4); cUp('kitchen', x - 3, z, L1 + 0.95, 'Catering kitchen', 0); cUp('fridge', x + 4, z, L1 + 1.0, 'Walk-in fridge', 0);
+    { const [kx, kz] = P(N, 19.4, 29.62); DZ.kitchenRun(kx, kz, 0, [{ k: 'steelDoor', w: 1.2 }, { k: 'hob', w: 0.9 }, { k: 'hob', w: 0.9 }, { k: 'steelDoor', w: 1.2 }, { k: 'sink', w: 1.2 }, { k: 'dishwasher', w: 0.6 }, { k: 'drawers3', w: 0.8 }, { k: 'steelDoor', w: 1.2 }, { k: 'sink', w: 1.2 }, { k: 'steelDoor', w: 1.2 }], { y0: L1, steel: true, top: 'dzSteel', splash: 'dzTileW', splashH: 1.6, wall: true, d: 0.66 }); }
+    { const [fx, fz] = P(N, 30.9, 29.55); DZ.fridge(fx, fz, 0, { y0: L1, w: 1.0, h: 2.0, d: 0.75 }); }
+    { const [px, pz] = P(N, 18, 25.5); DZ.prepTable(px, pz, 0, { y0: L1, w: 2.4, d: 0.9, upstand: false }); }
+    { const [mx, mz] = P(N, 21.6, 29.62); DZ.microwave(mx, L1 + 0.9, mz, 0); }
     const [ox, oz] = P(N, 35, 27); K.block(ox, L1, oz, 1.0, L1 + 0.75, 0.5, 0, f => f === 'top' ? 'darkWood' : 'cabinet', 'wood'); cUp('cabinet', ox, oz, L1 + 0.8, 'Stadium manager\'s desk', 0); }
   // THE SWITCH ROOM: breaker cabinets, the floodlight panel (needs the key)
   let switchC = null, switchLamp = null;
-  { for (let k = 0; k < 4; k++) { const [x, z] = P(N, 39 + k * 2.6, 29.4); K.block(x, L1, z, 1.1, L1 + 2.1, 0.35, 0, f => f === 'top' ? 'darkMetal' : 'appliance', 'metal'); }
+  { for (let k = 0; k < 4; k++) { const [x, z] = P(N, 39 + k * 2.6, 29.4); K.solid(x, z, 1.1, 0.35, 0, L1 + 2.1, 'metal', L1); for (const du of [-0.55, 0.55]) DZ.abox(SA, { pz: 'breaker', side: 'steel', top: 'steel' }, x + du, L1, z, 0.548, L1 + 2.1, 0.35, 0); }
     const [x, z] = P(N, 46, 21.5); K.block(x, L1, z, 0.9, L1 + 1.9, 0.3, 0, 'appliance', 'metal');
     switchC = cUp(LOOT_PANEL ? 'panel' : 'cabinet', x, z, L1 + 1.2, 'Floodlight panel (locked: needs the key)', 0, null, { floodSwitch: true });
     // (hidden until you have the key — a search would roll 'cabinet' loot again and again; once loot.js has an

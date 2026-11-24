@@ -839,7 +839,6 @@ export function cabinetDoorTexture(style = 'shaker', col = [226, 214, 190], aspe
     const hc = document.createElement('canvas'); hc.width = W; hc.height = H; const hg = hc.getContext('2d');   // height field (white = proud)
     const fill = (x, y, w, h) => painted ? (g.fillStyle = rgb(col), g.fillRect(x, y, w, h), (() => { for (let k = 0; k < w * h / 25; k++) { g.fillStyle = `rgba(${r() < 0.5 ? '0,0,0' : '255,255,255'},0.025)`; g.fillRect(x + r() * w, y + r() * h, 1 + r() * 3, 1); } })()) : woodGrain(g, x, y, w, h, col, r, { lines: 0.3, knots: r() < 0.4 ? 1 : 0, contrast: 1 });
     fill(0, 0, W, H); hg.fillStyle = '#bbb'; hg.fillRect(0, 0, W, H);
-    const px = H / 0.75 * 0.065 / (H / 256 * 1.33);   // ~6.5 cm stiles at a 0.75 m door
     const fr = Math.max(10, Math.min(W, H) * 0.14), e = 3;
     const bevel = (x, y, w, h, inset, light = 1) => {   // a recessed groove round a rectangle: dark top/left, light bottom/right
       g.lineWidth = inset; g.strokeStyle = `rgba(0,0,0,${0.28 * light})`; g.beginPath(); g.moveTo(x, y + h); g.lineTo(x, y); g.lineTo(x + w, y); g.stroke();
@@ -859,7 +858,7 @@ export function cabinetDoorTexture(style = 'shaker', col = [226, 214, 190], aspe
         const b = Math.min(w, h) * 0.12; g.fillStyle = 'rgba(255,255,255,0.07)'; g.fillRect(x + b, y + b, w - 2 * b, h - 2 * b);
         g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 1; g.beginPath(); for (const [p, q] of [[[x, y], [x + b, y + b]], [[x + w, y], [x + w - b, y + b]], [[x, y + h], [x + b, y + h - b]], [[x + w, y + h], [x + w - b, y + h - b]]]) { g.moveTo(...p); g.lineTo(...q); } g.stroke();
         g.strokeStyle = 'rgba(0,0,0,0.15)'; g.strokeRect(x + b, y + b, w - 2 * b, h - 2 * b);
-        const gr = hg.createLinearGradient(0, 0, 0, 1); hg.fillStyle = '#fff'; hg.fillRect(x + b, y + b, w - 2 * b, h - 2 * b); hg.strokeStyle = '#999'; hg.lineWidth = b * 0.8; hg.strokeRect(x + b * 0.45, y + b * 0.45, w - b * 0.9, h - b * 0.9);
+        hg.fillStyle = '#fff'; hg.fillRect(x + b, y + b, w - 2 * b, h - 2 * b); hg.strokeStyle = '#999'; hg.lineWidth = b * 0.8; hg.strokeRect(x + b * 0.45, y + b * 0.45, w - b * 0.9, h - b * 0.9);
       } else { g.fillStyle = 'rgba(0,0,0,0.05)'; g.fillRect(x, y, w, h); }
     } else if (style === 'louvre') {   // a closet door: stiles and rails framing two banks of slanted slats
       const x = fr * 0.9, w = W - 2 * fr * 0.9, mid = H * 0.5, banks = [[fr, mid - fr * 0.4], [mid + fr * 0.4, H - fr]];
@@ -896,7 +895,7 @@ export function counterTexture(kind = 'granite', seed = 21) {
       for (let k = 0; k < 30; k++) { g.strokeStyle = `rgba(60,36,20,${0.08 + r() * 0.1})`; g.lineWidth = 0.6; const x = r() * N, y = r() * N, a = r() * 3; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * 30, y + Math.sin(a) * 30); g.stroke(); }   // knife marks
     } else if (kind === 'marble') {
       paintNoise(g, N, [[226, 224, 220], [238, 236, 232], [246, 245, 242]], valueNoise(N, [4, 16], seed), 4, r);
-      for (let k = 0; k < 14; k++) { g.strokeStyle = `rgba(110,110,116,${0.12 + r() * 0.25})`; g.lineWidth = 0.6 + r() * 2.2; let x = r() * N, y = r() * N, a = r() * 6; g.beginPath(); g.moveTo(x, y); for (let s = 0; s < 40; s++) { a += (r() - 0.5) * 0.6; x += Math.cos(a) * 9; y += Math.sin(a) * 9; g.lineTo(x, y); } g.stroke(); }
+      for (let k = 0; k < 30; k++) { g.strokeStyle = `rgba(110,110,116,${0.12 + r() * 0.25})`; g.lineWidth = 0.6 + r() * 2.2; let x = r() * N, y = r() * N, a = r() * 6; g.beginPath(); g.moveTo(x, y); for (let s = 0; s < 40; s++) { a += (r() - 0.5) * 0.6; x += Math.cos(a) * 9; y += Math.sin(a) * 9; g.lineTo(x, y); } g.stroke(); }
     } else {   // laminate: a warm speckled formica
       paintNoise(g, N, [[208, 200, 184], [218, 210, 194], [226, 220, 204]], valueNoise(N, [4, 16, 64], seed), 5, r);
       for (let k = 0; k < 7000; k++) { const d = r(); g.fillStyle = d < 0.5 ? 'rgba(90,70,50,0.22)' : d < 0.8 ? 'rgba(150,120,90,0.18)' : 'rgba(255,255,255,0.35)'; g.fillRect(r() * N, r() * N, 1 + r(), 1 + r()); }
@@ -909,7 +908,7 @@ export function brushedSteelTexture(seed = 31, vertical = false) {
   return once('steel' + seed + vertical, () => {
     const N = 256, r = rng(seed), [c, g] = cv(N);
     paintNoise(g, N, [[176, 178, 180], [196, 198, 200], [214, 216, 218]], valueNoise(N, [2, 6], seed), 0, r);
-    for (let k = 0; k < 1400; k++) { const y = r() * N, v = r() < 0.5 ? 150 + r() * 30 : 225 + r() * 30; g.fillStyle = `rgba(${v},${v},${v + 3},${0.12 + r() * 0.2})`; g.fillRect(r() * N - 40, y, 30 + r() * 220, r() < 0.8 ? 0.6 : 1.2); }
+    for (let k = 0; k < 1400; k++) { const y = r() * N, v = r() < 0.5 ? 165 + r() * 25 : 218 + r() * 25; g.fillStyle = `rgba(${v},${v},${v + 3},${0.06 + r() * 0.1})`; g.fillRect(r() * N - 40, y, 30 + r() * 220, r() < 0.8 ? 0.6 : 1.2); }
     for (let k = 0; k < 6; k++) { g.fillStyle = 'rgba(120,120,124,0.06)'; g.beginPath(); g.ellipse(r() * N, r() * N, 6 + r() * 10, 4 + r() * 8, 0, 0, 7); g.fill(); }   // a fingerprint smudge or two
     if (vertical) { const [c2, g2] = cv(N); g2.translate(N, 0); g2.rotate(Math.PI / 2); g2.drawImage(c, 0, 0); return tex(c2); }
     return tex(c);
@@ -1030,7 +1029,6 @@ export function beddingTexture(kind = 'mattress', seed = 61) {
       for (let q = -6; q <= 12; q++) { for (const sg of [1, -1]) { g.strokeStyle = 'rgba(120,110,96,0.45)'; g.lineWidth = 1.4; g.setLineDash([3, 2]); g.beginPath(); g.moveTo(q * s, sg > 0 ? 0 : N); g.lineTo(q * s + N, sg > 0 ? N : 0); g.stroke(); } }
       g.setLineDash([]);
       for (let j = 0; j <= 6; j++) for (let i = 0; i <= 6; i++) { const x = i * s + (j % 2 ? s / 2 : 0), y = j * s / 1 - s / 2 + s / 2; const gr = g.createRadialGradient(x, y, 0, x, y, 9); gr.addColorStop(0, 'rgba(90,80,70,0.45)'); gr.addColorStop(1, 'rgba(90,80,70,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, 9, 0, 7); g.fill(); }
-      g.fillStyle = '#7a8aa8'; g.fillRect(0, 0, N, 4); g.fillRect(0, N - 4, N, 4);   // the piped edge
       return withNormal(tex(c), c, 1.6);
     }
     if (kind === 'pillow') {
@@ -1040,8 +1038,12 @@ export function beddingTexture(kind = 'mattress', seed = 61) {
       return withNormal(tex(c), c, 1.0);
     }
     if (kind === 'knit') {
-      g.fillStyle = '#c8b89a'; g.fillRect(0, 0, N, N);
-      for (let x = 0; x < N; x += 16) for (let y = 0; y < N; y += 10) { for (const sd of [-1, 1]) { g.fillStyle = 'rgba(255,255,255,0.18)'; g.beginPath(); g.ellipse(x + 8 + sd * 3.5, y + 5, 3, 5, sd * 0.5, 0, 7); g.fill(); g.strokeStyle = 'rgba(80,60,40,0.25)'; g.lineWidth = 1; g.stroke(); } }
+      g.fillStyle = '#3e5a64'; g.fillRect(0, 0, N, N);   // a chunky knit in deep teal: rows of little V stitches, purl ridges between the columns
+      for (let x = 0; x < N; x += 16) for (let y = 0; y < N; y += 12) for (const sd of [-1, 1]) {
+        const gr = g.createLinearGradient(0, y, 0, y + 12); gr.addColorStop(0, 'rgba(190,220,226,0.55)'); gr.addColorStop(1, 'rgba(120,160,170,0.25)');
+        g.fillStyle = gr; g.beginPath(); g.ellipse(x + 8 + sd * 3.6, y + 6, 3.2, 6.2, -sd * 0.6, 0, 7); g.fill(); g.strokeStyle = 'rgba(10,24,30,0.5)'; g.lineWidth = 1; g.stroke();
+      }
+      for (let x = 0; x < N; x += 16) { g.fillStyle = 'rgba(8,20,26,0.5)'; g.fillRect(x, 0, 1.5, N); }
       return withNormal(tex(c), c, 2);
     }
     const v = +kind.slice(5) || 0;
@@ -1082,7 +1084,10 @@ export function rugTexture(kind = 'persian', seed = 71) {
       g.save(); g.translate(W / 2, H / 2);   // the medallion
       for (const [s, col] of [[150, navy], [128, gold], [112, cream], [90, red], [60, navy], [36, gold], [18, cream]]) { g.fillStyle = col; g.beginPath(); for (let a = 0; a < 16; a++) { const rr = a % 2 ? s : s * 0.78, an = a / 16 * Math.PI * 2; a ? g.lineTo(Math.cos(an) * rr, Math.sin(an) * rr * 0.8) : g.moveTo(rr, 0); } g.closePath(); g.fill(); }
       g.restore();
-      for (const [x, y] of [[0, 0], [W, 0], [0, H], [W, H]]) { g.fillStyle = navy; g.beginPath(); g.arc(x, y, 150, 0, 7); g.fill(); g.fillStyle = 'rgba(0,0,0,0)'; }
+      // a trellis of small lozenges over the red field (not under the medallion), then quarter-medallions in the corners
+      g.strokeStyle = 'rgba(232,216,176,0.22)'; g.lineWidth = 1.5; for (let q = -H; q < W + H; q += 36) { g.beginPath(); g.moveTo(q, 58); g.lineTo(q + H, 58 + H); g.stroke(); g.beginPath(); g.moveTo(q, H - 58); g.lineTo(q + H, -58); g.stroke(); }
+      for (const [x, y] of [[58, 58], [W - 58, 58], [58, H - 58], [W - 58, H - 58]]) for (const [s, col] of [[70, navy], [54, gold], [40, cream], [24, red]]) { g.fillStyle = col; g.beginPath(); g.arc(x, y, s, 0, 7); g.fill(); }
+      g.save(); g.translate(W / 2, H / 2); for (const [s, col] of [[150, navy], [128, gold], [112, cream], [90, red], [60, navy], [36, gold], [18, cream]]) { g.fillStyle = col; g.beginPath(); for (let a = 0; a < 16; a++) { const rr = a % 2 ? s : s * 0.78, an = a / 16 * Math.PI * 2; a ? g.lineTo(Math.cos(an) * rr, Math.sin(an) * rr * 0.8) : g.moveTo(rr, 0); } g.closePath(); g.fill(); } g.restore();
       band(6, 26, navy); band(10, 3, gold); band(28, 3, gold); band(40, 6, cream);
       for (let k = 0; k < 60; k++) { const x = 70 + r() * (W - 140), y = 70 + r() * (H - 140); if (Math.hypot(x - W / 2, (y - H / 2) / 0.8) < 165) continue; g.fillStyle = r() < 0.5 ? gold : cream; g.globalAlpha = 0.7; g.beginPath(); for (let p = 0; p < 4; p++) { g.ellipse(x + Math.cos(p * 1.57) * 5, y + Math.sin(p * 1.57) * 5, 4, 2, p * 1.57, 0, 7); } g.fill(); g.globalAlpha = 1; }
       for (let x = 0; x < W; x += 5) { g.fillStyle = '#efe6d0'; g.fillRect(x, 0, 2, 4); g.fillRect(x, H - 4, 2, 4); }   // fringe
@@ -1126,18 +1131,5 @@ export function bookAtlasTexture() {
       g.fillStyle = '#e6dcc4'; g.fillRect(x, 384, 64, 128); for (let y = 386; y < 512; y += 2) { g.fillStyle = `rgba(120,100,70,${0.1 + r() * 0.12})`; g.fillRect(x, y, 64, 1); }
     }
     return tex(c, { repeat: false });
-  });
-}
-// a cardboard box side: kraft board with the flute showing faintly, packing tape, a printed label or a marker scrawl
-export function cardboardTexture(seed = 81, label = '') {
-  return once('card' + seed + label, () => {
-    const N = 256, r = rng(seed), [c, g] = cv(N);
-    paintNoise(g, N, [[150, 112, 70], [172, 132, 86], [186, 146, 98]], valueNoise(N, [4, 16, 64], seed), 10, r);
-    for (let x = 0; x < N; x += 5) { g.fillStyle = 'rgba(0,0,0,0.035)'; g.fillRect(x, 0, 2, N); }
-    g.fillStyle = 'rgba(200,170,110,0.55)'; g.fillRect(N * 0.4, 0, N * 0.2, N); g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(N * 0.4, 0, 2, N);   // tape down the middle
-    if (label) { g.save(); g.translate(N * 0.5, N * 0.62); g.rotate((r() - 0.5) * 0.15); g.fillStyle = 'rgba(25,20,30,0.85)'; g.textAlign = 'center'; fitText(g, label, 0, 0, 'bold 44px Marker Felt, Comic Sans MS, sans-serif', N * 0.85, 50); g.restore(); }
-    else { g.fillStyle = 'rgba(30,30,30,0.7)'; g.font = 'bold 18px Helvetica'; g.textAlign = 'center'; g.fillText('THIS SIDE UP', N / 2, N * 0.2); g.beginPath(); g.moveTo(N / 2 - 30, N * 0.3); g.lineTo(N / 2 - 22, N * 0.24); g.lineTo(N / 2 - 14, N * 0.3); g.fill(); }
-    grime(g, N, N, seed + 1, 0.2, 0);
-    return tex(c);
   });
 }
