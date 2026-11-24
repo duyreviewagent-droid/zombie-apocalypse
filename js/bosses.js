@@ -22,7 +22,7 @@ const W = () => X.world();
 // ---------------------------------------------------------------- wiring
 export function init(ctx) {
   X = ctx;
-  BOSSH.allow = () => X.G.phase === 'outbreak' && !(X.MP && X.MP.isClient && X.MP.isClient());
+  BOSSH.allow = () => X.G.phase === 'outbreak' && !(X.MP && X.MP.isClient && X.MP.isClient()) && !(X.Q && X.Q.has('noboss'));   // (?noboss=1: tests)
   BOSSH.rolled = (u, rolled) => {
     live.add(u);
     // The Zombie: 8% whenever a mini boss rolls (not the ones out of a dead boss), one alive at a time, outbreak only

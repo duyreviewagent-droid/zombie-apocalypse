@@ -1634,7 +1634,8 @@ function writeSlot() { if (!RUN_ON || G.slot == null) return; const rec = { diff
 function clearRun() { if (!RUN_ON || G.slot == null) return; try { localStorage.removeItem(SLOT_KEY(G.slot)); } catch { } }
 function saveRun() { if (G.slot == null) G.slot = 0; const d = runData(); if (!d) return; G.ckpt = d; writeSlot(); }   // (tests)
 function checkpoint() {
-  if (save.ckpt === false || MP.on()) return;   // MP: no checkpoints online const d = runData();
+  if (save.ckpt === false || MP.on()) return;   // MP: no checkpoints online
+  const d = runData();
   if (!d) { if (P && P.alive && G.state !== 'title' && G.state !== 'result') later(checkpoint, 1.5); return; }   // on the phone, mid-jump: try again in a moment
   G.ckpt = d; writeSlot(); toast('Checkpoint saved', 'grey', 'check'); tip('checkpoint');
 }
