@@ -424,3 +424,29 @@ export function initTouch(A) {
 
 ;(() => { const st = document.createElement('style'); st.textContent = 'body.touch.phone #obj .ch, body.touch.phone .st, body.touch.phone #clock .d { font-size: 13px !important; } body.touch.phone #tut .th, body.touch.phone #tut button { font-size: 13px !important; } body.touch.phone #tut button { min-height: 40px; }'; document.head.appendChild(st); })();
 
+;(() => {   // phones: the tutorial box sits between the objective and the buttons, never over a button
+  const st = document.createElement('style');
+  st.textContent = 'body.touch.phone #tut .tb, body.touch.phone #tut p { font-size: 12.5px !important; line-height: 1.3 !important; }';
+  document.head.appendChild(st);
+})();
+;(() => {   // phones: fit the tutorial box into the free gap between the objective (left), the clock (top) and the buttons (right)
+  const fit = () => {
+    const tut = document.getElementById('tut'); if (!tut || !document.body.classList.contains('phone') || !document.body.classList.contains('touch')) return;
+    if (!tut.getBoundingClientRect().width || getComputedStyle(tut).display === 'none' || +getComputedStyle(tut).opacity === 0) { document.body.classList.remove('tutCover'); return; }
+    const R = id => { const e = document.getElementById(id); const r = e && e.getBoundingClientRect(); return r && r.width && getComputedStyle(e).display !== 'none' ? r : null; };
+    document.body.classList.remove('tutCover');
+    const obj = R('obj'), vit = R('vitals');
+    let left = 8; for (const r of [obj, vit]) if (r) left = Math.max(left, r.right + 8);
+    let right = innerWidth - 8; let top = 44;
+    for (const b of document.querySelectorAll('#tc .tb, #slots .slot')) { if (getComputedStyle(b).display === 'none') continue; const r = b.getBoundingClientRect(); if (!r.width) continue; if (r.top < innerHeight * 0.62) right = Math.min(right, r.left - 8); }
+    if (right - left < 240) {   // small phone: no room beside the objective — the tutorial takes the objective's place while it's up
+      document.body.classList.add('tutCover'); left = 8; if (vit) top = Math.max(top, vit.bottom + 6);
+    } else { const clk = R('clock'); if (clk && clk.right > left && clk.left < right) top = Math.max(top, clk.bottom + 4); }
+    const w = Math.min(340, right - left);
+    let maxH = innerHeight - top - 12;
+    for (const b of document.querySelectorAll('#tc .tb')) { if (getComputedStyle(b).display === 'none') continue; const r = b.getBoundingClientRect(); if (r.width && r.left < left + w && r.right > left) maxH = Math.min(maxH, r.top - top - 8); }
+    for (const [k, v] of Object.entries({ left: left + 'px', width: w + 'px', top: top + 'px', 'max-height': Math.max(90, maxH) + 'px', right: 'auto', transform: 'none', bottom: 'auto', zoom: '1' })) tut.style.setProperty(k, v, 'important');
+  };
+  setInterval(fit, 400); addEventListener('resize', fit);
+  const st = document.createElement('style'); st.textContent = 'body.touch.phone #tut { overflow: auto !important; } body.tutCover #obj { visibility: hidden !important; } body.touch.phone #tut { pointer-events: none !important; } body.touch.phone #tut button, body.touch.phone #tut a { pointer-events: auto !important; } body.touch.phone #tut .th { font-size: 11px !important; letter-spacing: .14em !important; } body.touch.phone #tutTitle { font-size: 21px !important; line-height: 1.1 !important; } body.touch.phone #tutText { font-size: 12.5px !important; line-height: 1.3 !important; }'; document.head.appendChild(st);
+})();
