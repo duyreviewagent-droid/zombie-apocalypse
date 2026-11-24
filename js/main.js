@@ -84,9 +84,9 @@ let composer, film, bloomPass = null;
 // the look: a cold, washed-out grade, heavy vignette, film grain; red at the edges when you're hurt, colour draining
 // as you bleed out, a sick green pulse as the infection takes hold
 const FilmShader = {
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, grain: { value: 0.045 }, res: { value: new THREE.Vector2(1, 1) }, hurt: { value: 0 }, flash: { value: 0 }, desat: { value: 0 }, sick: { value: 0 }, night: { value: 0 }, life: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, grain: { value: 0.045 }, res: { value: new THREE.Vector2(1, 1) }, hurt: { value: 0 }, flash: { value: 0 }, desat: { value: 0 }, sick: { value: 0 }, night: { value: 0 }, life: { value: 0 }, gold: { value: 0 }, day: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float time, grain, hurt, flash, desat, sick, night, life; uniform vec2 res; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float time, grain, hurt, flash, desat, sick, night, life, gold, day; uniform vec2 res; varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
       vec2 c = vUv - 0.5; float r2 = dot(c,c);
@@ -95,12 +95,16 @@ const FilmShader = {
       vec2 uv = vUv + wob;
       vec3 col = vec3(texture2D(tDiffuse, uv + off).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - off).b);
       float l = dot(col, vec3(0.3, 0.59, 0.11));
-      col = mix(col, vec3(l), clamp(0.28 * (1.0 - life) + desat + hurt * 0.4, 0.0, 1.0));   // the world has lost its colour (not yet, that morning)
+      col = mix(col, vec3(l), clamp(0.22 * (1.0 - life) + desat + hurt * 0.4, 0.0, 1.0));   // the world has lost its colour (not yet, that morning)
       col = mix(col, col * vec3(0.94, 1.02, 0.98), 0.6 * (1.0 - life));            // cold, a little green
       col *= mix(vec3(1.0), vec3(1.05, 1.01, 0.93), life * 0.6);                   // ...the warm light of the Saturday before
       col = mix(col, col * vec3(0.8, 0.9, 1.15), night * 0.5);                    // blue at night
+      { float hk = smoothstep(0.05, 0.75, l);                                        // a camera's split tone: shade a touch cool, sunlit parts a touch warm
+        col *= mix(vec3(0.97, 1.0, 1.035), vec3(1.025, 1.0, 0.965), hk) * (1.0 - night) + night;
+        col *= mix(vec3(1.0), mix(vec3(1.0, 0.96, 1.02), vec3(1.14, 1.0, 0.8), hk), gold);   // golden hour: amber light, lilac shade
+        float sat = 0.06 * day * (1.0 - night); col = max(mix(vec3(dot(col, vec3(0.3, 0.59, 0.11))), col, 1.0 + sat), 0.0); }   // daylight colour has a little more body
       col = mix(col, (col - 0.18) * 1.08 + 0.18, smoothstep(0.02, 0.25, col));   // a touch of contrast (pivot at mid-grey; the shadows keep their toe)
-      col *= mix(1.0, mix(mix(0.38, 0.72, life), mix(0.55, 0.85, life), night), smoothstep(0.06, 0.62, r2 * 1.55)); // heavy vignette (lighter at night: the dark is dark enough)
+      col *= mix(1.0, mix(mix(0.5, 0.78, life), mix(0.6, 0.87, life), night), smoothstep(0.08, 0.66, r2 * 1.5)); // a lens's vignette (lighter at night: the dark is dark enough)
       col = mix(col, vec3(0.42, 0.02, 0.0), smoothstep(0.08, 0.5, r2) * hurt * 0.85);
       col = mix(col, col * vec3(0.8, 1.15, 0.7), sick * (0.25 + 0.15 * sin(time * 2.0)) * smoothstep(0.05, 0.5, r2 + 0.1));
       col += vec3(1.0, 0.95, 0.85) * flash;
@@ -143,14 +147,14 @@ function buildComposer() {
   if (q >= 2 && !Q.has('noao')) {   // ambient occlusion: full resolution on Ultra, half (8 samples) on High
     const ao = new GTAOPass(scene, camera, innerWidth, innerHeight);
     if (q < 3) { const ss = ao.setSize.bind(ao); ao.setSize = (w, h) => ss(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2))); ao.setSize(innerWidth, innerHeight); }
-    ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.5, thickness: 1.2, scale: 1.1, samples: q >= 3 ? 16 : 8 });
-    ao.blendIntensity = 0.9; composer.addPass(ao); aoPass = ao;
+    ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.6, thickness: 1.4, scale: 1.15, samples: q >= 3 ? 16 : 8 });   // [render] a wider reach: corners, eaves, under cars and furniture sit in their own soft shade
+    ao.blendIntensity = 0.95; composer.addPass(ao); aoPass = ao;
   }
   bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.4, 0.55, 0.88); composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
   fxaa = q >= 1 && q < 3 ? new ShaderPass(FXAAShader) : null; if (fxaa) composer.addPass(fxaa);
   film = new ShaderPass(FilmShader); composer.addPass(film);
-  renderer.shadowMap.type = q >= 1 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;   // [render] 17-tap PCF follows sun.shadow.radius (world.js widens it under cloud: soft overcast shadows); PCFSoft ignores it
   resize();
 }
 // phones / tablets: no MSAA, no AO, bloom only on tablets (and off at Low), plain PCF shadows, a lower render resolution
@@ -3121,6 +3125,13 @@ function updateCamera(dt) {
     } else camPos.copy(tpPos);
     G.tooClose = fpE < 0.5 && camPos.distanceTo(pivot) < 0.9;
   }
+  // [render] a camera operator walking with you: a small bob in step with your feet and a little side-to-side sway
+  // (third person; first person already rides your own head). Off when aiming, scoped, driving, in the air or dead.
+  { const sp = S ? Math.min(S.speed || 0, 7) : 0, on = S && P.alive && G.state === 'play' && !DRIVE.active() && !G.scoped && !(S.jump && S.jump.y > 0.02);
+    G.bobK = damp(G.bobK || 0, on ? (1 - fpE) * (1 - aimW * 0.75) * (1 - zoomE) * smooth(0.4, 1.4, sp) * Math.min(1, 0.45 + sp * 0.11) : 0, 6, dt);
+    G.bobPh = ((G.bobPh || 0) + dt * Math.PI * (1.5 + Math.min(sp, 6) * 0.24)) % (Math.PI * 4);
+    G.runK = damp(G.runK || 0, on && S.vr && sp > S.vr * 1.05 ? 1 : 0, 3, dt);
+    if (G.bobK > 0.001) { camPos.y += Math.cos(G.bobPh * 2) * 0.016 * G.bobK; camPos.addScaledVector(right, Math.sin(G.bobPh) * 0.012 * G.bobK); } }
   C.shake = Math.max(0, C.shake - dt * 1.6);
   const sh = (save.shake ? 1 : 0.3) * (C.shake * C.shake + (G.grabbedBy ? 0.04 : 0)), t = G.t;
   shakeV.set(Math.sin(t * 37) * 0.6 + Math.sin(t * 71) * 0.4, Math.sin(t * 43 + 1) * 0.6 + Math.sin(t * 89) * 0.4, 0).multiplyScalar(sh * 0.12);
@@ -3141,8 +3152,9 @@ function updateCamera(dt) {
   camera.rotateX(shakeV.y * 0.5); camera.rotateY(shakeV.x * 0.5);
   // a little sway when you're hurt or exhausted
   if (P && P.alive && G.state === 'play') { const k = (1 - P.hp / P.maxHp) * 0.012 + (G.winded ? 0.01 : 0); camera.rotateZ(Math.sin(t * 1.1) * k); camera.rotateX(Math.sin(t * 0.8) * k * 0.6); }
+  if (G.bobK > 0.001) camera.rotateZ(Math.sin(G.bobPh) * 0.0035 * G.bobK);   // [render] the faint roll of a handheld camera in step
   const fovT = DC && DC.fov ? DC.fov : G.scoped ? 60 / (P.arms.W.scope || 4) : FP() ? lerp(lerp(72, 58, aimW), 46, zoomE) : lerp(lerp(55, 44, aimW) + (G.insideK * 6), 36, zoomE);
-  fovNow = G.scoped ? fovT : damp(fovNow, fovT, DC ? 3 : 12, dt);
+  fovNow = G.scoped ? fovT : damp(fovNow, fovT + (DC ? 0 : (G.runK || 0) * 4), DC ? 3 : 12, dt);   // [render] the view opens out a little at a sprint
   if (Math.abs(camera.fov - fovNow) > 0.01) { camera.fov = fovNow; camera.updateProjectionMatrix(); }
   PSCALE.value = innerHeight * renderer.getPixelRatio() / (2 * Math.tan(camera.fov * Math.PI / 360));
   if (P && G.state !== 'escaping') {
@@ -3470,6 +3482,12 @@ let frameN = 0, shadowEvery = 1;
 function render() {
   renderer.info.reset(); frameN++;
   if (bloomPass && !MOB) bloomPass.enabled = world.night > 0.3 || save.quality >= 3 || G.state === 'title';   // bloom where there's light to bloom: night, lamps, fire
+  if (bloomPass && !MOB) { bloomPass.strength = lerp(0.24, 0.42, world.night || 0); bloomPass.radius = lerp(0.45, 0.6, world.night || 0); }   // [render] a faint lens glow by day, more round lamps and fire at night
+  if (film) {   // [render] the grade follows the sun: amber light at the golden hours, a little more colour by day
+    const h = G.hour ?? 12, out = (1 - (G.insideK || 0) * 0.6) * (1 - Math.min(1, (world.rain || 0) * 1.5)) * (1 - (world.night || 0));
+    film.uniforms.gold.value = Math.max(smooth(5.4, 6.6, h) * (1 - smooth(7.4, 9.0, h)), smooth(16.4, 18.0, h) * (1 - smooth(19.2, 20.4, h))) * out * 0.62;
+    film.uniforms.day.value = G.state === 'title' ? 0 : clamp(world.daylight ?? (1 - (world.night || 0)), 0, 1);
+  }
   if (!MOB) { renderer.shadowMap.autoUpdate = shadowEvery < 2; if (shadowEvery > 1) renderer.shadowMap.needsUpdate = frameN % shadowEvery === 0; }
   if (window.__hitBoxes && C.t - (window.__hitT || 0) > 0.5) { window.__hitT = C.t; window.__hitBoxes(); } if (window.__hitDbg) window.__hitDbg(); composer.render(); }
 let perfT = 0, perfN = 0, perfSum = 0;

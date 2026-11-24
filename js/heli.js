@@ -41,7 +41,7 @@ export function init(ctx) {
   if (C) dispose();
   C = Object.assign({ lz: { x: 0, z: 0 }, lzName: 'Main St & Maple Ave', schedule: [{ day: 2, hour: 2 }, { day: 3, hour: 2 }], boardKey: 'E', ui: true, boardRadius: 2.6, noiseRadius: 90 }, ctx);
   H = build();
-  C.scene.add(H.group, H.spot, H.spot.target, H.beam, H.dust.mesh, H.lamp);
+  C.scene.add(H.group, H.spot, H.spot.target, H.beam, H.dust.mesh, H.lamp, H.wash);
   routeLamp();
   if (C.ui) UI = makeUI();
   configure(C.ending || null);
@@ -90,7 +90,7 @@ export function reset() {
   H.group.visible = false; H.beam.visible = false; H.spot.intensity = 0; H.lamp.intensity = 0;
   if (PL) PL.group.visible = false; if (BT) BT.group.visible = false;
   H.seated.forEach(p => { p.visible = false; });
-  H.dust.clear(); stopSound(); showUI(null);
+  H.dust.clear(); H.wash.visible = false; stopSound(); showUI(null);
 }
 
 // once a frame from the game loop: dt (real seconds), the game's hour (0-24) and day (1, 2, ...)
@@ -235,7 +235,7 @@ export function dispose() {
   if (!C) return;
   stopSound();
   if (H) { H.lamp.intensity = 0; const vl = H.lampPooled && H.lampPooled.vlights; if (vl && vl.includes(H.lamp)) vl.splice(vl.indexOf(H.lamp), 1); }
-  if (H) { C.scene.remove(H.group, H.spot, H.spot.target, H.beam, H.dust.mesh, H.lamp); H.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
+  if (H) { C.scene.remove(H.group, H.spot, H.spot.target, H.beam, H.dust.mesh, H.lamp, H.wash); H.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   for (const v of [PL, BT]) if (v) { C.scene.remove(v.group); v.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   PL = BT = null; MODE = 'heli';
   if (UI) { UI.root.remove(); UI.mark.remove(); UI.style.remove(); document.body.classList.remove('heliOn'); }
@@ -353,10 +353,12 @@ function fly(dt) {
   const fwdSpeed = v.x * _f.x + v.z * _f.z, aF = (vh - prevVH) / Math.max(dt, 1e-3);
   pitchT = clamp(fwdSpeed * 0.0042 + aF * 0.045, -0.2, 0.24);
   if (S.st === 'outbound') pitchT = clamp(pitchT + 0.12 * (1 - smooth(0, 2.5, S.t)), -0.2, 0.3);   // the nose dips as it moves off
+  const hov = S.st === 'descend' || S.st === 'liftoff';   // a real hover sits a touch nose-up and one side low (tail-rotor thrust): the rear of the skids touches first and it rocks level
+  if (hov) pitchT -= 0.035;
   S.rpm = lerp(S.rpm, S.rpmT ?? 1, 1 - Math.exp(-dt * 0.8));
   const low = S.st === 'landed' ? 0 : smooth(0, 3, p.y - S.gy);
   S.pitch = lerp(S.pitch, pitchT * low, 1 - Math.exp(-dt * 2.2));
-  S.roll = lerp(S.roll, clamp(-S.yawRate * vh * 0.04, -0.45, 0.45) * low + (S.st === 'descend' || S.st === 'liftoff' ? Math.sin(S.T * 0.9) * 0.02 * low : 0), 1 - Math.exp(-dt * 2.5));
+  S.roll = lerp(S.roll, clamp(-S.yawRate * vh * 0.04, -0.45, 0.45) * low + (hov ? (Math.sin(S.T * 0.9) * 0.02 + Math.sin(S.T * 2.3) * 0.006 * (1 - smooth(2, 10, p.y - S.gy)) + 0.022) * low : 0), 1 - Math.exp(-dt * 2.5));
   S.load = lerp(S.load, S.st === 'landed' ? 0.55 : clamp(0.7 + v.y * 0.06 + vh * 0.006, 0.55, 1.15), 1 - Math.exp(-dt * 1.5));
   common(dt);
 }
@@ -428,7 +430,13 @@ function build() {
     metal: new THREE.MeshStandardMaterial({ color: 0x5e615a, roughness: 0.4, metalness: 0.85 }),
     glass: new THREE.MeshStandardMaterial({ color: 0x4a5e68, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.5 }),
     inside: new THREE.MeshStandardMaterial({ color: 0x24261f, roughness: 0.9, emissive: 0xffd8a0, emissiveIntensity: 0.08 }),
-    blade: new THREE.MeshStandardMaterial({ color: 0x23251f, roughness: 0.55, metalness: 0.3, transparent: true }),
+    blade: new THREE.MeshStandardMaterial({ map: canvasTex(64, 256, (g, w, h) => {   // composite blade: matte dark paint, a worn steel erosion strip on the leading edge, span-wise streaks and a trailing-edge tab line
+      g.fillStyle = '#2a2c25'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 140; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '10,10,8' : '90,92,80'},${Math.random() * 0.08})`; g.fillRect(Math.random() * w * 0.82, Math.random() * h, 1 + Math.random() * 3, 10 + Math.random() * 60); }
+      const le = g.createLinearGradient(w * 0.8, 0, w, 0); le.addColorStop(0, 'rgba(120,122,118,0)'); le.addColorStop(0.35, '#7d807b'); le.addColorStop(1, '#a4a7a2'); g.fillStyle = le; g.fillRect(w * 0.8, 0, w * 0.2, h);
+      for (let i = 0; i < 60; i++) { g.fillStyle = `rgba(40,38,30,${Math.random() * 0.35})`; g.fillRect(w * (0.84 + Math.random() * 0.15), Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 4); }   // pitting in the strip
+      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(w * 0.06, 0, 1.5, h);
+    }), roughness: 0.6, metalness: 0.35, transparent: true }),
     tip: new THREE.MeshStandardMaterial({ color: 0xd8c040, roughness: 0.5, transparent: true }),
     red: new THREE.MeshBasicMaterial({ color: 0xff2a1a }), green: new THREE.MeshBasicMaterial({ color: 0x30ff60 }), white: new THREE.MeshBasicMaterial({ color: 0xffffff }),
     lens: new THREE.MeshBasicMaterial({ color: 0xfff6dc }),
@@ -492,7 +500,12 @@ function build() {
   add(new THREE.PlaneGeometry(1.0, 1.0), crossM, 0, 3.36, 0.65, group, -Math.PI / 2, 0, 0);
   add(new THREE.PlaneGeometry(1.1, 1.1), crossM, 0, FY - SY * 1.26 + 0.005, 0.2, group, Math.PI / 2, 0, 0);
   // ---- tail boom, fin, stabilizer, tail rotor
-  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.5, 6.4, 20), M.body); boom.position.set(0, 2.35, -5.6); boom.rotation.x = Math.PI / 2 - 0.045; boom.castShadow = true; group.add(boom);
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.22, 6.4, 20), M.body); boom.position.set(0, 2.35, -5.6); boom.rotation.x = Math.PI / 2 - 0.045; boom.castShadow = true; group.add(boom);   // (+y points forward: thick where it leaves the cabin, tapering to the tail)
+  { // exhaust soot: the turbines blow back over the top of the boom and blacken it, heaviest just behind the pipes, in two streaks
+    const soot = canvasTex(64, 128, (g, w, h) => { g.clearRect(0, 0, w, h); for (const u of [0.3, 0.7]) { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(14,12,10,0.85)'); gr.addColorStop(0.45, 'rgba(14,12,10,0.35)'); gr.addColorStop(1, 'rgba(14,12,10,0)'); g.fillStyle = gr; for (let i = 0; i < 26; i++) { const x = (u + rnd(0.13)) * w; g.globalAlpha = 0.12 + Math.random() * 0.12; g.fillRect(x - 3, 0, 4 + Math.random() * 6, h * (0.4 + Math.random() * 0.6)); } } g.globalAlpha = 1; });
+    const sm = new THREE.Mesh(new THREE.CylinderGeometry(0.507, 0.226, 6.4, 20, 1, true, Math.PI - 1.0, 2.0), new THREE.MeshStandardMaterial({ map: soot, transparent: true, depthWrite: false, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2 }));
+    sm.position.copy(boom.position); sm.rotation.copy(boom.rotation); group.add(sm);
+  }
   const finS = new THREE.Shape(); finS.moveTo(0, 0); finS.lineTo(-0.55, 0); finS.lineTo(-1.25, 1.85); finS.lineTo(-0.75, 1.85); finS.lineTo(0.2, 0.15); finS.lineTo(0, 0);
   const fin = add(new THREE.ExtrudeGeometry(finS, { depth: 0.12, bevelEnabled: true, bevelSize: 0.03, bevelThickness: 0.03, bevelSegments: 1 }).translate(0, 0, -0.06).rotateY(Math.PI / 2), M.olive, 0, 2.45, -8.35);
   add(new THREE.BoxGeometry(2.7, 0.06, 0.62), M.olive, 0, 2.38, -7.3);
@@ -513,16 +526,17 @@ function build() {
   add(new THREE.CylinderGeometry(0.11, 0.14, 0.75, 12), M.metal, 0, 3.85, 0);
   add(new THREE.CylinderGeometry(0.34, 0.26, 0.22, 16), M.dark, 0, 0, 0, rotor);
   add(new THREE.SphereGeometry(0.16, 12, 8), M.metal, 0, 0.16, 0, rotor);
-  const blades = new THREE.Group(); rotor.add(blades);
+  const blades = new THREE.Group(); rotor.add(blades); const arms = [];
   for (let i = 0; i < 4; i++) {
-    const arm = new THREE.Group(); arm.rotation.y = i * Math.PI / 2; blades.add(arm);
+    const arm = new THREE.Group(); arm.rotation.order = 'YXZ'; arm.rotation.y = i * Math.PI / 2; blades.add(arm); arms.push(arm);   // (rotation.x = flap: droop at rest, cone up under load)
     const bl = add(new THREE.BoxGeometry(0.52, 0.05, ROTOR_R - 0.3).translate(0, 0, (ROTOR_R - 0.3) / 2 + 0.3), M.blade, 0, 0, 0, arm, -0.025, 0, 0.04); bl.castShadow = true;
     add(new THREE.BoxGeometry(0.53, 0.055, 0.35), M.tip, 0, 0.0, ROTOR_R - 0.15 - 0.2, bl);
     add(new THREE.BoxGeometry(0.18, 0.12, 0.5), M.metal, 0, 0, 0.45, arm);
   }
   const discTex = canvasTex(256, 256, (g, w) => {
     const c = w / 2; g.clearRect(0, 0, w, w);
-    for (let r = 0.06; r < 1; r += 0.004) { const a = r < 0.08 ? 0 : 0.1 + 0.1 * r + (r > 0.95 ? 0.02 : 0); g.strokeStyle = r > 0.95 ? `rgba(170,155,70,${a})` : `rgba(28,30,24,${a})`; g.lineWidth = 1.6; g.beginPath(); g.arc(c, c, r * c, 0, Math.PI * 2); g.stroke(); }
+    // a soft smoky disc (no hard rim: it thins out over the last few percent), the yellow tips only a faint warm haze at the edge
+    for (let r = 0.06; r < 1; r += 0.004) { const edge = smooth(1, 0.9, r), a = r < 0.08 ? 0 : (0.07 + 0.09 * r) * edge * (0.85 + 0.3 * Math.random()); g.strokeStyle = r > 0.93 ? `rgba(120,112,70,${a * 0.8})` : `rgba(28,30,24,${a})`; g.lineWidth = 1.6; g.beginPath(); g.arc(c, c, r * c, 0, Math.PI * 2); g.stroke(); }
     for (let k = 0; k < 4; k++) { const a0 = k * Math.PI / 2; for (let j = 0; j < 18; j++) { g.strokeStyle = `rgba(20,22,18,${0.12 * (1 - j / 18)})`; g.lineWidth = c * 0.9; g.beginPath(); g.arc(c, c, c * 0.52, a0 - j * 0.035, a0 - j * 0.035 + 0.04); g.stroke(); } }
   });
   const discM = new THREE.MeshBasicMaterial({ map: discTex, transparent: true, depthWrite: false, side: THREE.DoubleSide, opacity: 0 });
@@ -543,7 +557,7 @@ function build() {
   const gtex = glowTex(), sprite = (col, s, x, y, z) => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: gtex, color: col, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false })); sp.scale.set(s, s, 1); sp.position.set(x, y, z); group.add(sp); return sp; };
   add(new THREE.SphereGeometry(0.06, 8, 6), M.red, 1.38, 2.35, 1.6); add(new THREE.SphereGeometry(0.06, 8, 6), M.green, -1.38, 2.35, 1.6);
   const nav = [sprite(0xff2a1a, 1.4, 1.4, 2.35, 1.6), sprite(0x30ff60, 1.4, -1.4, 2.35, 1.6), sprite(0xffffff, 1.1, 0, 2.55, -9.0)];
-  const beacons = [sprite(0xff2010, 2.6, 0, 3.92, -1.9), sprite(0xff2010, 2.6, 0, 0.58, -0.6)];
+  const beacons = [sprite(0xff2010, 1.7, 0, 3.92, -1.9), sprite(0xff2010, 1.7, 0, 0.58, -0.6)];
   add(new THREE.SphereGeometry(0.07, 8, 6), M.red, 0, 3.86, -1.9); add(new THREE.SphereGeometry(0.07, 8, 6), M.red, 0, 0.66, -0.6);
   const spotGlow = sprite(0xfff4d8, 2.2, 0, 0.68, 3.2);
   // the searchlight and the cabin light: always in the scene (intensity 0 when away) so the game never recompiles shaders for them
@@ -555,8 +569,8 @@ function build() {
     vertexShader: 'varying float vZ; varying vec3 vN; varying vec3 vV; void main(){ vZ = position.z; vec4 mv = modelViewMatrix * vec4(position,1.); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
     fragmentShader: 'uniform float uK; varying float vZ; varying vec3 vN; varying vec3 vV; void main(){ float edge = pow(abs(dot(normalize(vN), normalize(vV))), 1.5); float a = uK * pow(1. - vZ, 1.6) * edge; gl_FragColor = vec4(vec3(1.,0.95,0.85) * a, a); }' });
   const beam = new THREE.Mesh(beamGeo, beamM); beam.frustumCulled = false;
-  const dust = makeDust();
-  return { group, M, rotor, blades, disc, discM, tailBlades, tdiscM, tailHub, slid, nav, beacons, spotGlow, spot, lamp, beam, dust, crew, pilots: people.pilots, seated: people.seated, crewWave: 0, rotA: 0, tailA: 0, slidZ0: slid.position.z };
+  const dust = makeDust(), wash = makeWash();
+  return { wash, group, M, rotor, blades, arms, disc, discM, tailBlades, tdiscM, tailHub, slid, nav, beacons, spotGlow, spot, lamp, beam, dust, crew, pilots: people.pilots, seated: people.seated, crewWave: 0, rotA: 0, tailA: 0, slidZ0: slid.position.z };
 }
 
 // ---- simple figures: an army crewman (flight helmet, visor, olive flight suit, vest) and two pilots' heads and shoulders
@@ -681,6 +695,16 @@ function makeDust() {
   return D;
 }
 
+// ---- the downwash on the ground: rings of flattened grass / blown grit racing outward from under the rotor (one flat
+// shader disc on the ground; lighter and darker bands like wind gusting over a field, faded at the edge and the centre)
+function makeWash() {
+  const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, uniforms: { uT: { value: 0 }, uK: { value: 0 }, uCol: { value: new THREE.Color(0.5, 0.45, 0.36) } },
+    vertexShader: 'varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: 'uniform float uT; uniform float uK; uniform vec3 uCol; varying vec2 vP; float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); } void main(){ float r = length(vP); float a = atan(vP.y, vP.x); float sa = a * 2.546 + r * 1.3; float n = mix(h(vec2(mod(floor(sa), 16.), floor(r * 2.5 - uT * 3.))), h(vec2(mod(floor(sa) + 1., 16.), floor(r * 2.5 - uT * 3.))), smoothstep(0., 1., fract(sa))); float band = smoothstep(.25, .9, sin(r * 6. - uT * 11. + n * 3.) * .5 + .5); float edge = smoothstep(1., .5, r) * smoothstep(.08, .3, r); float k = uK * edge * band * (.3 + .7 * n); gl_FragColor = vec4(uCol * (.8 + .5 * band), k * .32); }' });
+  const m = new THREE.Mesh(new THREE.CircleGeometry(1, 48), mat); m.rotation.x = -Math.PI / 2; m.renderOrder = 2; m.visible = false; m.frustumCulled = false;   // (the shader reads the disc's own x/y)
+  return m;
+}
+
 // ================================================================== per-frame animation
 const _t = V(), _l = V(), _q = V();
 function animate(dt) {
@@ -696,6 +720,8 @@ function animate(dt) {
   H.disc.rotation.y = -t * 0.9;                       // the slow "strobe" turn you see on video
   const blur = smooth(0.35, 0.9, S.rpm);
   H.M.blade.opacity = 1 - 0.82 * blur; H.M.tip.opacity = 1 - 0.7 * blur; H.discM.opacity = 0.6 * blur;
+  // blade flap: long blades sag under their own weight at low rpm, stiffen and cone up a little as they lift (each blade flaps a touch on its own)
+  { const cone = 0.075 * (1 - smooth(0.15, 0.8, S.rpm)) - 0.035 * smooth(0.6, 1, S.rpm) * clamp(S.load, 0.5, 1.2); H.arms.forEach((a, i) => { a.rotation.x = cone + 0.006 * Math.sin(H.rotA + i * 1.7) * S.rpm; }); H.disc.position.y = 0.02 + 0.2 * smooth(0.6, 1, S.rpm) * clamp(S.load, 0.5, 1.2); }
   H.tailA += S.rpm * 26 * dt; H.tailBlades.rotation.x = H.tailA; H.tdiscM.opacity = 0.8 * blur;
   // the side door: open while it's coming down and waiting, slides shut as it goes
   const open = S.st === 'landed' || S.st === 'descend' || (S.st === 'inbound' && h < 70);
@@ -707,7 +733,7 @@ function animate(dt) {
   const ph = t % 1.1, flash = (ph < 0.08 || (ph > 0.18 && ph < 0.26)) ? 1 : 0;
   H.beacons.forEach((b, i) => { b.material.opacity = i ? (((t + 0.55) % 1.1) < 0.08 ? 1 : 0) : flash; });
   H.nav[2].material.opacity = (t % 1.6) < 0.06 ? 1 : 0.15;
-  { const nk = 1 - (C.daylight ? C.daylight() : 0); for (let i = 0; i < 2; i++) { H.nav[i].material.opacity = 0.2 + 0.8 * nk; H.nav[i].scale.setScalar(0.6 + 0.8 * nk); } }   // a glow at night, just the lamp by day
+  { const nk = 1 - (C.daylight ? C.daylight() : 0); for (let i = 0; i < 2; i++) { H.nav[i].material.opacity = 0.15 + 0.6 * nk; H.nav[i].scale.setScalar(0.3 + 0.45 * nk); } }   // a small glow at night (a real nav lamp is a point with a halo, not a ball), just the lamp by day
   // the searchlight: sweeps the ground ahead on the way in, circles the landing zone while it waits
   const night = 1 - (C.daylight ? C.daylight() : 0);
   g.localToWorld(_l.set(0, 0.62, 3.2));
@@ -716,21 +742,22 @@ function animate(dt) {
   else _t.set(C.lz.x + Math.sin(t * 0.4) * 6, S.gy, C.lz.z + Math.cos(t * 0.4) * 6);
   H.spot.target.position.lerp(_t, S.st === 'inbound' && S.t < 0.1 ? 1 : 1 - Math.exp(-dt * 2.5));
   H.spot.position.copy(_l);
-  H.spot.intensity = 650 * (0.35 + 0.65 * night);
+  H.spot.intensity = 650 * (0.1 + 0.9 * night);   // (by day a searchlight barely shows on sunlit ground)
   const len = _l.distanceTo(H.spot.target.position) * 1.05, rad = len * Math.tan(H.spot.angle) * 0.85;
   H.beam.position.copy(_l); H.beam.lookAt(H.spot.target.position); H.beam.scale.set(rad, rad, len);
   H.beam.material.uniforms.uK.value = 0.14 * night + 0.02;
-  H.spotGlow.material.opacity = 0.6 + 0.4 * night;
+  H.spotGlow.material.opacity = 0.3 + 0.7 * night;
   // the warm cabin light falls out of the open door (helps you find it in the dark)
   g.localToWorld(_q.set(1.2, 2.0, 0.25)); H.lamp.position.copy(_q); H.lamp.intensity = 8 * S.door * (0.3 + 0.7 * night);
   H.M.inside.emissiveIntensity = 0.08 + 0.25 * S.door * night;
   // rotor wash: dust below it when it's low, and the trees and grass bend (the lead's hook)
-  const wash = S.rpm * (1 - smooth(4, 26, h)) * (S.st === 'landed' ? (S.passengers.some(isMe) ? 0.3 : 0.75) : 1);   // (from inside: a haze, not a wall)
+  const wash = S.rpm * (1 - smooth(4, 26, h)) * (S.st === 'landed' ? (S.passengers.some(isMe) ? 0.25 : 0.45) : 1);   // (idling on the ground the blades are flat-pitched: little wash; the big brown-out is on the way down)   // (from inside: a haze, not a wall)
   H.dust.rate = wash * 110; H.dust.cx = S.pos.x; H.dust.cy = S.gy; H.dust.cz = S.pos.z; H.dust.rad = 1; H.dust.spd = 1;
   const lit = clamp((C.daylight ? C.daylight() : 1) * 0.85 + 0.12 + 0.25 * night, 0.1, 1);
   H.discM.color.setScalar(0.3 + 0.7 * (1 - night)); H.tdiscM.color.copy(H.discM.color);
   H.dust.mesh.material.uniforms.uCol.value.setRGB(0.55 * lit, 0.47 * lit, 0.36 * lit);
   if (wash > 0.05) C.sway?.(S.pos.x, S.pos.z, 18 * wash + 6, wash);
+  { const W = H.wash, k = S.rpm * (1 - smooth(3, 22, h)); W.visible = k > 0.03; if (W.visible) { W.position.set(S.pos.x, S.gy + 0.06, S.pos.z); W.scale.setScalar(ROTOR_R * (1.6 + 0.08 * h)); const u = W.material.uniforms; u.uT.value = t; u.uK.value = k * (S.st === 'landed' ? 0.45 : 1); u.uCol.value.copy(H.dust.mesh.material.uniforms.uCol.value); } }
 }
 
 // ================================================================== sound
@@ -808,8 +835,11 @@ function sound(dt) {
   set(SN.lfo.frequency, rate, 0.2);
   set(SN.w1.frequency, 2950 * (0.94 + 0.08 * load) * dop, 0.3); set(SN.w2.frequency, 5870 * (0.94 + 0.08 * load) * dop, 0.3);
   set(SN.tr.frequency, 58 * dop * (0.97 + 0.05 * load), 0.3);
-  set(SN.bp.frequency, 700 + 900 * load, 0.3);
-  set(SN.whomp.gain, 0.45 + 0.45 * load, 0.3);
+  // blade slap: coming down through its own wake the blades crack ("wop-wop" turns to a sharp "whap-whap"); idling on the ground it softens
+  const slap = S.st === 'descend' ? smooth(-0.3, -2.5, S.vel.y) : S.st === 'inbound' ? 0.5 * smooth(-0.5, -4, S.vel.y) : 0, idle = S.st === 'landed' ? 1 : 0;
+  set(SN.bp.frequency, 700 + 900 * load + 1300 * slap - 200 * idle, 0.3);
+  set(SN.chop.gain, 0.35 + 0.3 * slap - 0.08 * idle, 0.3);
+  set(SN.whomp.gain, 0.45 + 0.45 * load + 0.2 * slap, 0.3);
   set(SN.air.frequency, clamp(16000 * Math.exp(-d / 210), 380, 16000), 0.15);
   const fadeIn = S.st === 'inbound' ? smooth(0, 3, S.t) : 1;
   set(SN.vol.gain, muted ? 0 : 2.6 * fadeIn * (0.8 + 0.3 * load), 0.15);
@@ -999,8 +1029,10 @@ function buildPlane() {
   const blades = new THREE.Group(); prop.add(blades);
   const bladeM = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.6, transparent: true });
   for (const sy of [-1, 1]) { const b = add(new THREE.BoxGeometry(0.11, 0.92, 0.025).translate(0, sy * 0.5, 0), bladeM, 0, 0, 0, blades); b.rotation.y = sy * 0.35; add(new THREE.BoxGeometry(0.112, 0.1, 0.027), new THREE.MeshStandardMaterial({ color: 0xf0d020, roughness: 0.5 }), 0, sy * 0.92, 0, blades).rotation.y = sy * 0.35; }
-  const discM = new THREE.MeshBasicMaterial({ color: 0x404040, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-  const disc = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.97, 40), discM); prop.add(disc);
+  // prop blur: a soft grey haze (thin at the hub, a faint yellow-tip ring, feathered edge) rather than a hard grey ring
+  const pdT = canvasTex(128, 128, (g, w) => { const c = w / 2; for (let r = 0.14; r < 1; r += 0.01) { const a = smooth(0.14, 0.3, r) * smooth(1, 0.9, r) * (0.35 + 0.4 * r); g.strokeStyle = r > 0.88 ? `rgba(150,135,60,${a * 0.7})` : `rgba(40,40,40,${a})`; g.lineWidth = 1.6; g.beginPath(); g.arc(c, c, r * c, 0, 7); g.stroke(); } });
+  const discM = new THREE.MeshBasicMaterial({ map: pdT, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.99, 40), discM); prop.add(disc);
   // pilot in the left seat, a passenger seat empty for you
   const suit = new THREE.MeshStandardMaterial({ map: fabricTexture([106, 116, 128], 221), roughness: 0.95 }), skin = new THREE.MeshStandardMaterial({ color: 0xb07a58, roughness: 0.7 });
   const pilot = new THREE.Group(); pilot.position.set(0.3, 1.05, 0.65); group.add(pilot);
@@ -1205,7 +1237,7 @@ function animateOther(dt) {
   g.rotation.set(S.pitch, S.yaw, S.roll);
   if (MODE === 'plane') {
     v.propA += S.rpm * 40 * dt; v.blades.rotation.z = v.propA;
-    const blur = smooth(0.2, 0.55, S.rpm); v.bladeM.opacity = 1 - 0.85 * blur; v.discM.opacity = 0.32 * blur;
+    const blur = smooth(0.2, 0.55, S.rpm); v.bladeM.opacity = 1 - 0.85 * blur; v.discM.opacity = 0.75 * blur;
     if (S.spd > 0.01) { v.wheelA += S.spd / 0.29 * dt; for (const w of v.wheels) w.rotation.x = v.wheelA; }
     const open = S.st === 'landed' && S.turn >= 1 ? 1 : 0;
     S.door = lerp(S.door, open, 1 - Math.exp(-dt * 2)); v.doorP.rotation.y = S.door * 1.25;

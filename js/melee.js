@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { boneMap } from './rig.js';
 import { clone as skClone } from 'three/addons/utils/SkeletonUtils.js';
+import { weld } from './weapons.js';   // [realism]
 
 export const MELEE = {
   fists: { id: 'fists', name: 'FISTS', dmg: 13, reach: 1.1, stam: 6, anims: ['Punch_Jab', 'Punch_Cross'], rate: 1.25, blunt: true, knock: 0.35, dur: Infinity, head: 1.8 },
@@ -111,6 +112,8 @@ function build(id) {
     blade(add, [[-0.008, 0.062], [-0.008, 0.2], [-0.004, 0.245], [0.0, 0.262]], [[0.004, 0.258], [0.014, 0.232], [0.023, 0.185], [0.027, 0.12], [0.027, 0.068]], 0.0018, K.blade, K.edge, 0.006);
     tip = 0.26;
   }
+  weld(g);   // [realism] one mesh per material (a knife: 10 parts → 5 draw calls)
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   g.userData.tip = tip;
   return g;
 }

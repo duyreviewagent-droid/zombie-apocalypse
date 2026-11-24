@@ -83,7 +83,7 @@ const prof = (pts, w, m, bev = 0.005, holes = null) => {
 // a trigger guard: a bent strip hanging under the gun, its ends at z0 and z1
 const guard = (z0, z1, y, m, depth = 0.016) => { const r = (z1 - z0) / 2, o = new THREE.Mesh(new THREE.TorusGeometry(r, 0.0028, 5, 12, Math.PI).scale(1, depth / r, 1).rotateZ(Math.PI).rotateY(Math.PI / 2), m); o.position.set(0, y, (z0 + z1) / 2); return o; };
 // the parts that never move are welded into one mesh per material (a hunting rifle: ~30 parts → 7 draw calls)
-function weld(g, keep) {
+export function weld(g, keep = []) {
   const by = new Map();
   for (const o of [...g.children]) {
     if (!o.isMesh || keep.includes(o) || o.userData.pump || o.children.length || o.material.transparent) continue;
@@ -265,6 +265,7 @@ function buildModel(id) {
     const ring = add(new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.0022, 6, 14), K.pin)); ring.position.set(-0.02, 0.05, 0); ring.rotation.y = Math.PI / 2;
     d.ring = ring; d.spoon = spoon;
   }
+  if (d.slideMesh) weld(d.slideMesh, []);
   if (id !== 'bottle' && id !== 'molotov') weld(g, [d.magMesh, d.pumpMesh, d.boltMesh, d.slideMesh, d.rocketMesh, d.ring, d.spoon].filter(Boolean));   // [realism] fewer draw calls
   g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } });
   return { g, d };
