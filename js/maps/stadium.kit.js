@@ -57,7 +57,7 @@ export function textures(seed = 11) {
     for (let y = 0; y < h; y += 64) for (let x = 0; x < w; x += 128) { const v = r() * 8 | 0; g.fillStyle = `rgb(${184 + v},${189 + v},${194 + v})`; g.fillRect(x + 2, y + 2, 124, 60); }
     g.fillStyle = '#4a4e52'; for (let y = 0; y < h; y += 64) g.fillRect(0, y, w, 2); for (let x = 0; x < w; x += 128) g.fillRect(x, 0, 2, h);
     noise(g, w, h, 1500, 0.08, r);
-    for (let k = 0; k < 12; k++) { const x = r() * w; const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(60,50,40,0)'); gr.addColorStop(1, 'rgba(60,50,40,0.14)'); g.fillStyle = gr; g.fillRect(x, 0, 6, h); }
+    for (let k = 0; k < 4; k++) { const x = r() * w, ww = 3 + r() * 4; const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(60,50,40,0)'); gr.addColorStop(1, 'rgba(60,50,40,0.09)'); g.fillStyle = gr; g.fillRect(x, 0, ww, h); }   // (a few faint weather streaks)
   });
   // club-coloured band round the top of the façade
   T.band = canvasTex(512, 64, (g, w, h) => { g.fillStyle = HOME.col; g.fillRect(0, 0, w, h); g.fillStyle = HOME.col2; g.fillRect(0, 50, w, 8); g.fillStyle = '#ffffff'; g.fillRect(0, 6, w, 3); });
@@ -102,17 +102,19 @@ export function textures(seed = 11) {
   T.screen = new THREE.CanvasTexture(T.screenCanvas); T.screen.colorSpace = THREE.SRGBColorSpace; T.screen.anisotropy = 8;
   T.drawScreen = (home, away, minute, msg = null, broken = 0) => {
     const g = T.screenCanvas.getContext('2d'), w = 1024, h = 384;
+    // text that always fits: the font shrinks until the line is no wider than maxW (nothing cut off at the edges)
+    const fit = (s, x, y, px, maxW) => { let f = px; g.font = `bold ${f}px Helvetica, Arial`; while (f > 14 && g.measureText(s).width > maxW) { f -= 2; g.font = `bold ${f}px Helvetica, Arial`; } g.fillText(s, x, y); };
     g.fillStyle = '#05070a'; g.fillRect(0, 0, w, h);
     if (broken > 0.5) {   // dead pixels, a stripe of static
       for (let k = 0; k < 900; k++) { const v = Math.random() * 255 | 0; g.fillStyle = `rgba(${v},${v},${v},${Math.random() * 0.5})`; g.fillRect(Math.random() * w, Math.random() * h, 3, 3); }
-      g.fillStyle = '#b01010'; g.font = 'bold 72px Helvetica, Arial'; g.textAlign = 'center'; g.fillText(msg || 'EVACUATE', w / 2, h / 2 + 24);
+      g.fillStyle = '#b01010'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; fit(msg || 'EVACUATE', w / 2, h / 2 + 24, 72, w - 60);
     } else {
       g.fillStyle = HOME.col; g.fillRect(30, 40, 380, 120); g.fillStyle = '#f0c020'; g.fillRect(w - 410, 40, 380, 120);
-      g.font = 'bold 64px Helvetica, Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillStyle = '#ffffff'; g.fillText(HOME.short, 220, 100); g.fillStyle = '#111'; g.fillText(AWAY.short, w - 220, 100);
-      g.fillStyle = '#ffffff'; g.font = 'bold 120px Helvetica, Arial'; g.fillText(`${home} - ${away}`, w / 2, 110);
-      g.font = 'bold 56px Helvetica, Arial'; g.fillStyle = '#9cc8e8'; g.fillText(minute, w / 2, 230);
-      if (msg) { g.fillStyle = '#ffd040'; g.font = 'bold 50px Helvetica, Arial'; g.fillText(msg, w / 2, 320); }
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = '#ffffff'; fit(HOME.short, 220, 100, 64, 350); g.fillStyle = '#111'; fit(AWAY.short, w - 220, 100, 64, 350);
+      g.fillStyle = '#ffffff'; fit(`${home} - ${away}`, w / 2, 110, 120, w - 840);
+      g.fillStyle = '#9cc8e8'; fit(String(minute), w / 2, 230, 56, w - 80);
+      if (msg) { g.fillStyle = '#ffd040'; fit(msg, w / 2, 320, 50, w - 60); }
     }
     g.fillStyle = 'rgba(0,0,0,0.22)'; for (let y = 0; y < h; y += 4) g.fillRect(0, y, w, 1);
     T.screen.needsUpdate = true;

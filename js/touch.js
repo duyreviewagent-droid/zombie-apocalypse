@@ -51,15 +51,17 @@ export function touchStep(S, tips = false) {
   return T ? { ...S, ...T } : S;
 }
 // in-game text that names keys, said for thumbs
+const TW = { F: 'LIGHT', Q: 'HEAL', Tab: 'BAG', T: 'phone', C: 'DUCK', V: 'view', L: 'LAMP', G: 'THROW', H: 'FIRE', R: 'RELOAD' };
 export function touchWords(s) {
   if (!DEV.touch || !s || typeof s !== 'string') return s;
   return s
     .replace(/W \/ S drive · A \/ D steer · Space handbrake · E get out/g, 'GAS / BRAKE · stick steers · EXIT gets out')
     .replace(/W pedal · S brake · A \/ D steer · Shift sprint · Space jump · E get off/g, 'GAS pedals · stick steers · EXIT gets off')
-    .replace(/press L to light it, E to set it down/g, 'the lantern button lights it, USE sets it down')
+    .replace(/press L to light it, E to set it down/g, 'the LAMP button lights it, USE sets it down')
     .replace(/\b([Pp])ress (<b>|<kbd>)?E(<\/b>|<\/kbd>)?(?![a-zA-Z])/g, (m, p, a = '', b = '') => (p === 'P' ? 'Tap ' : 'tap ') + a + 'USE' + b)
     .replace(/<b>E<\/b>/g, '<b>USE</b>').replace(/— E\b/g, '— USE')
-    .replace(/\bMash (<b>|<kbd>)?Space(<\/b>|<\/kbd>)?/gi, 'Tap MASH');
+    .replace(/\bMash (<b>|<kbd>)?Space(<\/b>|<\/kbd>)?/gi, 'Tap MASH')
+    .replace(/\b([Pp])ress (<b>|<kbd>)?(F|Q|Tab|T|C|V|L|G|H|R)(<\/b>|<\/kbd>)?(?![a-zA-Z0-9])/g, (m, p, a = '', k, b = '') => (p === 'P' ? 'Tap' : 'tap') + ' the ' + a + TW[k] + b + ' button');
 }
 
 const CSS = `
@@ -81,15 +83,14 @@ body.tcOn #tcZone, body.tcOn #tc { display: block; }
 #tc .tb.hot { border-color: #ffd27a; box-shadow: 0 0 0 2px rgba(255,210,122,.35), 0 0 18px rgba(255,210,122,.35); color: #ffe3a8; }
 #tc .tb.off { display: none; }
 #tc .tb i { position: absolute; right: -3px; top: -3px; min-width: 18px; height: 18px; border-radius: 9px; background: #c62a1e; color: #fff; font: 600 11px/18px Oswald, sans-serif; font-style: normal; text-align: center; padding: 0 4px; box-sizing: border-box; }
-#tc .tb em { position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%); font: 500 9px Oswald, sans-serif; letter-spacing: .14em; font-style: normal; color: rgba(236,230,218,.8); white-space: nowrap; text-shadow: 0 1px 2px #000; text-transform: uppercase; }
+#tc .tb em { position: absolute; left: 50%; bottom: 5px; transform: translateX(-50%); font: 500 10.5px Oswald, sans-serif; letter-spacing: .1em; line-height: 1; font-style: normal; color: rgba(236,230,218,.8); white-space: nowrap; text-shadow: 0 1px 2px #000; text-transform: uppercase; }
 #tc .tb.big { --s: 84px; background: rgba(150,30,22,.42); border-color: rgba(255,150,130,.5); }
-#tc .tb.big em { bottom: 8px; font-size: 10px; }
+#tc .tb.big em { bottom: 9px; font-size: 11px; }
+#tcR .tb:not(.big) .ic { transform: translateY(-5px) scale(.9); }
+#tcT .tb em { display: none; }
 #tcR { position: absolute; right: calc(env(safe-area-inset-right, 0px) + 18px + 42px); bottom: calc(env(safe-area-inset-bottom, 0px) + 14px + 42px); width: 0; height: 0; }
 #tcT { position: absolute; right: calc(env(safe-area-inset-right, 0px) + 10px); top: calc(env(safe-area-inset-top, 0px) + 8px); display: flex; gap: 8px; }
 #tcT .tb { position: relative; margin: 0; --s: 48px; }
-#tcUse { position: absolute; pointer-events: auto; right: 100%; top: 50%; transform: translate(-10px, -50%); max-width: 34vw; padding: 8px 12px; border-radius: 6px; background: rgba(10,10,9,.62); border: 1px solid rgba(255,210,122,.55);
-  color: #ffe3a8; font: 500 12px Oswald, sans-serif; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: none; }
-#tcUse.show { display: block; }
 #tcStick { position: absolute; width: 128px; height: 128px; margin: -64px 0 0 -64px; border-radius: 50%; border: 2px solid rgba(236,230,218,.28); background: radial-gradient(circle, rgba(10,10,9,.05), rgba(10,10,9,.28)); display: none; pointer-events: none; }
 #tcStick.show { display: block; }
 #tcStick.idle { opacity: .45; }
@@ -103,7 +104,8 @@ body.tcOn #tcZone, body.tcOn #tc { display: block; }
 #tcMash.show { display: flex; }
 #tcMash.dn { background: rgba(255,90,70,.85); }
 #tcRot { position: fixed; inset: 0; z-index: 70; background: #0b0b0a; color: #ece6da; display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; font: 500 18px Oswald, sans-serif; letter-spacing: .14em; padding: 24px; }
-#tcRot b { font: 400 44px 'Bebas Neue', Oswald, sans-serif; letter-spacing: .1em; display: block; margin-bottom: 8px; }
+#tcRot b { font: 400 clamp(26px, 10vw, 44px) 'Bebas Neue', Oswald, sans-serif; letter-spacing: .1em; display: block; margin-bottom: 8px; white-space: nowrap; }
+#tcRot small { display: block; max-width: 86vw; font: 300 clamp(13px, 4vw, 16px)/1.4 Oswald, sans-serif; letter-spacing: .08em; color: #9b9486; }
 #tcRot .ph { width: 46px; height: 80px; border: 3px solid #ece6da; border-radius: 9px; margin: 0 auto 22px; animation: tcr 1.8s ease-in-out infinite; }
 @keyframes tcr { 0%, 25% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
 @media (orientation: portrait) { body.touch.phone.playing #tcRot, body.touch.phone.tvmode #tcRot { display: flex; } }
@@ -117,23 +119,30 @@ body.touch #weapon { display: none !important; }
 body.touch #slots { right: calc((env(safe-area-inset-right, 0px) + 10px) / var(--ui)) !important; bottom: auto !important; top: calc((env(safe-area-inset-top, 0px) + 62px) / var(--ui)) !important; }
 body.touch #vitals { left: calc((env(safe-area-inset-left, 0px) + 8px) / var(--ui)) !important; bottom: auto !important; top: calc((env(safe-area-inset-top, 0px) + 6px) / var(--ui)) !important; }
 body.touch #obj { left: calc((env(safe-area-inset-left, 0px) + 8px) / var(--ui)) !important; top: calc((env(safe-area-inset-top, 0px) + 10px + var(--vitH, 80px)) / var(--ui)) !important; }
-body.touch #toasts { right: auto !important; left: calc(env(safe-area-inset-left, 0px) + 10px) !important; top: 50% !important; align-items: flex-start !important; }
-body.touch #tut { top: calc((env(safe-area-inset-top, 0px) + 70px) / var(--ui)) !important; bottom: auto !important; left: 50% !important; transform: translateX(-50%); width: min(380px, 50vw) !important; }
+body.touch #toasts { right: auto !important; left: calc((env(safe-area-inset-left, 0px) + 10px) / .8) !important; top: calc((var(--objB, 50vh) + 8px) / .8) !important; align-items: flex-start !important; }
+body.touch.tcBig #tut, body.touch.grabbed #tut { display: none !important; }
+body.touch.tcDrive #tut { left: calc((env(safe-area-inset-left, 0px) + 8px) / var(--ui)) !important; transform: none; top: calc((var(--objB, 40vh) + 8px) / var(--ui)) !important; width: min(300px, 34vw) !important; }
+body.touch #tut { top: calc((env(safe-area-inset-top, 0px) + 76px) / var(--ui)) !important; bottom: auto !important; left: 50% !important; transform: translateX(-50%); width: min(380px, 50vw) !important; }
 body.touch.tcBag #tut { top: auto !important; bottom: calc((env(safe-area-inset-bottom, 0px) + 10px) / var(--ui)) !important; left: calc((env(safe-area-inset-left, 0px) + 8px) / var(--ui)) !important; transform: none; width: min(300px, 30vw) !important; }
 body.touch #tut button { padding: 10px 6px !important; }
-body.touch #caption { bottom: calc(env(safe-area-inset-bottom, 0px) + 14px) !important; left: 44% !important; max-width: 40vw !important; }
+body.touch #caption { bottom: calc(env(safe-area-inset-bottom, 0px) + 10px) !important; left: calc((100vw - 380px - env(safe-area-inset-right, 0px)) / 2 + env(safe-area-inset-left, 0px) / 2) !important; max-width: calc(100vw - 400px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)) !important; min-width: 240px; z-index: 8; pointer-events: none; -webkit-line-clamp: 5 !important; }
 body.touch #prompt { bottom: 31vh !important; }
+body.touch.phone #prompt { left: auto !important; right: 40vw; bottom: auto !important; top: 64% !important; transform: translateY(-50%) !important; max-width: 40vw; white-space: normal !important; flex-wrap: wrap; z-index: 8; box-sizing: border-box; }
+body.touch.phone #prompt .sm { flex-basis: 100%; margin-top: 2px; }
 body.touch.phone { --ui: .66 !important; }
-body.touch.phone #compass { top: 52px !important; width: 260px !important; }
+body.touch.phone #compass { top: calc((env(safe-area-inset-top, 0px) + 54px) / var(--ui)) !important; width: 260px !important; }
 body.touch.phone #tut { width: min(420px, 50vw) !important; }
+body.touch.tablet #tut { top: calc((env(safe-area-inset-top, 0px) + 98px) / var(--ui)) !important; }
 body.touch.phone #vitals { width: 230px !important; padding: 8px 10px !important; }
-body.touch.phone #obj { width: min(260px, 34vw) !important; min-width: 150px !important; }
+body.touch.phone #obj { width: min(300px, 40vw) !important; min-width: 150px !important; box-sizing: border-box; }
+body.touch.phone #obj .ch { letter-spacing: .18em !important; flex-wrap: wrap; }
 body.touch.phone #obj .o { font-size: 12px !important; line-height: 1.35 !important; }
 body.touch.phone #caption { font-size: 14px !important; }
 body.touch #toasts { zoom: .8; }
 body.touch #toasts .toast { max-width: 38vw; }
 body.touch.phone .center-panel { max-height: calc(100vh - 12px) !important; overflow-y: auto !important; }
 body.touch.tablet { --ui: .9 !important; }
+#bagClose { min-width: 96px; min-height: 44px; font-size: 16px !important; }
 body.touch #intro .skip, body.touch #tv .skip, body.touch #note .close { font-size: 13px; }
 #tcHow { margin: 0 0 14px; padding: 10px 14px; border-left: 2px solid #c62a1e; background: rgba(255,255,255,.04); font-size: 13px; line-height: 1.7; text-align: left; }
 #tcHow b { color: #fff; }
@@ -164,8 +173,9 @@ export function initTouch(A) {
   const zone = document.createElement('div'); zone.id = 'tcZone'; document.body.appendChild(zone);
   const root = document.createElement('div'); root.id = 'tc'; document.body.appendChild(root);
   root.innerHTML = `<div id="tcStick"><div class="r">RUN</div><div class="k"></div></div><div id="tcR"></div><div id="tcT"></div><div id="tcMash">MASH</div>`;
-  const rot = document.createElement('div'); rot.id = 'tcRot'; rot.innerHTML = '<div class="ph"></div><b>TURN YOUR PHONE</b>Zombie_Apocalypse plays sideways'; document.body.appendChild(rot);
+  const rot = document.createElement('div'); rot.id = 'tcRot'; rot.innerHTML = '<div class="ph"></div><b>TURN YOUR PHONE</b><small>Zombie_Apocalypse plays sideways</small>'; document.body.appendChild(rot);
   const stickEl = $('tcStick'), knob = stickEl.querySelector('.k'), R = $('tcR'), T = $('tcT'), mash = $('tcMash');
+  { const h = Math.round(98 * (DEV.phone ? 1 : 1.18) / 2); R.style.right = `calc(env(safe-area-inset-right, 0px) + 18px + ${h}px)`; R.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + 14px + ${h}px)`; }
 
   // buttons: id → { el, ...def }. Ring positions are polar around the attack button (angle in degrees, 180 = left).
   const B = {};
@@ -180,35 +190,39 @@ export function initTouch(A) {
   }
   // on foot
   btn('attack', R, { big: true, icon: 'fist', em: '', s: 98, at: [0, 0], down: () => { if (G.grabbedBy) { press('Space'); return; } try { A.assist && A.assist(); } catch { } G.mouse.left = true; G.clickReq = true; }, up: () => { G.mouse.left = false; }, label: 'Attack' });
-  btn('aim', R, { icon: 'eye', em: 'aim', s: 64, at: [132, 181], down: () => { G.mouse.right = true; if (A.rdrag) { A.rdrag.on = true; A.rdrag.d = 0; A.rdrag.t = performance.now(); } }, up: () => { G.mouse.right = false; if (A.rdrag) A.rdrag.on = false; }, label: 'Aim / zoom (hold)' });
-  btn('bag', R, { icon: 'backpack', em: 'bag', s: 64, at: [132, 90], tap: () => press('Tab'), label: 'Backpack' });
-  btn('use', R, { icon: 'hand', em: 'use', s: 64, at: [132, 150], tap: () => press('KeyE'), label: 'Use' });
-  btn('jump', R, { icon: 'jump', em: 'jump', s: 64, at: [132, 120], down: () => hold('Space', 'jump', true), up: () => hold('Space', 'jump', false), label: 'Jump / climb' });
+  btn('aim', R, { icon: 'eye', em: 'aim', s: 64, at: [132, 184], down: () => { G.mouse.right = true; if (A.rdrag) { A.rdrag.on = true; A.rdrag.d = 0; A.rdrag.t = performance.now(); } }, up: () => { G.mouse.right = false; if (A.rdrag) A.rdrag.on = false; }, label: 'Aim / zoom (hold)' });
+  btn('bag', R, { icon: 'backpack', em: 'bag', s: 64, at: [132, 88], tap: () => press('Tab'), label: 'Backpack' });
+  btn('use', R, { icon: 'hand', em: 'use', s: 64, at: [136, 153], tap: () => press('KeyE'), label: 'Use' });
+  btn('jump', R, { icon: 'jump', em: 'jump', s: 64, at: [136, 118], down: () => hold('Space', 'jump', true), up: () => hold('Space', 'jump', false), label: 'Jump / climb' });
   btn('shove', R, { icon: 'shove', em: 'shove', s: 56, at: [212, 182], tap: () => { G.shoveReq = true; }, label: 'Shove' });
-  btn('crouch', R, { icon: 'crouch', em: 'crouch', s: 56, at: [212, 160], tap: () => press('KeyC'), label: 'Crouch' });
+  btn('crouch', R, { icon: 'crouch', em: 'duck', s: 56, at: [212, 160], tap: () => press('KeyC'), label: 'Crouch' });
   btn('reload', R, { icon: 'reload', em: 'reload', s: 56, at: [212, 138], tap: () => press('KeyR'), label: 'Reload' });
   btn('heal', R, { icon: 'cross', em: 'heal', s: 56, at: [212, 116], tap: () => press('KeyQ'), label: 'Bandage' });
   btn('bottle', R, { icon: 'bottle', em: 'throw', s: 52, at: [286, 177], tap: () => press('KeyG'), label: 'Throw a bottle' });
-  btn('molotov', R, { icon: 'flame', em: 'molotov', s: 52, at: [286, 163], tap: () => press('KeyH'), label: 'Throw a Molotov' });
+  btn('molotov', R, { icon: 'flame', em: 'fire', s: 52, at: [286, 163], tap: () => press('KeyH'), label: 'Throw a Molotov' });
   btn('light', R, { icon: 'torch', em: 'light', s: 52, at: [286, 149], tap: () => press('KeyF'), label: 'Flashlight' });
-  btn('lantern', R, { icon: 'lantern', em: 'lantern', s: 52, at: [286, 135], tap: () => press('KeyL'), label: 'Lantern' });
+  btn('lantern', R, { icon: 'lantern', em: 'lamp', s: 52, at: [286, 135], tap: () => press('KeyL'), label: 'Lantern' });
   // at the wheel / on the bike
   btn('gas', R, { big: true, icon: 'gas', em: 'gas', s: 84, at: [0, 0], down: () => hold('KeyW', 'gas', true), up: () => hold('KeyW', 'gas', false), label: 'Gas' });
   btn('brake', R, { icon: 'brake', em: 'brake', s: 64, at: [104, 180], down: () => hold('KeyS', 'brake', true), up: () => hold('KeyS', 'brake', false), label: 'Brake / reverse' });
-  btn('hbrake', R, { icon: 'hbrake', em: 'handbrake', s: 52, at: [100, 112], down: () => hold('Space', 'hb', true), up: () => hold('Space', 'hb', false), label: 'Handbrake' });
+  btn('hbrake', R, { icon: 'hbrake', em: 'drift', s: 52, at: [100, 112], down: () => hold('Space', 'hb', true), up: () => hold('Space', 'hb', false), label: 'Handbrake' });
   btn('exit', R, { icon: 'exit', em: 'exit', s: 52, at: [178, 150], tap: () => press('KeyE'), label: 'Get out' });
   // the top row
   btn('view', T, { icon: 'view', tap: () => press('KeyV'), label: 'First / third person' });
   btn('phone', T, { icon: 'phone', tap: () => press('KeyT'), label: 'Phone' });
   btn('pause', T, { icon: 'pause', tap: () => press('Escape'), label: 'Pause' });
 
+  // ---- looking: a quick swipe turns further than a slow drag of the same length
+  const lookK = () => (DEV.phone ? 1.8 : 1.3);
+  const lookBy = (dx, dy) => { const sp = Math.hypot(dx, dy), acc = 1 + Math.min(0.8, Math.max(0, (sp - 6) / 30)), k = lookK() * acc; A.look(dx * k, dy * k); };
   // ---- button touches (each finger tracked on its own: hold attack and drag to look at the same time)
   const owner = new Map();   // touch id → button id
+  const bLook = new Map();   // touch id → last [x, y] (attack / aim also turn the camera when you slide off them)
   for (const [id, b] of Object.entries(B)) {
     const el = b.el;
     el.addEventListener('touchstart', e => {
       e.preventDefault(); e.stopPropagation();
-      for (const t of e.changedTouches) owner.set(t.identifier, id);
+      for (const t of e.changedTouches) { owner.set(t.identifier, id); if (id === 'attack' || id === 'aim') bLook.set(t.identifier, [t.clientX, t.clientY]); }
       if (el.classList.contains('dn')) return;
       el.classList.add('dn'); b.t0 = performance.now();
       try { if (b.down) b.down(); else if (b.tap) b.tap(); } catch (err) { console.error(err); }
@@ -216,12 +230,16 @@ export function initTouch(A) {
     }, { passive: false });
     const end = e => {
       e.preventDefault(); e.stopPropagation();
-      let mine = false; for (const t of e.changedTouches) if (owner.get(t.identifier) === id) { owner.delete(t.identifier); mine = true; }
+      let mine = false; for (const t of e.changedTouches) { bLook.delete(t.identifier); if (owner.get(t.identifier) === id) { owner.delete(t.identifier); mine = true; } }
       if (!mine) return;
       for (const v of owner.values()) if (v === id) return;   // another finger's still on it
       el.classList.remove('dn'); try { b.up && b.up(); } catch (err) { console.error(err); }
     };
     el.addEventListener('touchend', end, { passive: false }); el.addEventListener('touchcancel', end, { passive: false });
+    if (id === 'attack' || id === 'aim') el.addEventListener('touchmove', e => {
+      e.preventDefault();
+      for (const t of e.changedTouches) { const p = bLook.get(t.identifier); if (!p) continue; const dx = t.clientX - p[0], dy = t.clientY - p[1]; p[0] = t.clientX; p[1] = t.clientY; if (lookId == null || lookId === t.identifier) lookBy(dx, dy); }
+    }, { passive: false });
     // a mouse / pencil without touch events (and the tests): plain clicks still work
     el.addEventListener('mousedown', e => { if (e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents) return; e.preventDefault(); el.classList.add('dn'); if (b.down) b.down(); else if (b.tap) b.tap(); const up = () => { el.classList.remove('dn'); b.up && b.up(); removeEventListener('mouseup', up); }; addEventListener('mouseup', up); });
   }
@@ -230,7 +248,12 @@ export function initTouch(A) {
   mash.addEventListener('mousedown', e => { e.preventDefault(); press('Space'); });
 
   // the weapon slots at the top right and the "Use" prompt in the middle are buttons too
-  $('slots').addEventListener('touchstart', e => { const s = e.target.closest('.slot'); if (!s) return; e.preventDefault(); const n = [...$('slots').children].indexOf(s) + 1; if (n > 0) press('Digit' + n); }, { passive: false });
+  { const sl = new Map();   // touch id → { x0, y0, x, y, n, moved }
+    $('slots').addEventListener('touchstart', e => { e.preventDefault(); for (const t of e.changedTouches) { const s = t.target.closest && t.target.closest('.slot'); sl.set(t.identifier, { x0: t.clientX, y0: t.clientY, x: t.clientX, y: t.clientY, n: s ? [...$('slots').children].indexOf(s) + 1 : 0, moved: false }); } }, { passive: false });
+    $('slots').addEventListener('touchmove', e => { e.preventDefault(); for (const t of e.changedTouches) { const q = sl.get(t.identifier); if (!q) continue; if (!q.moved && Math.hypot(t.clientX - q.x0, t.clientY - q.y0) >= 12) q.moved = true; if (q.moved && lookId == null) lookBy(t.clientX - q.x, t.clientY - q.y); q.x = t.clientX; q.y = t.clientY; } }, { passive: false });
+    const se = e => { e.preventDefault(); for (const t of e.changedTouches) { const q = sl.get(t.identifier); sl.delete(t.identifier); if (q && !q.moved && q.n > 0 && e.type === 'touchend') press('Digit' + q.n); } };
+    $('slots').addEventListener('touchend', se, { passive: false }); $('slots').addEventListener('touchcancel', se, { passive: false }); }
+  { const bg = $('bag'); if (bg) bg.addEventListener('touchstart', e => { if (e.target === bg && G.state === 'bag') { e.preventDefault(); press('Tab'); } }, { passive: false }); }   // tap beside the backpack: zip it up
   $('prompt').addEventListener('touchstart', e => { if (!$('prompt').classList.contains('tap')) return; e.preventDefault(); press('KeyE'); }, { passive: false });
 
   // ---- the stick (left) and looking (right) on the open screen
@@ -264,10 +287,10 @@ export function initTouch(A) {
     const kx = Math.min(L2, RAD) * nx, ky = -Math.min(L2, RAD) * ny; knob.style.transform = `translate(${kx}px, ${ky}px)`;
     stickKeys(ST.x, ST.y, ST.m);
   }
-  const lookK = () => (DEV.phone ? 1.45 : 1.15);
   zone.addEventListener('touchstart', e => {
     e.preventDefault();
     if (G.state === 'phone') { press('KeyT'); return; }   // tap beside the phone: put it away
+    if (G.state === 'bag') { press('Tab'); return; }      // ...or beside the backpack: zip it up
     for (const t of e.changedTouches) {
       const left = t.clientX < innerWidth * 0.42 && t.clientY > innerHeight * 0.22;
       if (left && ST.id == null) {
@@ -282,7 +305,7 @@ export function initTouch(A) {
     e.preventDefault();
     for (const t of e.changedTouches) {
       if (t.identifier === ST.id) stickMove(t.clientX, t.clientY);
-      else if (t.identifier === lookId) { const dx = t.clientX - lx, dy = t.clientY - ly; lx = t.clientX; ly = t.clientY; const k = lookK(); A.look(dx * k, dy * k); }
+      else if (t.identifier === lookId) { const dx = t.clientX - lx, dy = t.clientY - ly; lx = t.clientX; ly = t.clientY; lookBy(dx, dy); }
     }
   }, { passive: false });
   const zEnd = e => { e.preventDefault(); for (const t of e.changedTouches) { if (t.identifier === ST.id) stickEnd(); if (t.identifier === lookId) lookId = null; } };
@@ -311,7 +334,7 @@ export function initTouch(A) {
 
   // ---- words on the menus and screens
   const setText = (sel, html) => { const e = document.querySelector(sel); if (e) e.innerHTML = html; };
-  setText('#title .hint', 'Left thumb: move · right thumb: look<br>Buttons on the right: attack, bag, jump, use · top right: view, phone, pause');
+  setText('#title .hint', '<span style="white-space:nowrap">Left thumb: move</span><br><span style="white-space:nowrap">Right thumb: look</span><br><span style="white-space:nowrap">Buttons: attack, bag, jump, use</span><br><span style="white-space:nowrap">Top right: view, phone, pause</span>');
   setText('#intro .skip', 'TAP TO CONTINUE');
   setText('#tv .skip', 'TAP TO SKIP');
   setText('#note .close', 'TAP TO PUT IT DOWN');
@@ -330,10 +353,11 @@ export function initTouch(A) {
     G.mouse.x = innerWidth / 2; G.mouse.y = innerHeight / 2; G.mouse.inside = true;
     const st = G.state, alive = A.alive();
     document.body.classList.toggle('tcBag', st === 'bag');
+    { const bo = +($('big').style.opacity || 0) > 0.05; if (bo !== tick.big) { tick.big = bo; document.body.classList.toggle('tcBig', bo); } }
     const driving = A.driving && A.driving(), grabbed = !!G.grabbedBy, inv = G.inv || {};
     const mode = st === 'phone' ? 'phone' : st === 'dead' || (st === 'play' && !alive) ? 'dead' : st !== 'play' ? 'off' : grabbed ? 'grab' : driving ? 'drive' : 'foot';
     document.body.classList.toggle('tcOn', mode !== 'off');
-    if (mode !== lastMode) { if (lastMode) releaseAll(); lastMode = mode; uiT = 0; }
+    if (mode !== lastMode) { if (lastMode) releaseAll(); lastMode = mode; uiT = 0; document.body.classList.toggle('tcDrive', mode === 'drive'); }
     if (mode === 'off') { mash.classList.remove('show'); return; }
     uiT -= dt; if (uiT > 0) return; uiT = 0.1;
     mash.classList.toggle('show', grabbed);
@@ -359,7 +383,7 @@ export function initTouch(A) {
     const wi = A.weaponIcon(); if (B.attack.wi !== wi) { B.attack.wi = wi; B.attack.el.firstElementChild.outerHTML = icon(wi); }
     const am = A.ammo(); B.attack.emEl.textContent = am || '';
     B.aim.emEl.textContent = gun ? 'aim' : 'zoom';
-    if (mode === 'drive') B.hbrake.emEl.textContent = A.bike && A.bike() ? 'jump' : 'handbrake';
+    if (mode === 'drive') B.hbrake.emEl.textContent = A.bike && A.bike() ? 'jump' : 'drift';
     // what "Use" would do right now
     const c = G.ctx;
     B.use.el.classList.toggle('hot', !!c);
@@ -369,12 +393,34 @@ export function initTouch(A) {
     if (ST.lock && ST.id == null && performance.now() - ST.lastEnd > 4000) { ST.lock = false; stickEl.classList.remove('run'); }
     // keep the objective box under the vitals
     const vh = $('vitals').getBoundingClientRect().height; if (vh && Math.abs((tick.vh || 0) - vh) > 2) { tick.vh = vh; document.body.style.setProperty('--vitH', Math.round(vh + 8) + 'px'); }
+    // ...and the toasts (and the tips while driving) under the objective box
+    { const ob = $('obj').getBoundingClientRect(), b = ob.height ? Math.round(ob.bottom) : 0; if (b && Math.abs((tick.ob || 0) - b) > 2) { tick.ob = b; document.body.style.setProperty('--objB', b + 'px'); } }
+    fitRing();
+  }
+  // keep the ring's buttons clear of the weapon slots (short screens): any button that would sit under them slides down
+  let ringKey = '';
+  function fitRing() {
+    const sr = $('slots').getBoundingClientRect(), vis = Object.keys(B).filter(id => B[id].at && !B[id].el.classList.contains('off'));
+    const key = innerWidth + 'x' + innerHeight + ':' + Math.round(sr.bottom) + ':' + Math.round(sr.left) + ':' + vis.join(',');
+    if (key === ringKey) return; ringKey = key;
+    for (const id of vis) {
+      const b = B[id], el = b.el; el.style.marginTop = '';
+      if (!sr.width) continue;
+      const r = el.getBoundingClientRect();
+      if (r.right > sr.left && r.left < sr.right && r.top < sr.bottom + 4 && r.bottom > sr.top) el.style.marginTop = `calc(var(--s, 56px) / -2 + ${Math.ceil(sr.bottom + 4 - r.top)}px)`;
+    }
+    // phones: the "Use" prompt sits just left of whichever ring buttons are showing at its height (it's CSS-zoomed: divide by it)
+    if (DEV.phone) {
+      const pe = $('prompt'), y0 = innerHeight * 0.36, y1 = innerHeight * 0.8; let L = innerWidth * 0.6;
+      for (const id of vis) { const r = B[id].el.getBoundingClientRect(); if (r.width && r.bottom > y0 && r.top < y1) L = Math.min(L, r.left); }
+      const z = parseFloat(getComputedStyle(pe).zoom) || 1, w = Math.max(200, Math.min(innerWidth * 0.46, L - 16));
+      pe.style.setProperty('right', ((innerWidth - L + 8) / z) + 'px', 'important'); pe.style.setProperty('max-width', (w / z) + 'px', 'important');
+    }
   }
   // test hooks
   window.ZA_TOUCH = { B, stick: (x, y) => { G.stick = x || y ? { x, y, m: Math.min(1, Math.hypot(x, y)) } : null; stickKeys(x, y, Math.hypot(x, y)); }, look: (dx, dy) => A.look(dx, dy), tap: id => { const b = B[id]; if (b.down) { b.down(); setTimeout(() => b.up && b.up(), 80); } else b.tap(); }, hold: (id, on) => { const b = B[id]; on ? b.down() : b.up(); }, held, releaseAll };
   return { tick, releaseAll };
 }
 
-;(() => { const st = document.createElement('style'); st.textContent = 'body.touch.phone #obj .ch, body.touch.phone .st, body.touch.phone #clock .d { font-size: 13px !important; } body.touch.phone #tut .th, body.touch.phone #tut button { font-size: 13px !important; } body.touch.phone #tut button { min-height: 40px; } #tc .tb em { font-size: 11px; }'; document.head.appendChild(st); })();
+;(() => { const st = document.createElement('style'); st.textContent = 'body.touch.phone #obj .ch, body.touch.phone .st, body.touch.phone #clock .d { font-size: 13px !important; } body.touch.phone #tut .th, body.touch.phone #tut button { font-size: 13px !important; } body.touch.phone #tut button { min-height: 40px; }'; document.head.appendChild(st); })();
 
-;(() => { const st = document.createElement('style'); st.textContent = '#tcR .tb:not(.big) em { bottom: 5px !important; font-size: 9px !important; letter-spacing: .1em; } #tcR .tb:not(.big) svg { transform: translateY(-5px) scale(.9); }'; document.head.appendChild(st); })();

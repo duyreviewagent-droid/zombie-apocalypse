@@ -25,7 +25,7 @@ const CAVE = [
 const inRect = (r, x, z, m = 0) => x > r[0] - m && x < r[2] + m && z > r[1] - m && z < r[3] + m;
 const caveMask = (x, z) => { let k = 0; for (const C of CAVE) { const r = C.r; const dx = Math.max(r[0] - x, 0, x - r[2]), dz = Math.max(r[1] - z, 0, z - r[3]); const d = Math.hypot(dx, dz); k = Math.max(k, 1 - smooth(0.6, 3.5, d)); } return k; };
 // places that must stay flat (buildings, camps): the rolling ground fades out round them
-const LZ = { x: 40.2, z: 139, yaw: Math.PI };   // on the dock, beside the boat (the story's ending.at)
+const LZ = { x: 40.2, z: 139, yaw: 0 };   // on the dock, beside the boat (the story's ending.at; yaw 0: the boat comes in from the east and lies along the dock's east side)
 const START = { x: 57, z: 97, yaw: Math.PI };
 
 function heightAt(x, z) {
@@ -58,6 +58,14 @@ export function buildMap(K) {
   const mat4 = K.mat4;
   const P = (x, z, yaw) => { const c = Math.cos(yaw), s = Math.sin(yaw); return (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c]; };
   const notes = [];
+  // a prop box with its own picture on the front (local +z) face — the fridge, the cooler, the generator — and a
+  // plain patch of the same texture (pr: u0, v0, u1, v1) on the other faces, so labels are never cut or repeated
+  const propBox = (x, y0, z, hx, y1, hz, yaw, mat, surf = 'metal', pr = [0.02, 0.05, 0.1, 0.3], solidIt = true) => {
+    const g = new THREE.BoxGeometry(hx * 2, y1 - y0, hz * 2).translate(0, (y1 - y0) / 2, 0), uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) if ((i >> 2) !== 4) uv.setXY(i, lerp(pr[0], pr[2], uv.getX(i)), lerp(pr[1], pr[3], uv.getY(i)));
+    K.xadd(g, mat, mat4(x, y0, z, yaw));
+    return solidIt ? K.solid(x, z, hx, hz, yaw, y1, surf, y0) : null;
+  };
   const T = heightAt;
   const tmesh = K.terrain(T, 2);
   // the mountain over the cave: walking uses the carved T (the rooms' floors are at 0), but the drawn ground stays
@@ -81,7 +89,9 @@ export function buildMap(K) {
     g.setIndex(kept); p.needsUpdate = true; g.computeVertexNormals(); g.computeBoundingSphere();
   }
   // no grass blades where the ground isn't the valley floor (the river, the beach, the slopes, the cave)
-  W.grassFn = (x, z) => { const h = T(x, z); if (Math.abs(h) > 0.06) return 0; for (const C of CAVE) if (inRect(C.r, x, z, 1)) return 0; return null; };
+  // (and only a thin scatter in the deep shade under the big trees: CANOPY is a 4 m grid filled in once they're placed)
+  const CANOPY = new Uint8Array(70 * 75), cIdx = (x, z) => { const i = Math.floor((x + 140) / 4), j = Math.floor((z + 146) / 4); return i < 0 || j < 0 || i >= 70 || j >= 75 ? -1 : j * 70 + i; };
+  W.grassFn = (x, z) => { const h = T(x, z); if (Math.abs(h) > 0.06) return 0; for (const C of CAVE) if (inRect(C.r, x, z, 1)) return 0; const k = cIdx(x, z); return k >= 0 && CANOPY[k] ? 0.12 * (W.grassK ?? 1) : null; };
 
   // ================================================================ trails (where the trees don't grow)
   const TRAILS = [
@@ -112,22 +122,35 @@ export function buildMap(K) {
   // ================================================================ the river, the waterfall, the sea
   {
     // a ribbon of water down the channel (one mesh), ripples drifting downstream
-    const pos = [], uv = [], idx = []; let v = 0, prev = null;
+    // (four vertices across: a soft outer row each side fades to clear over the muddy bank — no hard ribbon edge)
+    const pos = [], uv = [], col = [], idx = []; let v = 0, prev = null;
     for (let z = -96, i = 0; z <= 150; z += 2, i++) {
-      const xc = RIVER_X(Math.min(z, 131)), dx = (RIVER_X(Math.min(z, 131) + 1) - xc), L = Math.hypot(dx, 1), nx = 1 / L, nz = -dx / L, wd = 7.4;
+      const xc = RIVER_X(Math.min(z, 131)), dx = (RIVER_X(Math.min(z, 131) + 1) - xc), L = Math.hypot(dx, 1), nx = 1 / L, nz = -dx / L, wd = 6.6, wo = 8.4;
       if (prev) v += Math.hypot(xc - prev[0], z - prev[1]) / 8; prev = [xc, z];
-      pos.push(xc - nx * wd, -0.55, z - nz * wd, xc + nx * wd, -0.55, z + nz * wd); uv.push(0, v, 2, v);
-      if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      for (const [o, a] of [[-wo, 0], [-wd, 1], [wd, 1], [wo, 0]]) { pos.push(xc + nx * o, -0.55, z + nz * o); uv.push(1 + o / wo, v); col.push(1, 1, 1, a); }
+      if (i) { const a = (i - 1) * 4; for (let q = 0; q < 3; q++) idx.push(a + q, a + 4 + q, a + 1 + q, a + 1 + q, a + 4 + q, a + 5 + q); }
     }
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); g.setIndex(idx); g.computeVertexNormals();
     if (g.attributes.normal.getY(0) < 0) { for (let i = 0; i < idx.length; i += 3) [idx[i + 1], idx[i + 2]] = [idx[i + 2], idx[i + 1]]; g.setIndex(idx); g.computeVertexNormals(); }
     const river = new THREE.Mesh(g, M.jRiver); river.receiveShadow = true; river.renderOrder = 1; K.level.add(river);
     // the plunge pool and the sea
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(9, 28).rotateX(-Math.PI / 2), M.jRiver); pool.position.set(-25, -0.54, -92); pool.scale.set(1, 1, 0.82); pool.renderOrder = 1; K.level.add(pool);
-    const seaMap = M.jSea.map; seaMap.repeat.set(40, 20);
+    const poolM = M.jRiver.clone(); poolM.vertexColors = false;
+    const pool = new THREE.Mesh(new THREE.CircleGeometry(9, 28).rotateX(-Math.PI / 2), poolM); pool.position.set(-25, -0.54, -92); pool.scale.set(1, 1, 0.82); pool.renderOrder = 1; K.level.add(pool);
+    const seaMap = M.jSea.map; seaMap.repeat.set(40, 20); if (M.jSea.normalMap) M.jSea.normalMap.repeat.set(60, 30);
     const sea = new THREE.Mesh(new THREE.PlaneGeometry(700, 300).rotateX(-Math.PI / 2), M.jSea); sea.position.set(0, -0.56, 117 + 150); sea.renderOrder = 1; K.level.add(sea);
     W.waters.push({ x0: -350, z0: 117, x1: 350, z1: 420, y: -0.56, mesh: sea });
-    W.anims.push((dt, t) => { M.jRiver.map.offset.y = -t * 0.22; seaMap.offset.set(t * 0.004, t * 0.006); M.jFall.map.offset.y = t * 1.3; });
+    // a strip of surf along the shoreline, washing in and out
+    const foamM = M.jFoam, surf = new THREE.Mesh(new THREE.PlaneGeometry(300, 2.2, 1, 1).rotateX(-Math.PI / 2), foamM); surf.position.set(0, -0.535, 116.6); surf.renderOrder = 2; K.level.add(surf);
+    foamM.map.repeat.set(30, 1);
+    const fallCol = M.jFall.color, seaCol = M.jSea.color.clone(), rivCol = M.jRiver.color.clone();
+    W.anims.push((dt, t) => {
+      M.jRiver.map.offset.y = -t * 0.22; seaMap.offset.set(t * 0.004, t * 0.006); M.jFall.map.offset.y = t * 1.3;
+      if (M.jRiver.normalMap) M.jRiver.normalMap.offset.y = -t * 0.3; if (M.jSea.normalMap) M.jSea.normalMap.offset.set(t * 0.006, t * 0.01);
+      foamM.map.offset.x = t * 0.01; surf.position.z = 116.6 + Math.sin(t * 0.6) * 0.45; foamM.opacity = 0.75 + 0.25 * Math.sin(t * 0.6 + 1);
+      // the water goes dark with the sky (no glowing white sheets at midnight)
+      const d = W.daylight ?? 1, k = 0.25 + 0.75 * d; fallCol.setScalar(k); foamM.color.setScalar(0.3 + 0.7 * d);
+      M.jSea.color.copy(seaCol).multiplyScalar(0.45 + 0.55 * d); M.jRiver.color.copy(rivCol).multiplyScalar(0.45 + 0.55 * d);
+    });
     // deep water is a barrier: invisible boxes down the deep middle of the channel (the ford has none), the pool, the sea
     for (let z = -94; z < 128; z += 3) {
       if (Math.abs(z + 1.5 - 100) < 6.5) continue;
@@ -136,18 +159,25 @@ export function buildMap(K) {
     }
     for (let z = 94; z < 107; z += 2) W.regions.push({ x0: RIVER_X(z) - 6, z0: z, x1: RIVER_X(z) + 6, z1: z + 2, kind: 'water', step: 'water' });
     K.solid(-25, -92, 6.2, 5.2, 0, 0.45, 'water', -3);
-    K.solid(0, 119, 160, 2.4, 0, 0.45, 'water', -3);   // the shoreline (the dock goes over it)
+    // the sea is a barrier past the waterline (nobody walks out along the sea bed); the dock's strip stays open
+    K.solid((-160 + 38.4) / 2, 134.3, (38.4 + 160) / 2, 17.7, 0, 0.45, 'water', -3);
+    K.solid((41.6 + 160) / 2, 134.3, (160 - 41.6) / 2, 17.7, 0, 0.45, 'water', -3);
     for (let x = -140; x < 140; x += 10) K.region(x, 116, x + 10, 152, 'paved', 'water');
     // no grass along the river: muddy banks
     for (let z = -94; z < 130; z += 3) { const x = RIVER_X(z); K.paint(x - 7.5, z, 2.4, 'mud', 0.5); K.paint(x + 7.5, z, 2.4, 'mud', 0.5); }
     // the waterfall: a cliff face of rock, water sheeting down it, mist at the foot
     for (let i = 0; i < 7; i++) { const x = -40 + i * 5 + rr(-1, 1); K.block(x, -1, -101.2 + rr(-0.6, 0.6), 3.0, 13 + rr(-1.5, 2.5), 2.2, rr(-0.15, 0.15), 'rock', 'concrete'); }
-    for (const [x0, w, y0] of [[-25, 3.6, 13.2], [-21.5, 1.2, 12.5]]) {
+    // four sheets of water (soft-edged), the main fall in front of a thinner one, two side ribbons; the texture's
+    // own alpha fades their sides; a ring of churned foam where they hit the pool
+    for (const [x0, w, y0, zo] of [[-25, 3.6, 13.2, 0], [-24.4, 2.6, 13.0, -0.35], [-21.5, 1.2, 12.5, 0.1], [-28.6, 1.0, 12.8, 0.05]]) {
       const fall = new THREE.Mesh(new THREE.PlaneGeometry(w * 2, y0 + 0.6, 1, 8), M.jFall);
       const p = fall.geometry.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setZ(i, Math.pow((y0 / 2 - y) / y0, 2) * 0.9); }
-      fall.geometry.computeVertexNormals(); fall.position.set(x0, (y0 - 0.6) / 2 - 0.55, -98.6); fall.renderOrder = 3; K.level.add(fall);
-      M.jFall.map.repeat.set(w / 3, 2);
+      fall.geometry.computeVertexNormals(); fall.position.set(x0, (y0 - 0.6) / 2 - 0.55, -98.6 + zo); fall.renderOrder = 3; K.level.add(fall);
     }
+    { const ring = new THREE.Mesh(new THREE.RingGeometry(1.2, 5.2, 40, 1).rotateX(-Math.PI / 2), M.jFoam.clone()); ring.material.map = M.jFoam.map.clone(); ring.material.map.repeat.set(6, 1);
+      const rp = ring.geometry.attributes.position, ru = ring.geometry.attributes.uv; for (let i = 0; i < rp.count; i++) { const x = rp.getX(i), z = rp.getZ(i), rr0 = Math.hypot(x, z); ru.setXY(i, Math.atan2(z, x) / Math.PI * 3, (rr0 - 1.2) / 4); }
+      ring.position.set(-25, -0.52, -97.2); ring.scale.set(1.3, 1, 0.7); ring.renderOrder = 2; K.level.add(ring);
+      W.anims.push((dt, t) => { ring.rotation.y = Math.sin(t * 0.3) * 0.05; ring.material.map.offset.x = t * 0.05; ring.material.color.setScalar(0.3 + 0.7 * (W.daylight ?? 1)); }); }
     for (const [x, z] of [[-25, -96.5], [-22, -96], [-28, -96.3]]) K.emitter({ x, y: -0.2, z, kind: 'smoke', rate: 2.5, t: 0 });
     for (let i = 0; i < 14; i++) { const a = R() * 6.28, d = rr(8, 11); K.rock(-25 + Math.cos(a) * d, -92 + Math.sin(a) * d * 0.8, rr(0.8, 2.2)); }
   }
@@ -226,7 +256,7 @@ export function buildMap(K) {
   {
     for (const [x, z, s] of [[40.2, -97.6, 3.2], [49.8, -97.4, 3.4], [39.5, -100, 2.4], [50.6, -100.4, 2.6], [44.2, -98.2, 1.2]]) if (s > 2) K.rock(x, z, s, { mat: 'jCave', flat: 1.1 });
     // the overhang: big lumps of rock piled over the opening (drawn only: they're above head height)
-    for (const [x, y, z, sx, sy, sz] of [[42, 5.6, -96.6, 3.2, 1.8, 2.4], [47.5, 5.9, -96.8, 3.4, 2.0, 2.6], [45, 7.2, -98.5, 5.0, 2.4, 3.2], [40.5, 4.0, -97.5, 1.8, 2.6, 2.2], [49.6, 4.2, -97.4, 1.8, 2.8, 2.2], [45, 8.4, -102, 6.5, 3.0, 4.5]]) crag(x, y, z, sx, sy, sz, M.jCave);
+    for (const [x, y, z, sx, sy, sz] of [[42, 5.6, -96.6, 3.2, 1.8, 2.4], [47.5, 5.9, -96.8, 3.4, 2.0, 2.6], [45, 7.2, -98.5, 5.0, 2.4, 3.2], [40.5, 4.0, -97.5, 1.8, 2.6, 2.2], [49.6, 4.2, -97.4, 1.8, 2.8, 2.2], [45, 8.4, -102, 6.5, 3.0, 4.5]]) crag(x, y, z, sx, sy, sz, M.jCliff);
     for (let i = 0; i < 6; i++) K.xadd(G.vineCard, M.jVine, mat4(41.5 + i * 1.3, 4.3, -96.0, rr(-0.3, 0.3), 1, rr(2, 3.8), 1), false);
     // the cliff face: a rock wall rising out of the slope round the opening and running back into the hillside
     // (wet dark rock low down, paler weathered stone higher up; never inside the opening itself)
@@ -279,8 +309,11 @@ export function buildMap(K) {
   }
   // the crystals' own glow: a few dim green lights (pulsing slowly) so the rock round them catches it
   {
-    const gl = [[-7, 0.6, -130, 3, 14], [46, 0.8, -130, 1.5, 10], [20, 0.6, -125, 1, 8]].map(([x, y, z, i, d]) => ({ l: K.light(x, y, z, 0x33ff77, i, d), base: i, ph: x * 0.1 }));
-    W.anims.push((dt, t) => { for (const o of gl) o.l.intensity = o.base * (0.85 + 0.15 * Math.sin(t * 0.7 + o.ph)); });
+    // (the world pools its point lights: only the nearest few are real at any time, so the cave can have several)
+    const gl = [[-7, 0.6, -130, 40, 20], [-15, 0.8, -118, 25, 16], [46, 0.8, -130, 30, 18], [20, 0.6, -125, 25, 16], [70, 0.6, -125, 25, 16], [90, 0.4, -119, 25, 16]].map(([x, y, z, i, d]) => ({ l: K.light(x, y, z, 0x33ff77, i, d), base: i, ph: x * 0.1 }));
+    // the work lights: warm pools under the cable every so often (the rest of the bulbs are just glow)
+    for (const [x, z] of [[45, -106], [44, -120], [26, -125], [6, -124], [58, -126], [76, -125]]) { const C = CAVE.find(D => inRect(D.r, x, z)), y = C ? Math.min(C.h - 0.6, 3.0) : 3; const l = K.light(x, y, z, 0xffc880, 7, 10); gl.push({ l, base: 7, ph: x * 0.37, warm: true }); }
+    W.anims.push((dt, t) => { for (const o of gl) o.l.intensity = o.base * (o.warm ? 0.92 + 0.05 * Math.sin(t * 40 + o.ph) : 0.85 + 0.15 * Math.sin(t * 0.7 + o.ph)); });
   }
   // the underground lake: still black-green water, glowing from below; a rim you can't step past
   {
@@ -338,11 +371,11 @@ export function buildMap(K) {
     K.container('atticCase', 104.2, -130, 1.0, 'Steel sample case', -Math.PI / 2, null, { fixed: [['flashlight', 1]] });
     notes.push({ x: 104.2, z: -130, y: 1.0, id: 'lab' });
     // the generator and drums
-    K.block(90, 0, -139, 0.8, 0.9, 0.5, 0, 'darkMetal', 'metal'); K.container('garage', 90, -138.4, 0.5, 'Generator toolbox', 0);
-    for (const [x, z] of [[88, -139.6], [88.7, -139.8]]) { K.xadd(G.drum, K.MAT.rust || K.MAT.metal, mat4(x, 0, z, R())); }
+    propBox(90, 0, -139, 0.8, 0.9, 0.5, 0, M.jGen, 'metal', [0.0, 0.0, 0.06, 0.08]); K.container('garage', 90, -138.4, 0.5, 'Generator toolbox', 0);
+    for (const [x, z] of [[88, -139.6], [88.7, -139.8]]) { K.xadd(G.drum, M.jDrumRust, mat4(x, 0, z, R())); }
     K.solid(88.35, -139.7, 0.75, 0.35, 0, 0.9, 'metal');
     // cots
-    for (const [x, z] of [[89, -116.5], [92.5, -116.5]]) { K.block(x, 0.0, z, 0.95, 0.45, 0.4, 0, f => f === 'top' ? 'fabric1' : 'darkMetal', 'metal'); K.container('nightstand', x, z, 0.45, 'Cot', 0); }
+    for (const [x, z] of [[89, -116.5], [92.5, -116.5]]) { K.block(x, 0.0, z, 0.95, 0.45, 0.4, 0, f => f === 'top' ? 'fabric1' : 'jMetalDark', 'metal'); K.container('nightstand', x, z, 0.45, 'Cot', 0); }
     // a work lamp on a stand: the one real light down here (warm, buzzing)
     K.inst(G.pole, K.MAT.metal, mat4(96, 0, -127, 0, 0.4, 2.4, 0.4)); K.xadd(new THREE.SphereGeometry(0.16, 12, 8), M.jLampOn, mat4(96, 2.45, -127), false);
     const lab = K.light(96, 2.6, -127, 0xffd8a0, 10, 18);
@@ -402,13 +435,14 @@ export function buildMap(K) {
   for (let i = 0; i < 9; i++) { const z = 100 + rr(-3, 3), x = RIVER_X(z) - 6 + i * 1.5; K.rock(x, z, rr(0.5, 0.8), { flat: 0.6, solid: false }); }
 
   // ================================================================ the jungle: giant trees, palms, the understory
-  const giant = (x, z, s = 1, v = Math.floor(R() * 3)) => {
+  const giant = (x, z, s = 1, v = Math.floor(R() * G.giant.length)) => {
     const y = T(x, z), ry = R() * 6.28, t = G.giant[v];
     K.inst(t.bark, M.jBark, mat4(x, y, z, ry, s, s, s)); K.inst(t.leaf, R() < 0.5 ? M.jLeaf : M.jLeaf2, mat4(x, y, z, ry, s, s, s));
     if (t.vine) K.inst(t.vine, M.jVine, mat4(x, y, z, ry, s, s, s), false);
     K.solid(x, z, t.r * s, t.r * s, ry, y + t.h * s, 'wood', y - 1);
     for (const f of t.fins) { const a = f.a + ry, L = f.L * s, d = 0.3 * s + L * 0.4; K.solid(x + Math.cos(a) * d, z - Math.sin(a) * d, L * 0.4, 0.16 * s, a, y + f.hgt * s * 0.55, 'wood', y - 1, { vault: true }); }
     W.treeSpots.push([x, z, s * 1.8]);
+    for (let a = 0; a < 6.28; a += 0.8) for (const d of [0, 5, 9]) { const k = cIdx(x + Math.cos(a) * d * s, z + Math.sin(a) * d * s); if (k >= 0) CANOPY[k] = 1; }
   };
   let nGiant = 0;
   for (let i = 0; i < 2200 && nGiant < 95; i++) {
@@ -420,13 +454,31 @@ export function buildMap(K) {
   // a darker ring of giants on the ridges and against the mountain
   for (let i = 0; i < 46; i++) { const sd = i % 2 ? 1 : -1, x = sd * rr(126, 150), z = rr(-100, 118); giant(x, z, rr(0.9, 1.2)); }
   for (let i = 0; i < 18; i++) { const x = rr(-140, 140), z = rr(-118, -104); if (Math.abs(x - 45) < 12 || Math.abs(x - 101) < 12) continue; giant(x, z, rr(0.9, 1.2)); }
-  // mid-size canopy trees (the world's own instanced trees) to fill between the giants
+  // mid-size canopy trees to fill between the giants: the same rainforest species, younger (lighter crowns, no
+  // buttresses), and the odd wild palm — each one stretched and tinted a little differently
   let nTree = 0;
-  for (let i = 0; i < 3000 && nTree < 260; i++) { const x = rr(-130, 130), z = rr(-92, 104); if (!free(x, z, 2) || Math.abs(T(x, z)) > 0.05) continue; if (W.treeSpots.some(([tx, tz, ts]) => Math.hypot(tx - x, tz - z) < 3 + ts * 2)) continue; K.tree(x, z, rr(0.9, 1.5), R() < 0.4 ? 1 : 0); nTree++; }
+  const leafMs = [M.jLeaf, M.jLeaf2, M.jLeaf3];
+  for (let i = 0; i < 3000 && nTree < 260; i++) {
+    const x = rr(-130, 130), z = rr(-92, 104); if (!free(x, z, 2) || Math.abs(T(x, z)) > 0.05) continue; if (W.treeSpots.some(([tx, tz, ts]) => Math.hypot(tx - x, tz - z) < 3 + ts * 2)) continue;
+    const y = T(x, z), ry = R() * 6.28;
+    if (R() < 0.22) {   // a wild palm, leaning out for the light
+      const p = G.palm[Math.floor(R() * 3)], sw = rr(0.8, 1.05), sh = rr(0.85, 1.3);
+      K.inst(p.trunk, M.jPalmBark, mat4(x, y, z, ry, sw, sh, sw)); K.inst(p.fronds, R() < 0.5 ? M.jPalm : M.jPalm2, mat4(x, y, z, ry, sw, sh, sw), false);
+      K.solid(x, z, 0.25, 0.25, 0, y + 4, 'wood', y - 1);
+    } else {
+      const t = G.mid[Math.floor(R() * G.mid.length)], sw = rr(0.8, 1.2), sh = rr(0.8, 1.25);
+      K.inst(t.bark, M.jBark, mat4(x, y, z, ry, sw, sh, sw)); K.inst(t.leaf, leafMs[Math.floor(R() * 3)], mat4(x, y, z, ry, sw * rr(0.9, 1.1), sh, sw * rr(0.9, 1.1)));
+      if (t.vine) K.inst(t.vine, M.jVine, mat4(x, y, z, ry, sw, sh, sw), false);
+      K.solid(x, z, t.r * sw, t.r * sw, ry, y + t.h * sh, 'wood', y - 1);
+      W.treeSpots.push([x, z, sw]);
+      for (let a = 0; a < 6.28; a += 1.2) for (const d of [0, 4]) { const k = cIdx(x + Math.cos(a) * d, z + Math.sin(a) * d); if (k >= 0) CANOPY[k] = 1; }
+    }
+    nTree++;
+  }
   // the understory: ferns, big-leaved plants, bushes, saplings, fallen logs, boulders
   const fernAt = (x, z, s) => K.inst(G.fern[R() < 0.6 ? 0 : 1], M.jFern, mat4(x, T(x, z), z, R() * 6, s, s, s), false);
   for (let i = 0; i < 2600; i++) { const x = rr(-138, 138), z = rr(-96, 108); if (trailD(x, z) < 2.2 || cleared(x, z, -2) || riverD(x, z) < 6.5 || z > 108 || Math.abs(T(x, z)) > 1.5) continue; fernAt(x, z, rr(0.6, 1.4)); }
-  for (let i = 0; i < 700; i++) { const x = rr(-136, 136), z = rr(-94, 104); if (!free(x, z, 0)) continue; const s = rr(0.7, 1.5); K.inst(G.bigLeaf, R() < 0.5 ? M.jLeaf : M.jLeaf2, mat4(x, 0, z, R() * 6, s, s, s), false); }
+  for (let i = 0; i < 700; i++) { const x = rr(-136, 136), z = rr(-94, 104); if (!free(x, z, 0)) continue; const s = rr(0.7, 1.5); K.inst(G.bigLeaf, R() < 0.5 ? M.jLeaf : M.jLeaf2, mat4(x, T(x, z), z, R() * 6, s, s, s), false); }
   for (let i = 0; i < 220; i++) { const x = rr(-132, 132), z = rr(-92, 104); if (!free(x, z, 0.5)) continue; K.bush(x, z, rr(0.8, 1.4)); }
   for (let i = 0; i < 22; i++) { const x = rr(-125, 125), z = rr(-88, 100); if (!free(x, z, 4)) continue; K.fallenTree(x, z, R() * 6.28, rr(7, 12), rr(0.9, 1.3)); }
   for (let i = 0; i < 90; i++) { const x = rr(-132, 132), z = rr(-92, 104); if (!free(x, z, 1)) continue; K.rock(x, z, rr(0.4, 1.9)); }
@@ -435,7 +487,7 @@ export function buildMap(K) {
   // palms and sea grapes along the beach
   for (let i = 0; i < 70; i++) {
     const x = rr(-136, 136), z = rr(103, 116); if (Math.abs(x - 40) < 5 || riverD(x, z) < 9 || inRect([14, 100, 50, 118], x, z) || inRect([44, 88, 72, 106], x, z)) continue;
-    const p = G.palm[i % 3], y = T(x, z), ry = R() * 6.28; K.inst(p.trunk, M.jPalmBark, mat4(x, y, z, ry)); K.inst(p.fronds, M.jPalm, mat4(x, y, z, ry), false);
+    const p = G.palm[i % 3], y = T(x, z), ry = R() * 6.28, sw = rr(0.85, 1.1), sh = rr(0.85, 1.25); K.inst(p.trunk, M.jPalmBark, mat4(x, y, z, ry, sw, sh, sw)); K.inst(p.fronds, i % 2 ? M.jPalm : M.jPalm2, mat4(x, y, z, ry, sw, sh, sw), false);
     K.solid(x, z, 0.28, 0.28, 0, y + 4, 'wood', y - 1);
   }
 
@@ -447,12 +499,23 @@ export function buildMap(K) {
     for (let i = 0; i < p.count; i++) { const x = p.getX(i) + (x0 + x1) / 2, z = p.getZ(i) + (z0 + z1) / 2; p.setY(i, T(x, z) + 0.02); uv.setXY(i, x / 6, z / 6); }
     g.computeVertexNormals();
     const sandMat = M.jSand;
-    const sand = new THREE.Mesh(g, sandMat); sand.receiveShadow = true; K.level.add(sand);
+    const sand = new THREE.Mesh(g, sandMat); sand.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2); sand.receiveShadow = true; K.level.add(sand);
     for (let x = -140; x < 140; x += 10) K.region(x, 104, x + 10, 116, 'paved', 'gravel');
     for (let x = -140; x < 140; x += 3) K.paint(x, 104 + rr(-1, 1), 2.4, 'dirt', 0.5);
     // driftwood and shells of old boats
-    for (let i = 0; i < 16; i++) { const x = rr(-130, 130), z = rr(108, 115); if (Math.abs(x - 40) < 6 || riverD(x, z) < 8) continue; K.xadd(G.log, M.jPalmBark, mat4(x, T(x, z) + 0.12, z, R() * 6, rr(1.5, 3.5), 0.25, 0.25), true); }
+    for (let i = 0; i < 16; i++) { const x = rr(-130, 130), z = rr(108, 115); if (Math.abs(x - 40) < 6 || riverD(x, z) < 8) continue; const m = mat4(x, T(x, z) + 0.12, z, R() * 6, rr(1.5, 3.5), 0.25, 0.25); K.xadd(G.log, M.jPalmBark, m, true); K.xadd(G.logEnds, M.jEndGrain, m, false); }
   }
+  // a campfire's own look: a bed of glowing embers, charred sticks in a tepee, crossed flame cards that flicker
+  const fires = [];
+  const campfire = (x, z, lit = true) => {
+    K.xadd(new THREE.CircleGeometry(0.6, 16).rotateX(-Math.PI / 2), M.jEmber, mat4(x, 0.03, z), false);
+    for (let i = 0; i < 5; i++) { const a = i / 5 * 6.28 + 0.3; K.wbeam([x + Math.cos(a) * 0.5, 0.05, z + Math.sin(a) * 0.5], [x + Math.cos(a) * 0.06, 0.5, z + Math.sin(a) * 0.06], 0.05, 0.05, K.MAT.burnt || M.jBark, false); }
+    if (!lit) return;
+    const grp = new THREE.Group(); grp.position.set(x, 0.02, z); K.level.add(grp);
+    for (let i = 0; i < 3; i++) { const q = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 1.1).translate(0, 0.55, 0), M.jFlame); q.rotation.y = i / 3 * Math.PI; q.renderOrder = 4; grp.add(q); }
+    fires.push(grp);
+  };
+  W.anims.push((dt, t) => { if (!fires.length) return; const k = 1 + Math.sin(t * 13) * 0.06 + Math.sin(t * 7.3) * 0.08; for (const f of fires) { f.scale.set(1, k * (0.95 + 0.05 * Math.sin(t * 21 + f.position.x)), 1); f.rotation.y = t * 0.4; } M.jEmber.emissiveIntensity = 0.55 + 0.2 * Math.sin(t * 3.3) + 0.1 * Math.sin(t * 11); });
   // the expedition's beach camp (you start here): three tents round a fire, a mess tarp, the jeep, the supply crates
   const tent = (x, z, yaw, big = false, mat = M.jTent, label = 'Tent') => {
     const g = big ? G.tentBig : G.tent, w = big ? 5.2 : 3.6, d = big ? 7.0 : 4.4, hr = big ? 3.2 : 2.6;
@@ -468,7 +531,7 @@ export function buildMap(K) {
     K.box(x, 0, z, w / 2 - 0.05, 0.025, d / 2 - 0.05, yaw, f => f === 'top' ? (big ? 'jTarp' : 'jCanvasGreen') : null);
     K.region(...K.rectOf(x, z, w / 2, d / 2, yaw), 'paved', 'wood');
     // a cot and a footlocker inside
-    { const [a, b] = Q(-w / 2 + 0.6, -0.2); K.block(a, 0, b, 0.38, 0.42, 0.95, yaw, f => f === 'top' ? 'fabric2' : 'darkMetal', 'metal'); K.container('nightstand', a, b, 0.42, 'Cot', yaw); }
+    { const [a, b] = Q(-w / 2 + 0.6, -0.2); K.block(a, 0, b, 0.38, 0.42, 0.95, yaw, f => f === 'top' ? 'fabric2' : 'jMetalDark', 'metal'); K.container('nightstand', a, b, 0.42, 'Cot', yaw); }
     { const [a, b] = Q(w / 2 - 0.55, -d / 2 + 0.6); K.block(a, 0, b, 0.4, 0.45, 0.28, yaw, 'darkWood', 'wood'); K.container('closet', a, b, 0.45, label === 'Tent' ? 'Footlocker' : label, yaw); }
     return Q;
   };
@@ -478,14 +541,14 @@ export function buildMap(K) {
     // the fire pit: a ring of stones, a fire burning (the morning coffee), logs to sit on
     for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28; K.rock(56 + Math.cos(a) * 0.75, 93 + Math.sin(a) * 0.75, 0.32, { solid: false }); }
     K.emitter({ x: 56, y: 0.15, z: 93, kind: 'fire', rate: 5, t: 0, light: true }); K.emitter({ x: 56, y: 0.8, z: 93, kind: 'smoke', rate: 1.2, t: 0 });
-    K.hazard(56, 93, 0.6, 'fire', 8);
-    for (const [x, z, yaw] of [[53.6, 93.4, 0.2], [58.4, 92.6, -0.3], [56.2, 95.6, Math.PI / 2]]) { K.xadd(G.log, M.jPalmBark, mat4(x, 0.22, z, yaw + Math.PI / 2, 1.8, 0.45, 0.45)); K.solid(x, z, 0.24, 0.9, yaw, 0.44, 'wood', 0, { vault: true }); }
+    K.hazard(56, 93, 0.6, 'fire', 8); campfire(56, 93);
+    for (const [x, z, yaw] of [[53.6, 93.4, 0.2], [58.4, 92.6, -0.3], [56.2, 95.6, Math.PI / 2]]) { K.xadd(G.log, M.jPalmBark, mat4(x, 0.22, z, yaw + Math.PI / 2, 1.8, 0.45, 0.45)); K.xadd(G.logEnds, M.jEndGrain, mat4(x, 0.22, z, yaw + Math.PI / 2, 1.8, 0.45, 0.45), false); K.solid(x, z, 0.24, 0.9, yaw, 0.44, 'wood', 0, { vault: true }); }
     // the mess tarp: a blue tarp on poles over a folding table
     for (const [lx, lz] of [[-2.2, -1.6], [2.2, -1.6], [-2.2, 1.6], [2.2, 1.6]]) { K.inst(G.pole, M.jPole, mat4(66 + lx, 0, 100 + lz, 0, 0.5, 2.4, 0.5)); K.solid(66 + lx, 100 + lz, 0.06, 0.06, 0, 2.4, 'wood'); }
     K.xadd(new THREE.PlaneGeometry(5, 3.8, 6, 6).rotateX(-Math.PI / 2).translate(0, 0, 0), M.jTarp, mat4(66, 2.45, 100, 0, 1, 1, 1, 0.06, 0.03), true);
-    K.block(66, 0, 100, 1.0, 0.75, 0.45, 0, f => f === 'top' ? 'counter' : 'metal', 'metal');
+    K.block(66, 0, 100, 1.0, 0.75, 0.45, 0, f => f === 'top' ? 'counter' : 'jShelf', 'metal');
     K.container('kitchen', 66, 100, 0.8, 'Camp stove & food box', 0); K.container('cooler', 64.4, 101.1, 0.3, 'Cooler', 0);
-    K.block(64.4, 0, 101.1, 0.35, 0.42, 0.25, 0, 'bluePaint', 'plastic');
+    propBox(64.4, 0, 101.1, 0.35, 0.42, 0.25, 0, M.jCooler, 'plastic', [0.05, 0.1, 0.3, 0.4]);
     K.crateStack(70, 96, 0.4, 2); K.crateStack(71.2, 94.2, -0.2, 1);
     K.car(74, 88, -0.6, 3, 'pickup');
     // Day 1, noon: the beach camp is overrun (in the chaos layer)
@@ -502,8 +565,8 @@ export function buildMap(K) {
     void H;
     K.block(24.6, 0, 110, 0.8, 0.9, 0.35, 0, 'counter', 'wood'); K.container('shelf', 24.6, 110.1, 0.9, 'Bait shelf', 0);
     K.block(29.8, 0, 106.7, 0.5, 1.6, 0.25, 0, 'cabinet', 'wood'); K.container('cabinet', 29.8, 107, 0.9, 'Tool cupboard', Math.PI);
-    K.container('cooler', 25, 107, 0.3, 'Fish cooler', 0); K.block(25, 0, 107, 0.4, 0.45, 0.3, 0, 'white', 'plastic');
-    for (const [x, z] of [[33, 111.5], [33.7, 112.2], [32.6, 112.6]]) K.xadd(G.drum, K.MAT.bluePaint || K.MAT.metal, mat4(x, 0, z, R())); K.solid(33.2, 112.1, 0.9, 0.9, 0, 0.9, 'metal');
+    K.container('cooler', 25, 107, 0.3, 'Fish cooler', 0); propBox(25, 0, 107, 0.4, 0.45, 0.3, 0, M.jCooler, 'plastic', [0.05, 0.1, 0.3, 0.4]);
+    for (const [x, z] of [[33, 111.5], [33.7, 112.2], [32.6, 112.6]]) K.xadd(G.drum, M.jDrumBlue, mat4(x, 0, z, R())); K.solid(33.2, 112.1, 0.9, 0.9, 0, 0.9, 'metal');
   }
   // the dock: a long plank pier on log piles out to deep water, rails, lamp posts; the RIO LENTO tied up at the end
   {
@@ -518,8 +581,8 @@ export function buildMap(K) {
     }
     K.solid(x, zB + 0.05, 1.6, 0.08, 0, Y + 1.05, 'wood', Y - 0.6); K.wbeam([x - 1.5, Y + 1.0, zB], [x + 1.5, Y + 1.0, zB], 0.07, 0.07, M.jPole);
     // a lantern post half-way and at the end (one real light at the end, it comes on at dusk)
-    for (const z of [128, 145]) { K.inst(G.pole, K.MAT.darkMetal || K.MAT.metal, mat4(x - 1.3, Y, z, 0, 0.5, 2.4, 0.5)); K.xadd(new THREE.SphereGeometry(0.14, 10, 8), M.jLampOn, mat4(x - 1.3, Y + 2.45, z), false); }
-    const dl = K.light(x - 1.3, Y + 2.4, 145, 0xffd8a0, 0, 16); W.anims.push(() => { dl.intensity = W.daylight < 0.45 ? 9 : 0; });
+    for (const z of [128, 145]) { K.inst(G.pole, K.MAT.darkMetal || K.MAT.metal, mat4(x - 1.3, Y, z, 0, 0.5, 2.4, 0.5)); K.xadd(new THREE.SphereGeometry(0.14, 10, 8), M.jLampOut, mat4(x - 1.3, Y + 2.45, z), false); }
+    const dl = K.light(x - 1.3, Y + 2.4, 145, 0xffd8a0, 0, 16); W.anims.push(() => { const on = W.daylight < 0.45; dl.intensity = on ? 9 : 0; M.jLampOut.emissiveIntensity = on ? 2.5 : 0; });
     // a mooring bollard, coiled ropes, the chalked note on the post
     K.xadd(K.GEO.ucyl, K.MAT.darkMetal || K.MAT.metal, mat4(x + 1.1, Y + 0.2, 138, 0, 0.3, 0.4, 0.3));
     notes.push({ x: x - 1.0, z: 116, y: Y + 0.8, id: 'dock' }); K.container('bin', x - 1.0, 116, Y + 0.4, 'Tackle box', 0);
@@ -529,9 +592,15 @@ export function buildMap(K) {
     add(B0.hull, M.jHull); add(B0.deck, K.MAT.plank); add(B0.cab, K.MAT.white || K.MAT.trim); add(B0.glass, K.MAT.glass); add(B0.rail, K.MAT.metal); add(B0.tyre, K.MAT.rubber || K.MAT.black || K.MAT.metal);
     { const nm = K.std({ map: J.signTex(['RIO LENTO'], '#e8e4d8', '#1f2a3a', 512, 96, 'bold 64px Georgia'), roughness: 0.6 }); for (const sd of [-1, 1]) { const o = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.4), nm); o.position.set(3.2, 0.0, sd * 1.36); o.rotation.y = sd > 0 ? 0 : Math.PI; o.rotation.x = 0; grp.add(o); } }
     W.anims.push((dt, t) => { grp.position.y = 0.25 + Math.sin(t * 0.9) * 0.05; grp.rotation.z = Math.sin(t * 0.7) * 0.025; grp.rotation.x = Math.sin(t * 0.55 + 1) * 0.012; });
-    K.solid(44.0, 138.5, 1.55, 5.5, 0, 1.6, 'wood', -2);
+    const boatBox = K.solid(44.0, 138.5, 1.55, 5.5, 0, 1.6, 'wood', -2);
+    // Tomas takes her out to anchor offshore after dark ("STAY ON THE WATER") and brings her in at first light: the
+    // way out at 06:00 is the boat coming back in to the dock (heli.js's boat), so she isn't tied up here overnight
+    W.anims.push(() => { const h = W.time ?? 12, here = h >= 6.5 && h < 18.5; if (grp.visible !== here) { grp.visible = here; boatBox.off = !here; } });
     // her mooring lines to the dock
-    K.wbeam([42.6, 0.9, 134.5], [41.5, Y + 0.3, 133.5], 0.025, 0.025, M.jRope, false); K.wbeam([42.6, 0.9, 142.5], [41.5, Y + 0.3, 143.5], 0.025, 0.025, M.jRope, false);
+    // (in her own group, so they go with her: local x = −world z + 138.5 … the group is turned −90°)
+    for (const [wx, wz, dz] of [[42.6, 134.5, -1], [42.6, 142.5, 1]]) { const a = new THREE.Vector3(wx - 44, 0.9 - 0.25, wz - 138.5), b = new THREE.Vector3(41.5 - 44, Y + 0.3 - 0.25, wz + dz - 138.5), L = a.distanceTo(b);
+      const o = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, L, 5), M.jRope); o.position.copy(a).add(b).multiplyScalar(0.5); o.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      const wrap = new THREE.Group(); wrap.rotation.y = Math.PI / 2; wrap.add(o); grp.add(wrap); }
     W.boat = { x: 44, z: 138.5, group: grp };
   }
 
@@ -566,13 +635,13 @@ export function buildMap(K) {
     void c; void s; void name;
   }
   stiltHut(-86, -46, 0.25, 5.4, 4.2, 2.3, 'hut1', (Q, Y) => {
-    { const [a, b] = Q(-1.8, -1.2); K.block(a, Y, b, 0.95, Y + 0.45, 0.4, 0.25, f => f === 'top' ? 'fabric0' : 'darkMetal', 'metal'); K.container('nightstand', a, b, Y + 0.45, 'Cot', 0.25); }
+    { const [a, b] = Q(-1.8, -1.2); K.block(a, Y, b, 0.95, Y + 0.45, 0.4, 0.25, f => f === 'top' ? 'fabric0' : 'jMetalDark', 'metal'); K.container('nightstand', a, b, Y + 0.45, 'Cot', 0.25); }
     { const [a, b] = Q(-1.9, 1.5); K.block(a, Y, b, 0.6, Y + 1.7, 0.25, 0.25, 'cabinet', 'wood'); K.container('closet', a, b, Y + 1.0, 'Clothes rail', 0.25); }
     { const [a, b] = Q(0.8, 1.6); K.block(a, Y, b, 0.6, Y + 0.75, 0.3, 0.25, 'darkWood', 'wood'); K.container('dresser', a, b, Y + 0.75, 'Writing desk', 0.25); notes.push({ x: a, z: b, y: Y + 0.8, id: 'priya' }); }
   });
   stiltHut(-80, -18, -0.15, 6.0, 4.4, 2.5, 'hut2', (Q, Y) => {
-    { const [a, b] = Q(-2.0, -1.3); K.block(a, Y, b, 0.95, Y + 0.45, 0.4, -0.15, f => f === 'top' ? 'fabric3' : 'darkMetal', 'metal'); K.container('nightstand', a, b, Y + 0.45, 'Cot', -0.15); }
-    { const [a, b] = Q(-0.2, 1.7); K.block(a, Y, b, 1.1, Y + 1.0, 0.3, -0.15, 'shelfMetal', 'metal'); K.container('shelf', a, b, Y + 1.0, 'Supply shelves', -0.15, null, { fixed: [['flashlight', 1], ['battery', 1]] }); }
+    { const [a, b] = Q(-2.0, -1.3); K.block(a, Y, b, 0.95, Y + 0.45, 0.4, -0.15, f => f === 'top' ? 'fabric3' : 'jMetalDark', 'metal'); K.container('nightstand', a, b, Y + 0.45, 'Cot', -0.15); }
+    { const [a, b] = Q(-0.2, 1.7); K.block(a, Y, b, 1.1, Y + 1.0, 0.3, -0.15, 'jShelf', 'metal'); K.container('shelf', a, b, Y + 1.0, 'Supply shelves', -0.15, null, { fixed: [['flashlight', 1], ['battery', 1]] }); }
     { const [a, b] = Q(1.4, -1.5); K.block(a, Y, b, 0.4, Y + 0.5, 0.3, -0.15, 'darkWood', 'wood'); K.container('medicine', a, b, Y + 0.5, 'First-aid locker', -0.15); }
   });
   // the lab hut: a ground-level plank building with a tin-ish thatch roof; benches, the sample fridge, the log
@@ -580,8 +649,8 @@ export function buildMap(K) {
     K.room(-64, -40, 9, 6, 0.1, { h: 2.7, mat: 'plank', inMat: 'plank', floor: 'floorWood', roof: 'gable', roofMat: 'jThatch', ridge: 1.6, doors: [{ side: 'n', at: 2.2, w: 0.95, dir: -1, col: 0x4a5a3a }], windows: [{ side: 'n', at: -1.8, w: 1.4 }, { side: 'e', at: 0, w: 1.2 }, { side: 's', at: 0, w: 1.6 }], name: 'the lab hut', home: false, inside: [[0, 0], [-2.5, 0.5], [2.5, -1]] });
     const Q = P(-64, -40, 0.1);
     { const [a, b] = Q(-1.2, -2.5); K.block(a, 0, b, 2.0, 0.92, 0.36, 0.1, f => f === 'top' ? 'counter' : 'cabinet', 'wood'); K.container('medicine', a, b, 0.92, 'Lab bench', 0.1); notes.push({ x: a, z: b, y: 0.95, id: 'campLog' }); }
-    { const [a, b] = Q(-4.0, 0.6); K.block(a, 0, b, 0.35, 1.7, 0.5, 0.1, 'appliance', 'metal'); K.container('fridge', a, b, 1.0, 'Sample fridge', 0.1 + Math.PI / 2); }
-    { const [a, b] = Q(3.6, -1.4); K.block(a, 0, b, 0.45, 1.8, 0.9, 0.1, 'shelfMetal', 'metal'); K.container('pharmacy', a, b, 1.0, 'Chemical shelves', 0.1 - Math.PI / 2); }
+    { const [a, b] = Q(-4.0, 0.6); propBox(a, 0, b, 0.5, 1.7, 0.35, 0.1 + Math.PI / 2, M.jFridge, 'metal', [0.0, 0.05, 0.08, 0.3]); K.container('fridge', a, b, 1.0, 'Sample fridge', 0.1 + Math.PI / 2); }
+    { const [a, b] = Q(3.6, -1.4); K.block(a, 0, b, 0.45, 1.8, 0.9, 0.1, 'jShelf', 'metal'); K.container('pharmacy', a, b, 1.0, 'Chemical shelves', 0.1 - Math.PI / 2); }
     { const [a, b] = Q(1.2, 1.9); K.block(a, 0, b, 0.7, 0.75, 0.4, 0.1, 'darkWood', 'wood'); K.container('cabinet', a, b, 0.75, 'Desk', 0.1); }
     // microscopes and sample racks on the bench
     for (let i = 0; i < 3; i++) { const [a, b] = Q(-2.4 + i * 1.2, -2.5); K.xadd(new THREE.CylinderGeometry(0.04, 0.06, 0.32, 8), K.MAT.white || K.MAT.trim, mat4(a, 1.08, b, 0)); }
@@ -590,9 +659,9 @@ export function buildMap(K) {
   {
     K.room(-92, -30, 5, 4, -0.3, { h: 2.5, mat: 'plank', inMat: 'plank', floor: 'floorWood', roof: 'gable', roofMat: 'jThatch', ridge: 1.2, doors: [{ side: 'e', at: 0, w: 0.95, dir: 1, col: 0x5a4a32 }], windows: [{ side: 'n', at: 0, w: 1.0 }], name: 'the supply hut', home: false });
     const Q = P(-92, -30, -0.3);
-    { const [a, b] = Q(-1.6, 0); K.block(a, 0, b, 0.4, 1.8, 1.4, -0.3, 'shelfMetal', 'metal'); K.container('pantry', a, b, 1.0, 'Food shelves', -0.3 + Math.PI / 2); }
+    { const [a, b] = Q(-1.6, 0); K.block(a, 0, b, 0.4, 1.8, 1.4, -0.3, 'jShelf', 'metal'); K.container('pantry', a, b, 1.0, 'Food shelves', -0.3 + Math.PI / 2); }
     { const [a, b] = Q(0.6, -1.3); K.block(a, 0, b, 0.8, 0.6, 0.35, -0.3, 'darkWood', 'wood'); K.container('shed', a, b, 0.6, 'Tool chest', -0.3); }
-    for (const [lx, lz] of [[0.9, 1.2], [1.5, 1.2]]) { const [a, b] = Q(lx, lz); K.xadd(G.drum, K.MAT.redPaint || K.MAT.metal, mat4(a, 0, b, R())); }
+    for (const [lx, lz] of [[0.9, 1.2], [1.5, 1.2]]) { const [a, b] = Q(lx, lz); K.xadd(G.drum, M.jDrumRed, mat4(a, 0, b, R())); }
     { const [a, b] = Q(1.2, 1.2); K.solid(a, b, 0.65, 0.32, -0.3, 0.9, 'metal'); }
   }
   // camp tents, the generator lean-to, the radio mast, the fire pit, crates, a jeep
@@ -603,27 +672,42 @@ export function buildMap(K) {
     const gx = -74, gz = -26;
     for (const [lx, lz] of [[-1.6, -1.2], [1.6, -1.2], [-1.6, 1.2], [1.6, 1.2]]) { K.inst(G.pole, M.jPole, mat4(gx + lx, 0, gz + lz, 0, 0.6, lz < 0 ? 2.5 : 2.1, 0.6)); K.solid(gx + lx, gz + lz, 0.07, 0.07, 0, 2.3, 'wood'); }
     K.xadd(K.GEO.ubox, M.jThatch, mat4(gx, 2.32, gz, 0, 3.8, 0.1, 3.0, 0.16, 0));
-    K.block(gx, 0, gz, 0.75, 0.85, 0.5, 0, f => f === 'top' ? 'darkMetal' : 'yellowPaint', 'metal');
+    propBox(gx, 0, gz, 0.75, 0.85, 0.5, 0, M.jGen, 'metal', [0.0, 0.0, 0.06, 0.08]);
     K.xadd(K.GEO.ucyl, K.MAT.darkMetal || K.MAT.metal, mat4(gx + 0.4, 1.05, gz, 0, 0.1, 0.5, 0.1));
     K.container('garage', gx, gz + 0.8, 0.5, 'Generator', 0, null, { fixed: [['lantern', 1]] }); notes.push({ x: gx, z: gz + 0.8, y: 0.6, id: 'generator' });
-    for (let i = 0; i < 3; i++) K.xadd(G.drum, K.MAT.redPaint || K.MAT.metal, mat4(gx - 1.1 + i * 0.62, 0, gz - 0.9, R()));
+    for (let i = 0; i < 3; i++) K.xadd(G.drum, i === 1 ? M.jDrumRust : M.jDrumRed, mat4(gx - 1.1 + i * 0.62, 0, gz - 0.9, R()));
     K.solid(gx - 0.5, gz - 0.9, 1.0, 0.32, 0, 0.9, 'metal');
     // a string of bulbs over the camp (glowing at night), one real light by the generator
     const bulbG = new THREE.SphereGeometry(0.07, 8, 6);
     const pts = [[gx, gz], [-66, -30], [-62, -36], [-70, -46], [-80, -40], [gx, gz]];
-    for (let i = 0; i + 1 < pts.length; i++) { const [a, b] = [pts[i], pts[i + 1]]; K.wbeam([a[0], 2.9, a[1]], [b[0], 2.9, b[1]], 0.01, 0.01, K.MAT.black || K.MAT.metal, false); for (let k = 1; k < 6; k++) { const t = k / 6; K.inst(bulbG, M.jLampOn, mat4(lerp(a[0], b[0], t), 2.86 - Math.sin(t * Math.PI) * 0.25, lerp(a[1], b[1], t)), false); } K.inst(G.pole, M.jPole, mat4(b[0], 0, b[1], 0, 0.5, 3.0, 0.5)); }
-    const cl = K.light(-70, 3.2, -36, 0xffd8a0, 0, 20); W.anims.push(() => { cl.intensity = (W.daylight < 0.5 && W.jungle && W.jungle.genOn) ? 12 : 0; });
+    for (let i = 0; i + 1 < pts.length; i++) { const [a, b] = [pts[i], pts[i + 1]]; K.wbeam([a[0], 2.9, a[1]], [b[0], 2.9, b[1]], 0.01, 0.01, K.MAT.black || K.MAT.metal, false); for (let k = 1; k < 6; k++) { const t = k / 6; K.inst(bulbG, M.jBulbs, mat4(lerp(a[0], b[0], t), 2.86 - Math.sin(t * Math.PI) * 0.25, lerp(a[1], b[1], t)), false); } K.inst(G.pole, M.jPole, mat4(b[0], 0, b[1], 0, 0.5, 3.0, 0.5)); }
+    // (dark until somebody gets the generator going: the story's beats set W.jungle.genOn at the generator; before
+    // that the bulbs are only a dim battery trickle, and a hurricane lantern burns on the first hut's porch)
+    const [lnx, lnz] = P(-86, -46, 0.25)(2.45, -1.05), cl = K.light(-70, 3.2, -36, 0xffd8a0, 0, 20), pl = K.light(lnx, 4.1, lnz, 0xffb860, 0, 11);
+    W.anims.push((dt, t) => { const night = W.daylight < 0.5, gen = !!(W.jungle && W.jungle.genOn); cl.intensity = night && gen ? 12 : 0; M.jBulbs.emissiveIntensity = night ? (gen ? 2.4 : 0.25) : 0;
+      pl.intensity = night ? 5 * (0.9 + 0.1 * Math.sin(t * 9) * Math.sin(t * 5.3)) : 0; M.jRedLed.emissiveIntensity = Math.sin(t * 3) > 0.2 ? 3 : 0.2; });
+    // the porch lantern itself (hanging from the first hut's roof beam, by the door)
+    K.xadd(new THREE.CylinderGeometry(0.09, 0.11, 0.24, 10), M.jLampOut, mat4(lnx, 4.2, lnz), false);
+    K.xadd(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 10), M.jMetalDark, mat4(lnx, 4.34, lnz), false); K.wbeam([lnx, 4.36, lnz], [lnx, 4.72, lnz], 0.01, 0.01, M.jMetalDark, false);
     // the radio mast: a tall lattice pole with guy wires; the radio table beside it
     const mx = -54, mz = -44;
-    K.inst(G.pole, K.MAT.metal, mat4(mx, 0, mz, 0, 0.7, 14, 0.7)); K.solid(mx, mz, 0.12, 0.12, 0, 14, 'metal');
+    // a three-legged lattice: legs, zig-zag bracing on each face, an aerial on top, a red light that blinks
+    { const leg = i => [mx + Math.cos(i * 2.094 + 0.3) * 0.32, mz + Math.sin(i * 2.094 + 0.3) * 0.32], mm = K.MAT.metal, H = 14, bay = 0.9;
+      for (let i = 0; i < 3; i++) { const [a, b] = leg(i); K.wbeam([a, 0, b], [a, H, b], 0.03, 0.03, mm); }
+      for (let i = 0; i < 3; i++) { const [a, b] = leg(i), [c, d] = leg((i + 1) % 3); for (let y = 0; y + bay <= H; y += bay) { const up = Math.round(y / bay) % 2; K.wbeam(up ? [a, y, b] : [c, y, d], up ? [c, y + bay, d] : [a, y + bay, b], 0.012, 0.012, mm, false); K.wbeam([a, y, b], [c, y, d], 0.012, 0.012, mm, false); } }
+      K.wbeam([mx, H, mz], [mx, H + 2.2, mz], 0.025, 0.025, mm, false);
+      K.xadd(new THREE.SphereGeometry(0.09, 10, 8), M.jRedLed, mat4(mx, H + 2.25, mz), false);
+      K.solid(mx, mz, 0.36, 0.36, 0, H, 'metal'); }
     for (let i = 0; i < 3; i++) { const a = i / 3 * 6.28 + 0.4; K.wbeam([mx, 12, mz], [mx + Math.cos(a) * 7, 0.05, mz + Math.sin(a) * 7], 0.012, 0.012, K.MAT.metal, false); }
     K.block(mx + 1.4, 0, mz + 0.6, 0.7, 0.78, 0.4, 0.2, f => f === 'top' ? 'darkWood' : 'metal', 'metal');
-    K.xadd(new THREE.BoxGeometry(0.5, 0.28, 0.32), K.MAT.darkMetal || K.MAT.metal, mat4(mx + 1.4, 0.92, mz + 0.6, 0.2));
+    { const rm = K.std({ map: J.signTex(['◉  ◉  ◉', 'HF-90  TX/RX'], '#3a4038', '#c8d0b8', 256, 128, 'bold 26px Helvetica'), roughness: 0.5, metalness: 0.4 }), rg = new THREE.BoxGeometry(0.5, 0.28, 0.32), ru = rg.attributes.uv;
+      for (let i = 0; i < ru.count; i++) if ((i >> 2) !== 4) ru.setXY(i, 0.02 + ru.getX(i) * 0.05, 0.02 + ru.getY(i) * 0.05);
+      K.xadd(rg, rm, mat4(mx + 1.4, 0.92, mz + 0.6, 0.2)); K.xadd(new THREE.SphereGeometry(0.018, 6, 4), M.jRedLed, mat4(mx + 1.4 + Math.sin(0.2) * 0.165 + 0.18, 1.0, mz + 0.6 + Math.cos(0.2) * 0.165), false); }
     K.container('cabinet', mx + 1.4, mz + 0.6, 0.8, 'Camp radio (dead)', 0.2);
     // fire pit, log benches, a folding table and chairs, crates, the camp jeep
     for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28; K.rock(-68 + Math.cos(a) * 0.75, -36 + Math.sin(a) * 0.75, 0.3, { solid: false }); }
-    K.paint(-68, -36, 1.4, 'dark', 0.8);
-    for (const [x, z, yaw] of [[-70.4, -36, 0], [-65.6, -36.3, 0.2]]) { K.xadd(G.log, M.jPalmBark, mat4(x, 0.22, z, yaw + Math.PI / 2, 1.8, 0.45, 0.45)); K.solid(x, z, 0.24, 0.9, yaw, 0.44, 'wood', 0, { vault: true }); }
+    K.paint(-68, -36, 1.4, 'dark', 0.8); campfire(-68, -36, false);
+    for (const [x, z, yaw] of [[-70.4, -36, 0], [-65.6, -36.3, 0.2]]) { K.xadd(G.log, M.jPalmBark, mat4(x, 0.22, z, yaw + Math.PI / 2, 1.8, 0.45, 0.45)); K.xadd(G.logEnds, M.jEndGrain, mat4(x, 0.22, z, yaw + Math.PI / 2, 1.8, 0.45, 0.45), false); K.solid(x, z, 0.24, 0.9, yaw, 0.44, 'wood', 0, { vault: true }); }
     K.gardenTable(-63, -30); K.gardenChair(-62, -29, 2.5); K.gardenChair(-64.2, -31, -0.6);
     K.crateStack(-84, -32, 0.2, 3); K.crateStack(-86, -33.5, -0.5, 1); K.crateStack(-56, -27, 0.9, 2);
     K.car(-50, -32, 1.3, 6, 'pickup');
@@ -643,7 +727,7 @@ export function buildMap(K) {
   {
     const cx = 92, cz = -24;
     // the plaza: worn flagstones, rows of pillars (some fallen), a broken wall, carved heads half in the earth
-    K.box(84, 0, -16, 18, 0.06, 16, 0, f => f === 'top' ? 'jStone2' : null); K.region(66, -32, 102, 0, 'paved', 'concrete');
+    K.box(84, 0, -16, 18, 0.06, 16, 0, f => f === 'top' ? 'jFlag' : null); K.region(66, -32, 102, 0, 'paved', 'concrete');
     for (let i = 0; i < 6; i++) for (const sd of [-1, 1]) {
       const x = 68 + i * 4.2, z = -6 + sd * 5;
       if ((i === 2 && sd < 0) || (i === 4 && sd > 0)) {   // fallen: lying in drums
@@ -662,9 +746,7 @@ export function buildMap(K) {
     for (let i = 0; i < 5; i++) { const x = 66 + i * 3.1; if (i === 2) continue; const h = rr(1.2, 3.4); K.block(x, 0, -30.5, 1.5, h, 0.5, rr(-0.03, 0.03), 'jStone', 'concrete'); }
     // the carved heads
     for (const [x, z, yaw] of [[70, -2, 0.4], [96, -4, -0.6]]) {
-      K.xadd(new THREE.SphereGeometry(1.4, 14, 10).scale(1, 1.25, 0.95), M.jStone, mat4(x, 0.9, z, yaw));
-      K.xadd(K.GEO.ubox, M.jRuinDark, mat4(x + Math.sin(yaw) * 1.2, 1.3, z + Math.cos(yaw) * 1.2, yaw, 1.1, 0.5, 0.3));
-      K.xadd(K.GEO.ubox, M.jRuinDark, mat4(x + Math.sin(yaw) * 1.25, 0.6, z + Math.cos(yaw) * 1.25, yaw, 0.7, 0.3, 0.3));
+      K.xadd(G.head, M.jCliff, mat4(x, -0.25, z, yaw, 1, 1, 1, rr(-0.06, 0.02), rr(-0.05, 0.05)));   // sunk a little, tilted
       K.solid(x, z, 1.3, 1.2, yaw, 2.4, 'concrete');
     }
     // THE TEMPLE: three stepped tiers (each one a climb), a steep stair up the south face, the shrine on top
@@ -700,14 +782,16 @@ export function buildMap(K) {
 
   // ================================================================ the ranger station (west, on stilts) and the plane wreck
   stiltHut(-84, 60, Math.PI / 2, 6.4, 4.6, 2.8, 'ranger', (Q, Y) => {
-    { const [a, b] = Q(-2.2, -1.4); K.block(a, Y, b, 0.95, Y + 0.45, 0.4, Math.PI / 2, f => f === 'top' ? 'fabric4' : 'darkMetal', 'metal'); K.container('nightstand', a, b, Y + 0.45, 'Bunk', Math.PI / 2); }
+    { const [a, b] = Q(-2.2, -1.4); K.block(a, Y, b, 0.95, Y + 0.45, 0.4, Math.PI / 2, f => f === 'top' ? 'fabric4' : 'jMetalDark', 'metal'); K.container('nightstand', a, b, Y + 0.45, 'Bunk', Math.PI / 2); }
     { const [a, b] = Q(-0.4, 1.8); K.block(a, Y, b, 1.0, Y + 0.8, 0.35, Math.PI / 2, 'darkWood', 'wood'); K.container('police', a, b, Y + 0.8, 'Ranger\'s gun locker', Math.PI / 2, null, { fixed: [['ammo9', 10]] }); }
     { const [a, b] = Q(1.3, -1.6); K.block(a, Y, b, 0.45, Y + 1.6, 0.3, Math.PI / 2, 'cabinet', 'wood'); K.container('kitchen', a, b, Y + 1.0, 'Kitchen cupboard', Math.PI / 2); }
   });
   {
     // an old twin-prop plane, years in the trees: fuselage, a wing torn off, the tail up in the canopy
-    const x = -70, z = 100, yaw = 0.6, Q = P(x, z, yaw), body = K.std({ color: 0x8a8f86, roughness: 0.55, metalness: 0.6 });
-    K.xadd(new THREE.CylinderGeometry(1.1, 0.9, 9, 14).rotateZ(Math.PI / 2), body, mat4(x, 1.0, z, yaw, 1, 1, 1, 0, 0.06));
+    const x = -70, z = 100, yaw = 0.6, Q = P(x, z, yaw), body = K.std({ map: K.TX.paintedMetalTexture([150, 154, 148]), roughness: 0.55, metalness: 0.55 });
+    // the fuselage carries the skin with its windows, stripe and registration (uv turned to run along its length)
+    { const fg = new THREE.CylinderGeometry(1.1, 0.9, 9, 18, 1, false), fu = fg.attributes.uv; for (let i = 0; i < fu.count; i++) { const u = fu.getX(i), v = fu.getY(i); fu.setXY(i, v, u + 0.25); } fg.rotateZ(Math.PI / 2);
+      K.xadd(fg, M.jPlane, mat4(x, 1.0, z, yaw, 1, 1, 1, 0, 0.06)); }
     K.xadd(new THREE.SphereGeometry(1.1, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2).rotateZ(-Math.PI / 2), body, mat4(...Q(4.5, 0).flatMap((v, i) => i ? [v] : [v, 1.25]), yaw));
     K.xadd(K.GEO.ubox, body, mat4(...Q(0.5, 0).flatMap((v, i) => i ? [v] : [v, 1.4]), yaw, 1.8, 0.14, 6.5, 0.06, 0.04));
     K.xadd(K.GEO.ubox, body, mat4(...Q(2, 5).flatMap((v, i) => i ? [v] : [v, 0.3]), yaw + 0.5, 1.6, 0.14, 5.0, 0.3, 0.2));
@@ -715,6 +799,14 @@ export function buildMap(K) {
     K.solid(x, z, 4.6, 1.1, yaw, 2.2, 'metal');
     { const [a, b] = Q(2, 5); K.solid(a, b, 0.8, 2.5, yaw + 0.5, 0.8, 'metal', 0, { vault: true }); }
     K.container('truck', ...Q(1, -1.4), 0.8, 'Plane cargo hold', yaw);
+    // the engines: a nacelle on the wing still attached (bent prop), the other lying in the ferns where it fell
+    { const [a, b] = Q(0.9, -2.6), [c, d] = Q(-1.2, 7.5), nac = new THREE.CylinderGeometry(0.42, 0.32, 2.0, 14).rotateZ(Math.PI / 2), cone = new THREE.SphereGeometry(0.42, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2).rotateZ(-Math.PI / 2).translate(1.0, 0, 0);
+      for (const [ex, ez, ey, tilt] of [[a, b, 1.25, 0.06], [c, d, 0.38, 0.5]]) {
+        K.xadd(nac, M.jPlane, mat4(ex, ey, ez, yaw, 1, 1, 1, tilt, 0.04)); K.xadd(cone, M.jMetalDark, mat4(ex, ey, ez, yaw, 1, 1, 1, tilt, 0.04));
+        for (let k = 0; k < 3; k++) K.xadd(K.GEO.ubox, M.jMetalDark, mat4(ex + Math.cos(yaw) * 1.45, ey, ez - Math.sin(yaw) * 1.45, yaw, 0.04, 1.5, 0.14, k * 1.047 + tilt, k === 1 ? 0.5 : 0)); }
+      K.solid(c, d, 1.1, 0.45, yaw, 0.8, 'metal', 0, { vault: true }); }
+    // its cockpit glass, crazed and dirty
+    K.xadd(new THREE.SphereGeometry(1.0, 12, 8, -0.9, 1.8, 0.5, 0.9).rotateZ(-Math.PI / 2), K.MAT.glass || M.jMetalDark, mat4(...Q(4.1, 0).flatMap((v, i) => i ? [v] : [v, 1.35]), yaw), false);
     for (let i = 0; i < 6; i++) K.inst(G.vineCard, M.jVine, mat4(...Q(rr(-4, 4), rr(-0.8, 0.8)).flatMap((v, k) => k ? [v] : [v, 2.1]), R() * 6, 1, rr(1, 2), 1), false);
   }
 
@@ -727,7 +819,7 @@ export function buildMap(K) {
   for (const s of spawns) K.spawn(s.x, s.z);
 
   // the spots the story talks about
-  const SPOTS = { start: START, beachCamp: { x: 56, z: 92 }, dock: { x: 40, z: 116 }, boat: LZ, camp: { x: -68, z: -36 }, campLab: { x: -64, z: -40 }, caveMouth: { x: 45, z: -100 }, caveLab: { x: 96, z: -127 }, radio: radioSpot, ruins: { x: 92, z: -24 }, lake: { x: -7, z: -130 }, batCave: { x: 46, z: -127 }, bridgeN: { x: RIVER_X(-40), z: -40 }, bridgeS: { x: RIVER_X(60), z: 60 }, ford: { x: RIVER_X(100), z: 100 }, ranger: { x: -84, z: 60 }, waterfall: { x: -25, z: -92 } };
+  const SPOTS = { start: START, campGen: { x: -74, z: -25.2 }, beachCamp: { x: 56, z: 92 }, dock: { x: 40, z: 116 }, boat: LZ, camp: { x: -68, z: -36 }, campLab: { x: -64, z: -40 }, caveMouth: { x: 45, z: -100 }, caveLab: { x: 96, z: -127 }, radio: radioSpot, ruins: { x: 92, z: -24 }, lake: { x: -7, z: -130 }, batCave: { x: 46, z: -127 }, bridgeN: { x: RIVER_X(-40), z: -40 }, bridgeS: { x: RIVER_X(60), z: 60 }, ford: { x: RIVER_X(100), z: 100 }, ranger: { x: -84, z: 60 }, waterfall: { x: -25, z: -92 } };
   W.jungle = { SPOTS, bridges, cave: caveSet };
   return {
     name: 'Rio Verde', start: START, lz: LZ, lzName: 'the north dock', spawns, bounds: W.bounds, preset: 'jungle', ambient: 'jungle',

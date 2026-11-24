@@ -71,8 +71,10 @@ export const news = {
 };
 
 export const chapters = [
-  { id: 'begin', title: 'IT BEGINS', goal: 'Something is wrong at the <b>well</b>. Get away from the market square — find somewhere with a <b>door</b>.', done: 'time:12.6' },
-  { id: 'water', title: 'CLEAN WATER', goal: 'Don\'t drink from the well. Find <b>bottled water</b> and supplies: the <b>market stalls</b>, the <b>clinic</b>, the <b>gas station</b>.', done: 'items:water' },
+  { id: 'begin', title: 'IT BEGINS', goal: 'Something is wrong at the <b>well</b>. Get away from the market square — find somewhere with a <b>door</b>.', done: 'time:13.3' },
+  // (you start with one bottle, so "have water" would tick at once: the chapter ends when you've been to Amira's
+  //  stall and read what water costs now — the price list in the market)
+  { id: 'water', title: 'CLEAN WATER', goal: 'Don\'t drink from the well. Find <b>bottled water</b> and supplies — start at <b>Amira\'s stall</b> in the <b>market</b>, then the <b>clinic</b> and the <b>gas station</b>.', done: 'note:market' },
   { id: 'radio', title: 'THE RADIO', goal: 'Find a working <b>radio</b> — the <b>café</b> on the square, or the <b>airstrip shack</b>.', done: 'radio' },
   { id: 'night', title: 'THE NIGHT', goal: 'Survive the night. Get high: <b>roofs</b>, the <b>chapel tower</b>, the <b>water tower</b>. Be at the <b>airstrip</b> by <b>05:30</b>.', done: 'time:5.4' },
   { id: 'plane', title: 'THE PLANE', goal: 'The <b>mail plane</b> is on the strip. Ines waits <b>ninety seconds</b>. Get aboard — <b>E</b>.', done: 'board' },

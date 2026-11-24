@@ -170,10 +170,10 @@ function vineTex(seed) {
     g.clearRect(0, 0, w, h);
     for (let k = 0; k < 14; k++) {
       let x = r() * w; const len = h * (0.5 + r() * 0.5);
-      g.strokeStyle = rgba([60, 74, 36], 0.8 + r() * 0.4); g.lineWidth = 1.5 + r() * 2.5; g.beginPath(); g.moveTo(x, 0);
+      g.strokeStyle = rgba([60, 74, 36], 0.8 + r() * 0.4); g.lineWidth = 3 + r() * 4; g.beginPath(); g.moveTo(x, 0);
       for (let y = 0; y < len; y += 16) { x += (r() - 0.5) * 6; g.lineTo(x, y); }
       g.stroke();
-      for (let y = 10; y < len; y += 10 + r() * 14) { const lx = x + (r() - 0.5) * 10; g.fillStyle = rgba([58, 104, 36], 0.7 + r() * 0.6); g.beginPath(); g.ellipse(lx, y, 4 + r() * 4, 2 + r() * 2, r() * 3, 0, 7); g.fill(); }
+      for (let y = 10; y < len; y += 8 + r() * 12) { const lx = x + (r() - 0.5) * 12; g.fillStyle = rgba([58, 104, 36], 0.7 + r() * 0.6); g.beginPath(); g.ellipse(lx, y, 6 + r() * 6, 3 + r() * 3, r() * 3, 0, 7); g.fill(); g.strokeStyle = 'rgba(30,50,20,0.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(lx - 5, y); g.lineTo(lx + 5, y); g.stroke(); }
     }
   });
 }
@@ -184,6 +184,124 @@ function fallTex() {
     g.fillStyle = 'rgba(190,210,210,0.55)'; g.fillRect(0, 0, w, h);
     for (let k = 0; k < 500; k++) { const x = r() * w, y = r() * h, L = 30 + r() * 140; g.fillStyle = `rgba(255,255,255,${0.15 + r() * 0.5})`; g.fillRect(x, y, 1 + r() * 3, L); if (y + L > h) g.fillRect(x, y - h, 1 + r() * 3, L); }
     for (let k = 0; k < 200; k++) { const x = r() * w, y = r() * h; g.fillStyle = `rgba(60,80,80,${r() * 0.25})`; g.fillRect(x, y, 2 + r() * 4, 20 + r() * 60); }
+    // the sheet's sides fade out (no hard rectangle edge): a mask across u, ragged by streaks
+    g.globalCompositeOperation = 'destination-in';
+    const gr = g.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.2, 'rgba(0,0,0,0.9)'); gr.addColorStop(0.5, 'rgba(0,0,0,1)'); gr.addColorStop(0.8, 'rgba(0,0,0,0.9)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'source-over';
+  });
+}
+// white water: a ring / strip of churned foam (alpha), soft at both edges across v
+function foamTex(seed = 61) {
+  const r = rng(seed);
+  return canvas(512, 64, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    for (let k = 0; k < 900; k++) { const x = r() * w, y = h * (0.2 + r() * 0.6), rad = 1 + r() * 5; g.fillStyle = `rgba(240,248,246,${0.15 + r() * 0.45})`; g.beginPath(); g.ellipse(x, y, rad * 2, rad, 0, 0, 7); g.fill(); }
+    g.globalCompositeOperation = 'destination-in';
+    const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.4, 'rgba(0,0,0,1)'); gr.addColorStop(0.6, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'source-over';
+  });
+}
+// the ripples' relief (a normal map for the river and the sea)
+function rippleNormal() {
+  const r = rng(89), W = 256, H = 256, hc = document.createElement('canvas'); hc.width = W; hc.height = H; const g = hc.getContext('2d');
+  g.fillStyle = '#808080'; g.fillRect(0, 0, W, H);
+  for (let k = 0; k < 340; k++) { const x = r() * W, y = r() * H; for (const ox of [-W, 0, W]) for (const oy of [-H, 0, H]) { g.strokeStyle = `rgba(${r() < 0.5 ? '255,255,255' : '0,0,0'},${0.15 + r() * 0.2})`; g.lineWidth = 2 + r() * 3; g.beginPath(); g.ellipse(x + ox, y + oy, 8 + r() * 22, 2 + r() * 3, 0, 0, 7); g.stroke(); } }
+  return normalFrom(hc, 2.5);
+}
+// worn temple flagstones: big irregular slabs, dark gaps with soil and a little moss, worn smooth
+function flagTex(seed) {
+  const r = rng(seed), W = 512, H = 512;
+  const hc = document.createElement('canvas'); hc.width = W; hc.height = H; const hg = hc.getContext('2d'); hg.fillStyle = '#202020'; hg.fillRect(0, 0, W, H);
+  const map = canvas(W, H, (g) => {
+    g.fillStyle = '#3a3528'; g.fillRect(0, 0, W, H);
+    for (let j = 0; j < 5; j++) { let x = -r() * 60; const y0 = j * H / 5; while (x < W) { const bw = 70 + r() * 90, jy = (r() - 0.5) * 8, v = 0.78 + r() * 0.3;
+      const c = r() < 0.5 ? [150, 142, 120] : [138, 130, 112]; g.fillStyle = rgba(c, v); g.beginPath(); g.moveTo(x + 4 + r() * 4, y0 + 4 + jy); g.lineTo(x + bw - 4 - r() * 4, y0 + 5); g.lineTo(x + bw - 5, y0 + H / 5 - 4 - r() * 4); g.lineTo(x + 5, y0 + H / 5 - 5 + jy); g.closePath(); g.fill();
+      hg.fillStyle = `rgb(${170 + r() * 50 | 0},0,0)`; hg.fill();
+      for (let k = 0; k < 30; k++) { g.fillStyle = rgba([70, 64, 52], 1, r() * 0.25); g.fillRect(x + r() * bw, y0 + r() * H / 5, 2 + r() * 12, 1 + r() * 2); }
+      if (r() < 0.25) { g.strokeStyle = 'rgba(40,36,28,0.7)'; g.lineWidth = 1.2; g.beginPath(); let cx = x + r() * bw, cy = y0 + 6; g.moveTo(cx, cy); for (let q = 0; q < 6; q++) { cx += (r() - 0.5) * 18; cy += H / 5 / 7; g.lineTo(cx, cy); } g.stroke(); }
+      x += bw; } }
+    blot(g, W, H, 30, 'rgba(50,70,30,0.35)', 4, 18, r);
+    for (let k = 0; k < 3000; k++) { g.fillStyle = r() < 0.5 ? 'rgba(30,28,20,0.16)' : 'rgba(210,204,180,0.1)'; g.fillRect(r() * W, r() * H, 1.5, 1.5); }
+  });
+  return { map, ...(tier() ? {} : { normalMap: normalFrom(hc, 3), normalScale: new THREE.Vector2(1, 1) }) };
+}
+// the sawn / broken end of a log: growth rings, cracks, a darker bark rim
+function endGrainTex() {
+  const r = rng(71);
+  return canvas(128, 128, (g, w, h) => {
+    g.fillStyle = '#6a4e30'; g.fillRect(0, 0, w, h);
+    const cx = w / 2 + 3, cy = h / 2 - 2;
+    for (let k = 60; k > 0; k -= 3) { g.strokeStyle = rgba([150, 116, 74], 0.7 + r() * 0.5, 0.9); g.lineWidth = 1.6; g.beginPath(); g.ellipse(cx, cy, k, k * 0.96, 0, 0, 7); g.stroke(); }
+    g.fillStyle = 'rgba(190,156,104,0.35)'; g.beginPath(); g.arc(cx, cy, 42, 0, 7); g.fill();
+    for (let k = 0; k < 5; k++) { const a = r() * 6.28; g.strokeStyle = 'rgba(30,20,10,0.8)'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (30 + r() * 30), cy + Math.sin(a) * (30 + r() * 30)); g.stroke(); }
+    g.strokeStyle = '#3a2a1a'; g.lineWidth = 7; g.beginPath(); g.arc(w / 2, h / 2, 60, 0, 7); g.stroke();
+  });
+}
+// painted sheet metal / enamel / plastic with grime, scratches and a few details (fridge, cooler, generator, drums)
+function propTex(kind) {
+  const r = rng(kind.length * 31 + 7);
+  const grime = (g, w, h, n = 400) => { for (let k = 0; k < n; k++) { g.fillStyle = `rgba(${r() < 0.6 ? '70,56,36' : '30,28,24'},${r() * 0.18})`; g.fillRect(r() * w, r() * h, 1 + r() * 6, 1 + r() * 3); } blot(g, w, h, 10, 'rgba(90,70,40,0.18)', 10, 40, r); for (let k = 0; k < 24; k++) { const x = r() * w, y = h * 0.3 + r() * h * 0.7; const gr = g.createLinearGradient(0, y, 0, h); gr.addColorStop(0, 'rgba(80,60,30,0)'); gr.addColorStop(1, 'rgba(80,60,30,0.3)'); g.fillStyle = gr; g.fillRect(x, y, 2 + r() * 5, h - y); } };
+  return canvas(256, 256, (g, w, h) => {
+    if (kind === 'fridge') {
+      g.fillStyle = '#d4d0c4'; g.fillRect(0, 0, w, h);
+      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, h * 0.32, w, 3); g.fillRect(4, 4, w - 8, 2);
+      g.fillStyle = '#8a8a86'; g.fillRect(w * 0.82, h * 0.1, 10, h * 0.16); g.fillRect(w * 0.82, h * 0.4, 10, h * 0.3);
+      g.fillStyle = '#2a4a7a'; g.fillRect(w * 0.12, h * 0.05, 64, 16); g.fillStyle = '#fff'; g.font = 'bold 12px Helvetica'; g.fillText('BIOCOLD', w * 0.12 + 6, h * 0.05 + 12);
+      g.fillStyle = '#f0d020'; g.fillRect(w * 0.2, h * 0.5, 70, 60); g.fillStyle = '#111'; g.font = 'bold 11px Helvetica'; g.fillText('BIOHAZARD', w * 0.2 + 5, h * 0.5 + 16); g.fillText('SAMPLES', w * 0.2 + 10, h * 0.5 + 32); g.fillText('4 °C', w * 0.2 + 20, h * 0.5 + 48);
+      grime(g, w, h, 300);
+    } else if (kind === 'cooler') {
+      g.fillStyle = '#2a5aa0'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#e8e8e0'; g.fillRect(0, 0, w, h * 0.22); g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(0, h * 0.22, w, 3);
+      g.fillStyle = '#d8d8d0'; g.fillRect(w * 0.35, h * 0.32, w * 0.3, 12); g.fillStyle = 'rgba(255,255,255,0.15)'; for (let y = h * 0.45; y < h; y += 18) g.fillRect(0, y, w, 2);
+      grime(g, w, h, 250);
+    } else if (kind === 'generator') {
+      g.fillStyle = '#d0a020'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#1e1e1c'; g.fillRect(w * 0.08, h * 0.15, w * 0.4, h * 0.35); for (let y = h * 0.6; y < h * 0.9; y += 10) g.fillRect(w * 0.55, y, w * 0.38, 5);
+      g.fillStyle = '#c8c8c0'; for (let i = 0; i < 3; i++) { g.beginPath(); g.arc(w * 0.16 + i * 30, h * 0.3, 8, 0, 7); g.fill(); } g.fillStyle = '#c02010'; g.fillRect(w * 0.12, h * 0.4, 26, 12);
+      g.fillStyle = '#111'; g.font = 'bold 22px Helvetica'; g.fillText('POWERMAX', w * 0.52, h * 0.3); g.font = 'bold 13px Helvetica'; g.fillText('5.5 kW  DIESEL', w * 0.55, h * 0.42);
+      grime(g, w, h, 600);
+    } else {   // oil drums: ribs, a stencilled band, rust
+      const base = kind === 'drumRed' ? [150, 40, 30] : kind === 'drumBlue' ? [40, 74, 130] : [120, 80, 50];
+      g.fillStyle = rgba(base); g.fillRect(0, 0, w, h);
+      for (const y of [h * 0.33, h * 0.66]) { g.fillStyle = rgba(base, 0.6); g.fillRect(0, y - 3, w, 6); g.fillStyle = rgba(base, 1.3); g.fillRect(0, y + 3, w, 2); }
+      g.fillStyle = rgba(base, 0.55); g.fillRect(0, 0, w, 6); g.fillRect(0, h - 6, w, 6);
+      g.fillStyle = 'rgba(240,236,220,0.85)'; g.font = 'bold 22px Helvetica'; g.fillText(kind === 'drumBlue' ? 'WATER' : 'DIESEL', w * 0.1, h * 0.52); g.fillText(kind === 'drumBlue' ? 'POTABLE' : '200 L', w * 0.58, h * 0.52);
+      blot(g, w, h, 30, 'rgba(110,60,20,0.5)', 4, 22, r); grime(g, w, h, 500);
+    }
+  });
+}
+// the old plane's aluminium skin: panel lines, rivets, a faded stripe and registration, cabin windows, corrosion
+function planeTex() {
+  const r = rng(91);
+  return canvas(512, 256, (g, w, h) => {
+    g.fillStyle = '#a4a8a2'; g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 40; k++) { g.fillStyle = `rgba(${r() < 0.5 ? '255,255,255' : '60,60,60'},${r() * 0.08})`; g.fillRect(r() * w, 0, 30 + r() * 60, h); }
+    g.fillStyle = '#7a2420'; g.fillRect(0, h * 0.56, w, 14); g.fillStyle = '#1f3050'; g.fillRect(0, h * 0.56 + 16, w, 5);
+    g.strokeStyle = 'rgba(40,40,40,0.5)'; g.lineWidth = 1; for (let x = 0; x < w; x += 48) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); } for (const y of [h * 0.25, h * 0.75]) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+    g.fillStyle = 'rgba(40,40,40,0.45)'; for (let x = 4; x < w; x += 8) for (const y of [h * 0.25 - 3, h * 0.25 + 3, h * 0.75 - 3, h * 0.75 + 3]) g.fillRect(x, y, 1.5, 1.5);
+    g.fillStyle = '#1a1e22'; for (let i = 0; i < 6; i++) { const x = 120 + i * 46; g.beginPath(); g.ellipse(x, h * 0.42, 13, 10, 0, 0, 7); g.fill(); g.fillStyle = 'rgba(160,190,210,0.25)'; g.fillRect(x - 9, h * 0.42 - 7, 6, 4); g.fillStyle = '#1a1e22'; }
+    g.fillStyle = 'rgba(30,30,30,0.75)'; g.font = 'bold 34px Helvetica'; g.fillText('HP-41K', 360, h * 0.42 + 12);
+    blot(g, w, h, 40, 'rgba(90,70,40,0.35)', 6, 30, r); blot(g, w, h, 30, 'rgba(50,70,30,0.35)', 8, 40, r);
+    for (let k = 0; k < 40; k++) { const x = r() * w, y = r() * h * 0.5; const gr = g.createLinearGradient(0, y, 0, y + 90); gr.addColorStop(0, 'rgba(70,50,30,0.35)'); gr.addColorStop(1, 'rgba(70,50,30,0)'); g.fillStyle = gr; g.fillRect(x, y, 2 + r() * 4, 90); }
+  });
+}
+// a flame (alpha, additive): a bright core licking up into orange tongues
+function flameTex() {
+  const r = rng(13);
+  return canvas(128, 256, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    for (let k = 0; k < 9; k++) { const cx = w * (0.3 + r() * 0.4), top = h * (0.05 + r() * 0.35), bw = w * (0.12 + r() * 0.14);
+      const gr = g.createLinearGradient(0, h, 0, top); gr.addColorStop(0, 'rgba(255,240,190,0.95)'); gr.addColorStop(0.35, 'rgba(255,170,50,0.8)'); gr.addColorStop(0.75, 'rgba(220,70,10,0.45)'); gr.addColorStop(1, 'rgba(120,20,0,0)');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(cx - bw, h); g.quadraticCurveTo(cx - bw * 1.2, h * 0.6, cx + (r() - 0.5) * bw, top); g.quadraticCurveTo(cx + bw * 1.2, h * 0.6, cx + bw, h); g.fill(); }
+  }, true);
+}
+// a bed of embers: glowing cracks in grey ash (emissive)
+function emberTex() {
+  const r = rng(17);
+  return canvas(128, 128, (g, w, h) => {
+    g.fillStyle = '#2a2622'; g.fillRect(0, 0, w, h);
+    blot(g, w, h, 30, 'rgba(120,116,108,0.5)', 4, 14, r);
+    for (let k = 0; k < 60; k++) { const x = w / 2 + (r() - 0.5) * w * 0.7, y = h / 2 + (r() - 0.5) * h * 0.7; g.fillStyle = `rgba(255,${80 + r() * 120 | 0},20,${0.5 + r() * 0.5})`; g.beginPath(); g.ellipse(x, y, 2 + r() * 6, 1 + r() * 3, r() * 3, 0, 7); g.fill(); }
   });
 }
 // river water: ripples (scrolled along the flow)
@@ -210,8 +328,14 @@ export function signTex(lines, bg = '#d8c890', fg = '#222', w = 256, h = 128, fo
   return canvas(w, h, (g) => {
     g.fillStyle = bg; g.fillRect(0, 0, w, h);
     const r = rng(lines.join('').length * 7 + 3); for (let k = 0; k < 400; k++) { g.fillStyle = `rgba(80,60,30,${r() * 0.15})`; g.fillRect(r() * w, r() * h, 2 + r() * 8, 1 + r() * 2); }
-    g.fillStyle = fg; g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle';
-    lines.forEach((l, i) => g.fillText(l, w / 2, h / 2 + (i - (lines.length - 1) / 2) * parseInt(font.match(/(\d+)px/)[1]) * 1.15));
+    // every line shrinks until it fits 90% of the width (no words cut off); the spacing comes from the largest size,
+    // and the whole block also shrinks to fit the height
+    g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const m = font.match(/(\d+)px/), base = m ? +m[1] : 30, at = px => font.replace(/\d+px/, px + 'px');
+    const cap = Math.min(base, Math.floor(h * 0.9 / Math.max(1, lines.length) / 1.15));
+    const sizes = lines.map(l => { let px = cap; g.font = at(px); while (px > 8 && g.measureText(l).width > w * 0.9) { px--; g.font = at(px); } return px; });
+    const step = Math.max(...sizes) * 1.15;
+    lines.forEach((l, i) => { g.font = at(sizes[i]); g.fillText(l, w / 2, h / 2 + (i - (lines.length - 1) / 2) * step); });
   });
 }
 
@@ -241,13 +365,17 @@ function arcCard(len, wid, droop, segs = 6) {
 }
 // a giant rainforest tree (kapok / fig): tall straight trunk, plank buttress roots, a few big limbs, a broad
 // layered crown of leaf clumps and vines hanging from the limbs. Returns { bark, leaf, vine, h, r }
-function giantTree(seed, H) {
+// (lite: a mid-size canopy tree from the same recipe: fewer limbs, lighter clumps, no fins — the jungle's filler)
+function giantTree(seed, H, lite = false) {
   const r = rng(seed), bark = [], leaf = [], vine = [], fins = [];
+  // leaf cards round a clump: broad arched leaves sticking out of it, so the crown's edge is leaves, not a ball
+  const cards = (c, s, n) => { for (let q = 0; q < n; q++) { const a = q / n * Math.PI * 2 + r() * 0.6, el = (r() - 0.35) * 0.9, card = arcCard(s * (0.7 + r() * 0.4), s * 0.75, 0.35 + r() * 0.4, 3);
+    card.rotateX(-Math.PI / 2 + 0.35 - el); card.rotateY(a); card.translate(c.x - Math.sin(a) * s * 0.55, c.y + el * s * 0.25, c.z - Math.cos(a) * s * 0.55); leaf.push(card); } };
   const lean = V((r() - 0.5) * 0.8, 0, (r() - 0.5) * 0.8);
   const top = V(lean.x, H * 0.78, lean.z);
-  bark.push(taperTube([V(0, -0.3, 0), V(lean.x * 0.2, H * 0.25, lean.z * 0.2), V(lean.x * 0.6, H * 0.55, lean.z * 0.6), top], 0.95, 0.45, 12, 3));
+  bark.push(taperTube([V(0, -0.3, 0), V(lean.x * 0.2, H * 0.25, lean.z * 0.2), V(lean.x * 0.6, H * 0.55, lean.z * 0.6), top], lite ? 0.42 : 0.95, lite ? 0.22 : 0.45, lite ? 8 : 12, 3));
   // buttress roots: thin tall fins flaring out from the trunk
-  const nB = 5 + Math.floor(r() * 3);
+  const nB = lite ? 0 : 5 + Math.floor(r() * 3);
   for (let i = 0; i < nB; i++) {
     const a = i / nB * Math.PI * 2 + r() * 0.5, L = 2.2 + r() * 1.8, hgt = 2.4 + r() * 2.2;
     const sh = new THREE.Shape(); sh.moveTo(0, -0.3); sh.lineTo(L, -0.3); sh.quadraticCurveTo(L * 0.35, 0.15, 0.5, hgt); sh.lineTo(0, hgt); sh.closePath();
@@ -257,19 +385,20 @@ function giantTree(seed, H) {
     bark.push(fin); fins.push({ a, L, hgt });
   }
   // limbs and crown
-  const nL = 4 + Math.floor(r() * 3);
+  const nL = lite ? 3 + Math.floor(r() * 2) : 4 + Math.floor(r() * 3);
   for (let i = 0; i < nL; i++) {
     const a = i / nL * Math.PI * 2 + r(), y0 = H * (0.62 + r() * 0.15), L = H * (0.22 + r() * 0.12);
     const base = V(lean.x * 0.8, y0, lean.z * 0.8), mid = base.clone().add(V(Math.cos(a) * L * 0.5, L * 0.35, Math.sin(a) * L * 0.5)), end = base.clone().add(V(Math.cos(a) * L, L * 0.45, Math.sin(a) * L));
-    bark.push(taperTube([base, mid, end], 0.38, 0.1, 7, 3));
-    for (let k = 0; k < 3; k++) {
-      const c = end.clone().lerp(mid, k * 0.4).add(V((r() - 0.5) * 2, 0.6 + r() * 1.2, (r() - 0.5) * 2)), s = 2.6 + r() * 1.8;
-      const cl = new THREE.IcosahedronGeometry(1, 2), p = cl.attributes.position;
+    bark.push(taperTube([base, mid, end], lite ? 0.24 : 0.38, 0.08, lite ? 5 : 7, 3));
+    for (let k = 0; k < (lite ? 2 : 3); k++) {
+      const c = end.clone().lerp(mid, k * 0.4).add(V((r() - 0.5) * 2, 0.6 + r() * 1.2, (r() - 0.5) * 2)), s = (lite ? 1.8 : 2.6) + r() * 1.8;
+      const cl = new THREE.IcosahedronGeometry(1, lite ? 1 : 2), p = cl.attributes.position;
       for (let q = 0; q < p.count; q++) { const x = p.getX(q), y = p.getY(q), z = p.getZ(q), n = 1 + 0.25 * Math.sin(x * 5.1 + y * 3.3 + k) * Math.cos(z * 4.7 - x * 2.1); p.setXYZ(q, x * s * n, y * s * 0.55 * n, z * s * n); }
       cl.translate(c.x, c.y, c.z); leaf.push(cl);
+      cards(c, s, lite ? 6 : 9);
     }
     // vines hanging from the limb
-    for (let k = 0; k < 2; k++) {
+    for (let k = 0; k < (lite ? 1 : 2); k++) {
       const at = base.clone().lerp(end, 0.4 + r() * 0.55), len = Math.min(at.y - 0.6, 6 + r() * 9);
       const vc = new THREE.PlaneGeometry(1.4, len).translate(0, -len / 2, 0); vc.rotateY(r() * 3); vc.translate(at.x, at.y, at.z);
       const uv = vc.attributes.uv; for (let q = 0; q < uv.count; q++) uv.setXY(q, uv.getX(q), uv.getY(q) * len / 9);
@@ -277,11 +406,11 @@ function giantTree(seed, H) {
     }
   }
   // a top clump over the trunk
-  { const cl = new THREE.IcosahedronGeometry(1, 2), s = 4; cl.scale(s, s * 0.5, s); cl.translate(top.x, top.y + 2, top.z); leaf.push(cl); }
+  { const cl = new THREE.IcosahedronGeometry(1, lite ? 1 : 2), s = lite ? 2.8 : 4; cl.scale(s, s * 0.5, s); cl.translate(top.x, top.y + 2, top.z); leaf.push(cl); cards(V(top.x, top.y + 2, top.z), s, lite ? 7 : 10); }
   // lianas wound up the trunk
   const lp = []; for (let k = 0; k <= 14; k++) { const t = k / 14, a = t * 9 + seed; lp.push(V(Math.cos(a) * (0.95 - t * 0.45) + lean.x * t, t * H * 0.7, Math.sin(a) * (0.95 - t * 0.45) + lean.z * t)); }
-  bark.push(taperTube(lp, 0.08, 0.05, 5, 1));
-  return { bark: merge(bark), leaf: merge(leaf), vine: vine.length ? merge(vine) : null, h: H, r: 1.15, fins };
+  if (!lite) bark.push(taperTube(lp, 0.08, 0.05, 5, 1));
+  return { bark: merge(bark), leaf: merge(leaf), vine: vine.length ? merge(vine) : null, h: H, r: lite ? 0.5 : 1.15, fins };
 }
 // a coconut palm: a curved ringed trunk and a crown of drooping fronds
 function palmTree(seed) {
@@ -307,6 +436,30 @@ function bigLeafPlant(seed) {
   const r = rng(seed), out = [];
   for (let i = 0; i < 6; i++) { const c = arcCard(1.6 + r() * 0.8, 0.9, 0.5, 5); c.rotateX(-0.25 - r() * 0.5); c.rotateY(i / 6 * Math.PI * 2 + r()); c.translate(0, 0.2, 0); out.push(c); }
   return merge(out);
+}
+// a colossal carved stone head (the Olmec kind): a helmeted face, heavy brow, broad flat nose, thick lips, ear
+// flaps; the face looks along +z. About 2.6 m tall, base at y 0.
+function carvedHead() {
+  const g = new THREE.SphereGeometry(1, 40, 30), p = g.attributes.position;
+  const bump = (x, y, z, cx, cy, cz, rx, ry, rz) => Math.exp(-(((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 + ((z - cz) / rz) ** 2));
+  for (let i = 0; i < p.count; i++) {
+    let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const front = Math.max(0, z), face = front * (1 - smooth(0.55, 0.95, Math.abs(y)));
+    let d = 1;
+    d += 0.16 * bump(x, y, z, 0, -0.02, 1, 0.24, 0.26, 0.5);                                  // the nose
+    d += 0.07 * (bump(x, y, z, 0.17, -0.12, 0.95, 0.12, 0.1, 0.4) + bump(x, y, z, -0.17, -0.12, 0.95, 0.12, 0.1, 0.4));   // nostrils
+    d += 0.11 * bump(x, y, z, 0, -0.4, 0.92, 0.36, 0.08, 0.4) + 0.1 * bump(x, y, z, 0, -0.55, 0.88, 0.32, 0.08, 0.4);   // the lips
+    d -= 0.05 * bump(x, y, z, 0, -0.48, 0.95, 0.3, 0.03, 0.3);                                 // the mouth line
+    d -= 0.09 * (bump(x, y, z, 0.33, 0.2, 0.92, 0.17, 0.09, 0.4) + bump(x, y, z, -0.33, 0.2, 0.92, 0.17, 0.09, 0.4));   // the eyes (heavy lids)
+    d += 0.08 * bump(x, y, z, 0, 0.36, 0.95, 0.7, 0.07, 0.5);                                  // the brow
+    d += 0.1 * (1 - smooth(0.03, 0.1, Math.abs(y - 0.5))) * (0.6 + 0.4 * front);              // the helmet band
+    d += 0.06 * (bump(x, y, z, 0.98, 0, 0, 0.18, 0.4, 0.3) + bump(x, y, z, -0.98, 0, 0, 0.18, 0.4, 0.3));   // the ear flaps
+    d *= 1 - 0.18 * Math.max(0, -z);                                                         // flatter at the back
+    x *= d * 1.0; y *= d * 1.2; z *= d * 0.95 * (1 - face * 0.1);
+    if (y < -0.95) y = -0.95;                                                                // a flat base, sunk in the earth
+    p.setXYZ(i, x, y + 0.95, z);
+  }
+  g.computeVertexNormals(); return g.scale(1.35, 1.1, 1.35);
 }
 // a stalactite (hangs down from y 0) / stalagmite: a lumpy tapering cone
 function dripstone(seed, up = false) {
@@ -372,13 +525,13 @@ let KIT = null;
 export function jungleKit(K) {
   if (KIT && KIT.K === K) return KIT;
   const std = o => new THREE.MeshStandardMaterial({ roughness: 0.85, ...o });
-  const leafy = (map, sway = 0.05, color = 0xffffff) => {
-    const m = std({ map, color, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.6 });
+  const leafy = (map, sway = 0.05, color = 0xffffff, alphaTest = 0.45) => {
+    const m = std({ map, color, alphaTest, side: THREE.DoubleSide, roughness: 0.6 });
     const L = K.MAT.leaves;   // borrow the world's foliage shader (sway in the wind, back-lit glow)
     if (L && L.onBeforeCompile) { m.onBeforeCompile = L.onBeforeCompile; m.userData.pk = (L.userData.pk || 'fol') + 'j' + sway; m.customProgramCacheKey = () => m.userData.pk; m.alphaToCoverage = true; }
     return m;
   };
-  const stone = stoneTex(11, 1), stone2 = stoneTex(23, 0.4), cave = caveRockTex(5);
+  const stone = stoneTex(11, 0.55), stone2 = stoneTex(23, 0.3), cave = caveRockTex(5), flags = flagTex(29), ripN = tier() ? null : rippleNormal();
   const M = {
     jStone: std({ ...stone, color: 0xd8d4c4, roughness: 0.95 }),
     jStone2: std({ ...stone2, color: 0xc8c0b0, roughness: 0.95 }),
@@ -394,28 +547,51 @@ export function jungleKit(K) {
     jLeaf2: leafy(bigLeafTex(19), 0.05, 0xc8d8a8),
     jFern: leafy(frondTex(21), 0.06),
     jPalm: leafy(frondTex(23, true), 0.07),
-    jVine: leafy(vineTex(25), 0.03),
+    jVine: leafy(vineTex(25), 0.03, 0xffffff, 0.3),
+    jLeaf3: leafy(bigLeafTex(17), 0.05, 0x9ab088),
+    jPalm2: leafy(frondTex(23, true), 0.07, 0xe0e4a8),
     jBark: std({ ...K.TX.relief(K.TX.barkTexture('oak'), 1.6), color: 0xb4ac98, roughness: 0.95 }),
-    jPalmBark: std({ ...K.TX.relief(K.TX.barkTexture('pine'), 1.0), color: 0xa89a80, roughness: 0.95 }),
+    jPalmBark: std({ ...K.TX.relief(K.TX.barkTexture('pine'), 1.0), color: 0xd4c6aa, roughness: 0.95 }),
+    jEndGrain: std({ map: endGrainTex(), roughness: 0.9 }),
     jFall: new THREE.MeshStandardMaterial({ map: fallTex(), transparent: true, depthWrite: false, roughness: 0.1, side: THREE.DoubleSide, envMapIntensity: 1.2 }),
-    jRiver: new THREE.MeshStandardMaterial({ map: rippleTex(), color: 0x9ab8a8, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.9, envMapIntensity: 1.5 }),
-    jSea: new THREE.MeshStandardMaterial({ map: rippleTex(), color: 0x6a9aa8, roughness: 0.05, metalness: 0.25, transparent: true, opacity: 0.92, envMapIntensity: 1.8 }),
-    jLake: new THREE.MeshStandardMaterial({ color: 0x050d0c, roughness: 0.04, metalness: 0.2, emissive: 0x0b4a2a, emissiveIntensity: 0.35, envMapIntensity: 0.25, transparent: true, opacity: 0.95 }),
+    jRiver: new THREE.MeshStandardMaterial({ map: rippleTex(), color: 0x9ab8a8, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.9, envMapIntensity: 1.5, vertexColors: true, ...(ripN ? { normalMap: ripN, normalScale: new THREE.Vector2(0.6, 0.6) } : {}) }),
+    jSea: new THREE.MeshStandardMaterial({ map: rippleTex(), color: 0x6a9aa8, roughness: 0.05, metalness: 0.25, transparent: true, opacity: 0.92, envMapIntensity: 1.8, ...(ripN ? { normalMap: ripN.clone(), normalScale: new THREE.Vector2(0.5, 0.5) } : {}) }),
+    jFoam: new THREE.MeshStandardMaterial({ map: foamTex(), transparent: true, depthWrite: false, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    jLake: new THREE.MeshStandardMaterial({ color: 0x050d0c, roughness: 0.04, metalness: 0.2, emissive: 0x0b4a2a, emissiveIntensity: 1.2, envMapIntensity: 0.25, transparent: true, opacity: 0.95 }),
     jCaveFloor: std({ ...K.TX.relief(K.TX.gravelTexture(), 1.2), color: 0x6a6258, roughness: 0.75 }),
     jSand: std({ map: K.TX.sandTexture(), roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-    jCrystal: std({ color: 0x66ff88, emissive: 0x33ff66, emissiveIntensity: 2.2, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.85 }),
+    jCrystal: std({ color: 0x66ff88, emissive: 0x33ff66, emissiveIntensity: 4, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.85 }),
     jBat: std({ color: 0x1a1612, roughness: 0.9, side: THREE.DoubleSide }),
     jHull: std({ map: hullTex(), roughness: 0.6, side: THREE.DoubleSide }),
     jCanvasGreen: std({ map: tentTex([70, 82, 52], 31), roughness: 1, side: THREE.DoubleSide }),
-    jLampOn: std({ color: 0xfff0c8, emissive: 0xffd890, emissiveIntensity: 2.5 }),
+    jLampOn: std({ color: 0xfff0c8, emissive: 0xffd890, emissiveIntensity: 2.5 }),        // the cave's bulbs (always on)
+    jLampOut: std({ color: 0xe8e0c8, emissive: 0xffd890, emissiveIntensity: 0, roughness: 0.3 }),   // outdoor lamps: lit at dusk (the map's anims)
+    jBulbs: std({ color: 0xe8e0c8, emissive: 0xffd890, emissiveIntensity: 0, roughness: 0.3 }),     // the camp's bulb string (on the generator)
+    jRedLed: std({ color: 0x401010, emissive: 0xff2010, emissiveIntensity: 0 }),
+    jFlame: new THREE.MeshBasicMaterial({ map: flameTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false }),
+    jEmber: std({ map: emberTex(), emissiveMap: null, emissive: 0xff6a20, emissiveIntensity: 0.6, roughness: 1 }),
+    jFlag: std({ ...flags, color: 0xd8d0c0, roughness: 0.92 }),
+    jCliff: std({ ...cave, color: 0xc8beac, roughness: 0.9 }),
+    jFridge: std({ map: propTex('fridge'), roughness: 0.35 }),
+    jCooler: std({ map: propTex('cooler'), roughness: 0.5 }),
+    jGen: std({ map: propTex('generator'), roughness: 0.55, metalness: 0.2 }),
+    jDrumRed: std({ map: propTex('drumRed'), roughness: 0.6, metalness: 0.3 }),
+    jDrumBlue: std({ map: propTex('drumBlue'), roughness: 0.6, metalness: 0.3 }),
+    jDrumRust: std({ map: propTex('drumRust'), roughness: 0.75, metalness: 0.3 }),
+    jPlane: std({ map: planeTex(), roughness: 0.55, metalness: 0.5, side: THREE.DoubleSide }),
+    jShelf: std({ map: K.TX.paintedMetalTexture([150, 152, 146]), roughness: 0.5, metalness: 0.5 }),
+    jMetalDark: std({ map: K.TX.paintedMetalTexture([56, 60, 62]), roughness: 0.55, metalness: 0.5 }),
     jTarp: std({ map: tentTex([40, 70, 130], 41), roughness: 0.7, side: THREE.DoubleSide }),
     jRuinDark: std({ ...stone, color: 0x888070, roughness: 1 }),
   };
-  M.jFall.map.wrapS = M.jFall.map.wrapT = THREE.RepeatWrapping;
+  M.jFall.map.wrapS = M.jFall.map.wrapT = THREE.RepeatWrapping; M.jFall.map.repeat.set(1, 2);
+  M.jEmber.emissiveMap = M.jEmber.map;
   Object.assign(K.MAT, M);
-  Object.assign(K.TILE, { jStone: 3.2, jStone2: 3.2, jCave: 4.5, jCaveWet: 7, jCaveFloor: 2.5, jTent: 2, jTent2: 2, jTentBlue: 2, jThatch: 2, jPole: 2, jRope: 0.5, jSand: 6, jRuinDark: 3.2, jCanvasGreen: 2, jTarp: 2 });
+  Object.assign(K.TILE, { jStone: 3.2, jStone2: 3.2, jCave: 4.5, jCaveWet: 7, jCaveFloor: 2.5, jTent: 2, jTent2: 2, jTentBlue: 2, jThatch: 2, jPole: 2, jRope: 0.5, jSand: 6, jRuinDark: 3.2, jFlag: 4, jCliff: 4.5, jShelf: 1.5, jMetalDark: 1.5, jCanvasGreen: 2, jTarp: 2 });
   const G = {
-    giant: [giantTree(3, 26), giantTree(8, 30), giantTree(14, 22)],
+    giant: [giantTree(3, 26), giantTree(8, 30), giantTree(14, 22), giantTree(19, 28), giantTree(27, 24), giantTree(33, 32), giantTree(41, 25)],
+    mid: [giantTree(52, 13, true), giantTree(57, 15, true), giantTree(63, 11, true), giantTree(68, 14, true)],
+    head: carvedHead(),
     palm: [palmTree(5), palmTree(9), palmTree(12)],
     fern: [fern(31), fern(37, 7, 1.8)],
     bigLeaf: bigLeafPlant(41),
@@ -428,7 +604,8 @@ export function jungleKit(K) {
     plank: new THREE.BoxGeometry(1, 0.05, 0.22),
     rope: new THREE.CylinderGeometry(0.025, 0.025, 1, 5).rotateX(Math.PI / 2),
     drum: new THREE.CylinderGeometry(0.29, 0.29, 0.88, 16).translate(0, 0.44, 0),
-    log: new THREE.CylinderGeometry(0.5, 0.5, 1, 12).rotateZ(Math.PI / 2),
+    log: new THREE.CylinderGeometry(0.5, 0.5, 1, 12, 1, true).rotateZ(Math.PI / 2),
+    logEnds: merge([new THREE.CircleGeometry(0.5, 12).rotateY(Math.PI / 2).translate(0.5, 0, 0), new THREE.CircleGeometry(0.5, 12).rotateY(-Math.PI / 2).translate(-0.5, 0, 0)]),
     skull: new THREE.SphereGeometry(0.1, 8, 6).scale(1, 0.9, 1.15),
   };
   KIT = { K, M, G, signTex, merge };

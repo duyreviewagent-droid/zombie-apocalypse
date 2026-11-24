@@ -19,6 +19,8 @@ export const HWY = 76, STRIP = 92;
 export function heightAt(x, z) {
   const dw = Math.abs(z - wadiZ(x));
   let h = -3.0 * (1 - smooth(5.5, 9.5, dw));
+  // scree on the banks: lumpy, not a clean ramp (strongest half-way down the slope)
+  { const bk = smooth(4.8, 7.2, dw) * (1 - smooth(8.2, 10.5, dw)); if (bk > 0) h += bk * (0.22 * Math.sin(x * 1.7 + z * 0.6) * Math.cos(z * 1.3 - x * 0.4) + 0.12 * Math.sin(x * 3.9 - z * 2.7)); }
   h += 6.5 * Math.exp(-((x + 90) ** 2 + (z + 90) ** 2) / 260);
   const e = Math.max(Math.abs(x), Math.abs(z));
   if (e > 110) {
@@ -42,11 +44,19 @@ export function buildMap(K) {
   const { M, G } = install(K);
   const R = rng(1977);
   const PI = Math.PI;
+  const hY = heightAt;
   const Lf = (x, z, yaw) => { const c = Math.cos(yaw), s = Math.sin(yaw); return (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c]; };
   const inst = (geo, mat, m, sh = true) => K.inst(geo, typeof mat === 'string' ? M[mat] : mat, m, sh);
   const xadd = (geo, mat, m, sh = true) => K.xadd(geo, typeof mat === 'string' ? M[mat] : mat, m, sh);
   const DOORS = [0x2e5c8c, 0x2a6a6a, 0x3a6a3a, 0x7a3a24, 0xa8802a, 0x3a4a7a, 0x5a3a28];
   const notes = [];
+  // ---- night: every lantern is a K.lamp (the street-lamp machinery: on at dusk, the nearest few borrow one of the
+  // world's real spot lights) and throws a soft pool of warm light on the ground under it (an additive decal)
+  const lampAt = (x, y, z, o = {}) => {
+    const tx = o.tx ?? x, tz = o.tz ?? z;
+    if (K.lamp) K.lamp(x, y, z, { pow: o.pow ?? 0.32, dist: o.dist ?? 9, angle: o.angle ?? 1.15, tx, tz, col: o.col ?? 0xffb468, reach: o.reach ?? 0 });
+    const pr = o.pool ?? 2.4; if (pr > 0) xadd(G.rug, M.pool, mat4(tx, (o.gy ?? Math.max(0, hY(tx, tz))) + 0.035, tz, 0, pr * 2, 1, pr * 2), false);
+  };
   const blk = (x, y0, z, hx, y1, hz, yaw, mat, surf = 'wood', extra = {}) => K.block(x, y0, z, hx, y1, hz, yaw, mat, surf, true, extra);
   // sign text: font sized from the sign's shape, then shrunk so the widest line fits 88 % of the canvas (nothing cut off)
   const mctx = (typeof document !== 'undefined') ? document.createElement('canvas').getContext('2d') : null;
@@ -60,8 +70,7 @@ export function buildMap(K) {
   const note = (id, x, z, y) => notes.push({ id, x, z, y });
 
   // ================================================================ ground
-  K.terrain(heightAt, 2);
-  const hY = heightAt;
+  K.terrain(heightAt, 1);
   // the square: big sandstone flags; Main Street and the lanes: packed gravel
   K.slab(-22, -18, 14, 8, 'd_sandstone', 'concrete');
   K.region(14, -7.5, HWY - 4.2, -0.5, 'dirt', 'gravel');
@@ -92,15 +101,26 @@ export function buildMap(K) {
     }
     for (const dz of [-4.5, 4.5]) blk(HWY, -3.2, wz + dz, hw - 0.6, -0.55, 0.45, 0, 'concrete', 'concrete');
     // road signs
+    // a road sign: the printed face on the front only, a galvanised back panel behind it, two posts (they stand
+    // behind the panel, so they line up with it whichever way it faces)
     const sgn = (lines, x, z, yaw, bg = '#1e5a32', fg = '#f0f0e8') => {
-      inst(G.post, 'metal', mat4(x - 0.5, 0, z, 0, 1, 2.6, 1)); inst(G.post, 'metal', mat4(x + 0.5, 0, z, 0, 1, 2.6, 1));
-      const m = K.mesh(new THREE.PlaneGeometry(1.6, 0.9), new THREE.MeshStandardMaterial({ map: (K.TX.signTexture ? K.TX.signTexture(lines, bg, fg) : null), color: K.TX.signTexture ? 0xffffff : 0x1e5a32, roughness: 0.6, side: THREE.DoubleSide }), x, 2.25, z, yaw);
-      m.castShadow = true; K.solid(x, z, 0.6, 0.08, yaw, 2.6, 'metal');
+      const c = Math.cos(yaw), sn = Math.sin(yaw);
+      for (const o of [-0.5, 0.5]) inst(G.post, 'metal', mat4(x + o * c - sn * 0.06, 0, z - o * sn - c * 0.06, 0, 1, 2.75, 1));
+      xadd(G.ubox, 'signBack', mat4(x - sn * 0.025, 2.25 - 0.47, z - c * 0.025, yaw, 1.66, 0.94, 0.04));
+      const m = K.mesh(new THREE.PlaneGeometry(1.6, 0.9), new THREE.MeshStandardMaterial({ map: (K.TX.signTexture ? K.TX.signTexture(lines, bg, fg) : null), color: K.TX.signTexture ? 0xffffff : 0x1e5a32, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2 }), x + sn * 0.002, 2.25, z + c * 0.002, yaw);
+      m.castShadow = false; K.solid(x, z, 0.6, 0.08, yaw, 2.6, 'metal');
       return m;
     };
     sgn(['ARROYO SECO', 'pop. 212'], HWY - 6, -24, 0);
     sgn(['LAS PIEDRAS 40', 'MESA ROJA 12'], HWY + 6, 30, PI);
-    sgn(['AIRSTRIP', '→'], HWY + 6, -46, PI, '#6a4a22');
+    sgn(['AIRSTRIP', '→'], HWY + 6, -46, 0, '#6a4a22');   // faces drivers heading north: the arrow points east, to the strip
+    // gravel shoulders either side of the tarmac, white marker posts with amber reflectors (not on the bridge)
+    for (let z = z0; z < z1; z += 20) {
+      const mid = z + 10; if (Math.abs(mid - wz) < 16) continue;
+      for (const sx of [-1, 1]) K.box(HWY + sx * (hw + 0.75), -0.3, mid, 0.75, 0.012, 10, 0, f => f === 'top' ? 'd_gravel' : null);
+    }
+    for (let z = z0 + 6; z < z1; z += 25) { if (Math.abs(z - wz) < 15) continue;
+      for (const sx of [-1, 1]) { const px = HWY + sx * (hw + 1.6); inst(G.post, 'white', mat4(px, 0, z, 0, 1.3, 1.05, 1.3)); inst(G.ubox, 'lanternOn', mat4(px, 0.82, z + (sx < 0 ? 0.08 : -0.08), 0, 0.05, 0.12, 0.012), false); } }
   }
 
   // ================================================================ the adobe house
@@ -123,6 +143,7 @@ export function buildMap(K) {
         ...(r() < 0.6 ? [{ side: 's', at: (r() - 0.5) * (w - 3), w: 0.6, sill: 1.5, top: 2.1 }] : []),
       ],
       inside: [[0, (zs + d / 2) / 2], [0, (-d / 2 + zs) / 2]], name: o.name || ('house ' + houseN), home: o.home,
+      lit: o.lit ?? ((((houseN + 7) * 2654435761) >>> 0) % 100 < 40),
     });
     H.yTop = () => h + 0.22; H.desert = true;
     const top = h + 0.22, slx = ss * (w / 2 + 0.2 - 0.35 - 0.47);
@@ -161,6 +182,8 @@ export function buildMap(K) {
       { const [ax, az] = P(-cw, zf), [bx, bz] = P(cw, zf); K.wall(ax, az, bx, bz, { h: ch, t: ct, mat: pl, inMat: pl, openings: [{ at: doorLx, w: 1.5, door: true, col: DOORS[(DOORS.indexOf(col) + 2) % DOORS.length], dir: 1, hp: 220 }], house: null }); }
       // the gate's arch: a beam over it and a rounded crown of mud brick
       { const [gx, gz] = P(doorLx, zf); xadd(G.ubox, 'beam', mat4(gx, ch + 0.05, gz, yaw, 1.9, 0.14, 0.42)); K.box(gx, ch, gz, 1.1, ch + 0.55, 0.2, yaw, f => f === 'bot' ? null : pl); }
+      // a lantern on the street side of the gate (lights the lane at night)
+      { const lx3 = doorLx + (doorLx > 0 ? -1.05 : 1.05), [qx, qz] = P(lx3, zf + 0.32), [px3, pz3] = P(doorLx, zf + 1.5); inst(G.lantern, 'lanternOn', mat4(qx, ch - 0.05, qz), false); { const [bx3, bz3] = P(lx3, zf + 0.26); xadd(G.ubox, 'darkMetal', mat4(bx3, ch - 0.05, bz3, yaw, 0.03, 0.03, 0.16), false); } lampAt(qx, ch - 0.2, qz, { tx: px3, tz: pz3, pool: 2.4 }); }
       // paving: a tiled path from the gate to the door, packed earth either side
       { const [px, pz] = P(doorLx, d / 2 + yd / 2); K.box(px, 0, pz, 0.7, 0.025, yd / 2 - 0.1, yaw, f => f === 'top' ? 'd_tile' : null); }
       // the stair up to the roof: a solid mass of mud brick along the side wall
@@ -175,7 +198,7 @@ export function buildMap(K) {
       { const [cx, cz] = P(-ss * (cw - 0.65), d / 2 + 0.75); blk(cx, 0, cz, 0.42, 0.55, 0.3, yaw, 'd_greyWood', 'wood'); K.container(r() < 0.5 ? 'shed' : 'garage', cx, cz, 0.55, 'Tool crate', yaw, null); }
       // plastic chairs, a water jar on a stand, a hanging lantern by the door
       { const [jx, jz] = P(doorLx + (doorLx > 0 ? -1.0 : 1.0), d / 2 + 0.6); inst(G.jar, 'clay', mat4(jx, 0, jz, r() * 6, 1.5, 1.5, 1.5)); }
-      { const [lx2, lz2] = P(doorLx + (doorLx > 0 ? 0.85 : -0.85), d / 2 + 0.32); inst(G.lantern, 'lanternOn', mat4(lx2, 2.35, lz2), false); }
+      { const [lx2, lz2] = P(doorLx + (doorLx > 0 ? 0.85 : -0.85), d / 2 + 0.32), [px2, pz2] = P(doorLx + (doorLx > 0 ? 0.5 : -0.5), d / 2 + 1.6); inst(G.lantern, 'lanternOn', mat4(lx2, 2.35, lz2), false); xadd(G.ubox, 'darkMetal', mat4(lx2, 2.35, lz2, yaw, 0.03, 0.03, 0.34), false); lampAt(lx2, 2.2, lz2, { tx: px2, tz: pz2, pool: 2.2 }); }
     }
     // --- inside: the bedroom ---
     const bed = P(-ss * (w / 2 - 1.3), -d / 2 + 0.72);
@@ -219,19 +242,27 @@ export function buildMap(K) {
     for (let i = 0; i < n; i++) { const a = i / n * 6.28 + r() * 0.3, s = 0.8 + r() * 0.35; inst(G.frond, 'frond', mat4(tv.x, tv.y + 0.05, tv.z, a, s, s, s, -0.15 + r() * 0.5)); }
     if (r() < 0.4) for (let i = 0; i < 3; i++) { const ca = i * 2.1 + r(); for (let k = 0; k < 7; k++) inst(G.dates, k % 3 ? 'clayDark' : 'fruit3', mat4(tv.x + Math.cos(ca) * 0.32 + (r() - 0.5) * 0.14, tv.y - 0.3 - k * 0.06, tv.z + Math.sin(ca) * 0.32 + (r() - 0.5) * 0.14, 0, 0.35, 0.35, 0.35), false); }
     // dead fronds hanging down the trunk (the "skirt")
-    for (let i = 0; i < 5; i++) { const a = i / 5 * 6.28; inst(G.frond, 'greyWood', mat4(tv.x, tv.y - 0.1, tv.z, a, 0.6, 0.6, 0.6, 1.25 + r() * 0.3)); }
+    for (let i = 0; i < 6; i++) { const a = i / 6 * 6.28 + r() * 0.4; inst(G.frond, 'frondDead', mat4(tv.x, tv.y - 0.1, tv.z, a, 0.62, 0.62, 0.62, 1.3 + r() * 0.35)); }
     K.solid(x, z, 0.24, 0.24, 0, y + 3.2, 'wood', y);
   }
   const scrub = (x, z, s = 1) => { inst(G.scrub, 'scrub', mat4(x, hY(x, z), z, R() * 6, s * (0.8 + R() * 0.5), s * (0.5 + R() * 0.4), s * (0.8 + R() * 0.5)), true); };
+  // s: metres across (like K.rock). Sunk a little way so it sits IN the ground, not on it.
+  const boulder = (x, z, s = 1) => {
+    const y = hY(x, z), sy = 0.55 + R() * 0.35, yaw = R() * 6.28, top = y + s * 0.5 * sy * 0.75 * 1.1 - s * 0.1;
+    xadd(G.boulder, 'boulder', mat4(x, y - s * 0.1, z, yaw, s * 0.5, s * 0.5 * sy, s * 0.5 * (0.8 + R() * 0.4)));
+    K.paint(x, z, s * 0.6, 'dirt', 0.1);
+    if (s > 0.6) K.solid(x, z, s * 0.4, s * 0.4, yaw, top, 'concrete', y, top - y < 1.1 ? { vault: true } : {});
+  };
   const cactus = (x, z, s = 1) => { inst(G.cactus, 'cactus', mat4(x, hY(x, z), z, R() * 6, s, s * (0.8 + R() * 0.5), s)); K.solid(x, z, 0.22 * s, 0.22 * s, 0, hY(x, z) + 2.2 * s, 'wood', hY(x, z)); };
 
   // ================================================================ the market square, the well
   // the OLD WELL: a ring of stone, a timber frame, a pulley, a rope, a bucket. The water is bad.
   {
     const wx = SPOTS.well.x, wz = SPOTS.well.z;
-    xadd(new THREE.CylinderGeometry(1.15, 1.2, 0.85, 24, 1, true), 'sandstone', mat4(wx, 0.425, wz));
-    xadd(new THREE.CylinderGeometry(0.85, 0.85, 0.85, 24, 1, true).scale(-1, 1, 1), 'mudBrick', mat4(wx, 0.425, wz));
-    xadd(new THREE.TorusGeometry(1.0, 0.18, 8, 28).rotateX(PI / 2), 'sandstone', mat4(wx, 0.86, wz, 0, 1, 0.7, 1));
+    const uvS = (g, su, sv) => { const uv = g.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * su, uv.getY(k) * sv); return g; };
+    xadd(uvS(new THREE.CylinderGeometry(1.15, 1.2, 0.85, 24, 1, true), 7.4 / 2.2, 0.85 / 2.2), 'sandstone', mat4(wx, 0.425, wz));
+    xadd(uvS(new THREE.CylinderGeometry(0.85, 0.85, 0.85, 24, 1, true).scale(-1, 1, 1), 5.3 / 2, 0.85 / 2), 'mudBrick', mat4(wx, 0.425, wz));
+    xadd(uvS(new THREE.TorusGeometry(1.0, 0.18, 8, 28).rotateX(PI / 2), 6.3 / 2.2, 1.1 / 2.2), 'sandstone', mat4(wx, 0.86, wz, 0, 1, 0.7, 1));
     xadd(new THREE.CircleGeometry(0.85, 24).rotateX(-PI / 2), 'waterGlow', mat4(wx, 0.25, wz), false);
     for (const sx of [-1, 1]) xadd(G.ubox, 'beam', mat4(wx + sx * 1.05, 0.7, wz, 0, 0.16, 2.0, 0.16));
     xadd(G.ucyl, 'beam', mat4(wx - 1.15, 2.55, wz, 0, 0.14, 2.3, 0.14, 0, -PI / 2));
@@ -243,7 +274,7 @@ export function buildMap(K) {
     blk(wx - 2.6, 0, wz + 0.2, 0.25, 0.45, 0.9, 0, 'd_greyWood', 'wood'); K.container('bench', wx - 2.6, wz + 0.2, 0.45, 'Omar\'s bench', 0); note('omar', wx - 2.6, wz + 0.6, 0.47);
     // a trough for animals; the queue's jerrycans
     blk(wx + 2.4, 0, wz - 1.4, 1.1, 0.5, 0.35, 0.3, 'd_sandstone', 'concrete');
-    for (let i = 0; i < 6; i++) inst(G.ubox, i % 2 ? 'red' : 'white', mat4(wx + 1.6 + i * 0.42, 0, wz + 1.6 + (R() - 0.5) * 0.3, R() * 0.4, 0.3, 0.42, 0.17));
+    for (let i = 0; i < 6; i++) inst(G.jerry, ['jerryR', 'jerryW', 'jerryB'][i % 3], mat4(wx + 1.6 + i * 0.42, 0, wz + 1.6 + (R() - 0.5) * 0.3, PI / 2 + (R() - 0.5) * 0.4));
     K.chaos(wx, wz, () => { K.blood(wx + 1.2, wz + 0.6, 1.1); K.blood(wx - 0.8, wz + 1.4, 0.7); K.container('corpse', wx + 1.6, wz + 1.0, 0.15, 'Body by the well'); xadd(G.ubox, 'fabricC', mat4(wx + 1.6, 0, wz + 1.0, 0.7, 0.5, 0.25, 1.7)); }, 'well');
   }
   // the stalls: four posts, a counter, a sloping striped awning, the goods
@@ -261,12 +292,12 @@ export function buildMap(K) {
     if (kind === 'spice') for (let k = 0; k < 8; k++) { const [px, pz] = P(-1.1 + (k % 4) * 0.7, 0.4 + Math.floor(k / 4) * 0.32); items.push([G.basket, 'greyWood', px, 0.85, pz, 0.6]); items.push([G.spice, 'spice' + (k % 3), px, 0.91, pz, 0.7]); }
     if (kind === 'dates') for (let k = 0; k < 6; k++) { const [px, pz] = P(-1.0 + k * 0.4, 0.55); items.push([G.basket, 'greyWood', px, 0.85, pz, 0.75]); items.push([G.fruit, 'fruit3', px, 0.93, pz, 1.8]); }
     if (kind === 'pots') for (let k = 0; k < 7; k++) { const [px, pz] = P(-1.1 + k * 0.37, 0.55); items.push([k % 2 ? G.jar : G.pot, k % 3 ? 'clay' : 'clayDark', px, 0.85, pz, 0.6]); }
-    if (kind === 'cloth') for (let k = 0; k < 6; k++) { const [px, pz] = P(-1.1 + k * 0.45, 0.55); items.push([G.ubox, ['fabricA', 'fabricB', 'fabricC', 'awn0', 'awn2', 'awn3'][k], px, 0.85, pz, 0]); }
-    if (kind === 'water') for (let k = 0; k < 4; k++) { const [px, pz] = P(-1.0 + k * 0.66, 0.55); items.push([G.crate, 'greyWood', px, 0.85, pz, 0.8]); }
+    if (kind === 'cloth') for (let k = 0; k < 6; k++) { const [px, pz] = P(-1.1 + k * 0.45, 0.55); items.push([G.ubox, ['rug0', 'rug1', 'rug2', 'awn0', 'awn2', 'awn3'][k], px, 0.85, pz, 0]); }
+    if (kind === 'water') for (let k = 0; k < 4; k++) { const [px, pz] = P(-1.0 + k * 0.66, 0.55); items.push([G.crate, 'greyWood', px, 0.85, pz, 0.8]); items.push([G.jerry, ['jerryB', 'jerryW'][k % 2], px, 0.85 + 0.42 * 0.8, pz, 0.7]); }
     for (const [g, m, px, py, pz, s] of items) { if (s === 0) inst(g, m, mat4(px, py, pz, yaw, 0.38, 0.16, 0.5)); else inst(g, m, mat4(px, py, pz, R() * 6, s, s, s)); }
     // sacks behind the counter, a lantern under the awning
-    for (let k = 0; k < 3; k++) { const [px, pz] = P(-0.9 + k * 0.8, -0.65); inst(G.sack, 'fabricC', mat4(px, 0.45, pz, R() * 6, 0.8, 0.8, 0.8)); }
-    { const [lx, lz] = P(0.8, 0.6); inst(G.lantern, 'lanternOn', mat4(lx, 2.05, lz), false); }
+    for (let k = 0; k < 3; k++) { const [px, pz] = P(-0.9 + k * 0.8, -0.65); inst(G.sack, 'burlap', mat4(px, 0.45, pz, R() * 6, 0.8, 0.8, 0.8)); }
+    { const [lx, lz] = P(0.8, 0.6), [tx, tz] = P(0.4, 1.4); inst(G.lantern, 'lanternOn', mat4(lx, 2.05, lz), false); lampAt(lx, 1.95, lz, { tx, tz, pool: 2.6 }); }
     const kindL = { fruit: ['store', 'Fruit stall'], melon: ['store', 'Melon cart'], spice: ['pantry', 'Spice stall'], dates: ['pantry', 'Date seller\'s baskets'], pots: ['bin', 'Potter\'s stall'], cloth: ['dresser', 'Cloth merchant\'s chest'], water: ['cooler', 'Water seller\'s crates'] }[kind];
     K.container(kindL[0], cx, cz, 0.85, kindL[1], yaw);
     // the outbreak: the awning torn down, the counter tipped, fruit everywhere
@@ -316,6 +347,9 @@ export function buildMap(K) {
     for (let r2 = 0; r2 < 5; r2++) for (const sx of [-1, 1]) blk(cx + sx * 2.9, 0, cz + 2.8 - r2 * 1.25, 2.1, 0.48, 0.22, 0, 'd_greyWood', 'wood', { vault: true });
     blk(cx, 0, cz - cd / 2 + 1.1, 1.3, 1.0, 0.5, 0, f => f === 'top' ? 'd_fabricC' : 'd_sandstone', 'concrete');
     for (const sx of [-1, 1]) inst(G.lantern, 'lanternOn', mat4(cx + sx * 1.1, 1.3, cz - cd / 2 + 1.1), false);
+    lampAt(cx, 1.2, cz - cd / 2 + 1.6, { tx: cx, tz: cz - cd / 2 + 2.6, pool: 2.4, gy: 0.02 });
+    inst(G.lantern, 'lanternOn', mat4(cx, 3.15, cz + cd / 2 + 0.6), false); xadd(G.post, 'darkMetal', mat4(cx, 3.15, cz + cd / 2 + 0.6, 0, 0.3, 0.06, 0.3), false);
+    lampAt(cx, 3.0, cz + cd / 2 + 0.6, { tx: cx, tz: cz + cd / 2 + 2.4, pool: 3.0, pow: 0.45, dist: 11 });
     blk(cx + cw / 2 - 0.8, 0, cz - cd / 2 + 0.6, 0.5, 1.9, 0.3, 0, 'd_greenWood', 'wood'); K.container('shelf', cx + cw / 2 - 0.8, cz - cd / 2 + 0.6, 1.1, 'Sacristy cupboard', 0, H);
     blk(cx - cw / 2 + 0.8, 0, cz - cd / 2 + 0.6, 0.5, 1.0, 0.3, 0, 'd_redWood', 'wood'); K.container('medicine', cx - cw / 2 + 0.8, cz - cd / 2 + 0.6, 1.0, 'Alms box', 0, H);
     K.light(cx, 4.2, cz, 0xffc880, 3, 12);
@@ -358,6 +392,7 @@ export function buildMap(K) {
     xadd(G.ubox, 'beam', mat4(tx - 0.2, TOPY + 3.0, tz, 0, 4.6, 0.2, 0.22));
     K.wbeam([tx - 0.2, TOPY + 2.1, tz + 0.3], [tx - 1.8, TOPY + 0.3, tz + 1.6], 0.012, 0.012, M.fabricC);
     inst(G.cushion, 'fabricB', mat4(tx - 1.6, TOPY, tz - 1.6, 0.3, 1, 1, 1.4)); inst(G.lantern, 'lanternOn', mat4(tx - 1.9, TOPY + 0.25, tz - 1.0), false);
+    lampAt(tx - 1.9, TOPY + 0.6, tz - 1.0, { pool: 1.4, gy: TOPY, pow: 0.25, dist: 6 });
     K.container('nightstand', tx - 1.6, tz - 1.6, TOPY + 0.1, 'Father Tomás\'s blanket', 0); note('chapel', tx - 1.6, tz - 1.4, TOPY + 0.1);
     K.container('closet', tx + 1.6, tz + 1.5, 0.9, 'Closet under the stairs', 0);
   }
@@ -406,9 +441,9 @@ export function buildMap(K) {
       doors: [{ side: 'n', at: 0, w: 1.2, col: 0x7a3a24, dir: -1, front: true }], windows: [{ side: 'n', at: -2.3, w: 1.2, sill: 0.9, top: 2.2 }], name: 'Haddad General Store', home: false, inside: [[0, 0]] });
     H.yTop = () => 3.52;
     sign(['TIENDA HADDAD', 'GENERAL STORE'], 14.3, 2.7, 4.2, -PI / 2, 3.0, 0.75, '#e8dcc0', '#7a2a1a');
-    for (const z of [1.6, 6.8]) { blk(18.2, 0, z, 2.6, 2.0, 0.28, 0, 'd_greyWood', 'wood'); K.container('store', 18.2, z, 1.0, 'Store shelves', 0, H); for (let k = 0; k < 10; k++) inst(G.ubox, ['red', 'white', 'fabricB', 'awn2'][k % 4], mat4(16.0 + k * 0.45, 1.0 + (k % 2) * 0.55, z, 0, 0.25, 0.3, 0.2)); }
+    for (const z of [1.6, 6.8]) { blk(18.2, 0, z, 2.6, 2.0, 0.28, 0, 'd_greyWood', 'wood'); K.container('store', 18.2, z, 1.0, 'Store shelves', 0, H); for (let k = 0; k < 10; k++) inst(G.ubox, 'goods' + (k % 4), mat4(16.0 + k * 0.45, 1.0 + (k % 2) * 0.55, z, 0, 0.25, 0.3, 0.2)); }
     blk(20.8, 0, 4.2, 0.4, 1.0, 1.1, 0, 'd_greyWood', 'wood'); K.container('register', 20.8, 4.2, 1.0, 'Store till', 0, H);
-    for (let k = 0; k < 4; k++) inst(G.sack, 'fabricC', mat4(15.6, 0, 3.2 + k * 0.6, R() * 6, 1, 1, 1));
+    for (let k = 0; k < 4; k++) inst(G.sack, 'burlap', mat4(15.6, 0, 3.2 + k * 0.6, R() * 6, 1, 1, 1));
   }
   {
     const H = K.room(-73, 11, 10, 8, PI, { h: 3.2, t: 0.4, mat: 'd_plaster6', inMat: 'd_plasterIn', floor: 'd_tileB', roof: 'flat', roofMat: 'd_earth', parapet: true,
@@ -428,10 +463,15 @@ export function buildMap(K) {
     K.slab(51, 2, HWY - 4.2, 20, 'concrete', 'concrete');
     // canopy on four posts, two old pumps on an island
     K.box(gx, 4.4, gz, 5.2, 4.95, 4.0, 0, f => f === 'bot' ? 'd_whiteMetal' : f === 'top' ? 'd_corrRust' : 'd_red');
+    for (const [fx, fz, fy, fw] of [[0, 4.012, 0, 10.4], [0, -4.012, PI, 10.4], [5.212, 0, PI / 2, 8.0], [-5.212, 0, -PI / 2, 8.0]]) xadd(new THREE.PlaneGeometry(fw, 0.55), M.fascia, mat4(gx + fx, 4.675, gz + fz, fy), false);
+    for (const dx of [-2.6, 2.6]) K.box(gx + dx, 4.36, gz, 0.09, 4.4, 3.4, 0, f => f === 'bot' ? 'd_canopyStrip' : 'd_whiteMetal');
+    W.canopyLights = M.canopyStrip;   // world.js switches them on at dusk with the canopy's own spot light
+    { let placed = false; W.anims.push(() => { if (!placed && W.placeCanopyLight) { placed = true; W.placeCanopyLight(gx, gz); } }); }
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) blk(gx + sx * 4.3, 0, gz + sz * 3.2, 0.16, 4.4, 0.16, 0, 'd_whiteMetal', 'metal');
     blk(gx, 0, gz, 0.7, 0.2, 2.8, 0, 'concrete', 'concrete', { vault: true });
     for (const dz of [-1.3, 1.3]) { blk(gx, 0.2, gz + dz, 0.32, 1.75, 0.24, 0, f => f === 'top' ? 'd_whiteMetal' : 'd_red', 'metal'); K.container('pump', gx, gz + dz, 1.1, 'Old pump', 0);
-      for (const sx of [-1, 1]) { inst(G.ubox, 'black', mat4(gx + sx * 0.33, 1.3, gz + dz, 0, 0.02, 0.18, 0.3), false); inst(G.ubox, 'darkMetal', mat4(gx + sx * 0.34, 0.85, gz + dz + 0.1, 0, 0.06, 0.16, 0.08), false);
+      for (const sx of [-1, 1]) xadd(new THREE.PlaneGeometry(0.46, 1.52), M.pump, mat4(gx + sx * 0.322, 0.2 + 0.775, gz + dz, sx * PI / 2), false);
+      for (const sx of [-1, 1]) { inst(G.ubox, 'darkMetal', mat4(gx + sx * 0.34, 0.85, gz + dz + 0.1, 0, 0.06, 0.16, 0.08), false);
         K.wbeam([gx + sx * 0.33, 1.15, gz + dz - 0.12], [gx + sx * 0.55, 0.25, gz + dz - 0.05], 0.025, 0.025, M.black); K.wbeam([gx + sx * 0.55, 0.25, gz + dz - 0.05], [gx + sx * 0.36, 0.92, gz + dz + 0.1], 0.025, 0.025, M.black); } }
     sign(['GASOLINA', 'CLOSED'], gx, 4.67, gz + 4.02, 0, 3.0, 0.5, '#a8281e', '#f0e8d0');
     // the kiosk and the roller-door garage
@@ -453,6 +493,7 @@ export function buildMap(K) {
     K.solid(58.6, 18.7, 0.32, 1.0, 0, 0.9, 'metal');
     K.car(63, 17.6, PI / 2 + 0.15, 7, 'pickup');
     K.light(gx, 4.2, gz, 0xfff0d8, 2.5, 12);
+    for (const [x, z] of [[gx - 2.6, gz], [gx + 2.6, gz]]) xadd(G.rug, M.pool, mat4(x, 0.06, z, 0, 5, 1, 8), false);
   }
   // ================================================================ the water tower (climb it: the ladder on its south side)
   {
@@ -482,8 +523,10 @@ export function buildMap(K) {
     for (let x = -104; x <= 104; x += 2.6) {
       if (Math.abs(x - HWY) < 7 || Math.abs(x + 8) < 3) continue;
       const zc = wadiZ(x);
-      if (R() < 0.45) K.rock(x + R() * 2, zc + (R() - 0.5) * 7, 0.4 + R() * 0.8);
-      if (R() < 0.3) for (const sd of [-1, 1]) K.rock(x + R() * 2, zc + sd * (8 + R() * 2.5), 0.7 + R() * 1.3);
+      if (R() < 0.45) boulder(x + R() * 2, zc + (R() - 0.5) * 7, 0.4 + R() * 0.8);
+      if (R() < 0.3) for (const sd of [-1, 1]) boulder(x + R() * 2, zc + sd * (8 + R() * 2.5), 0.7 + R() * 1.3);
+      // scree: loose stones down the banks
+      for (let k = 0; k < 3; k++) { const sd = R() < 0.5 ? -1 : 1, sx = x + R() * 2.6, sz = zc + sd * (5.5 + R() * 3.5), ss = 0.25 + R() * 0.5; inst(G.stone, 'boulder', mat4(sx, hY(sx, sz) + ss * 0.08, sz, R() * 6, ss, ss * (0.5 + R() * 0.4), ss, R(), R()), false); }
       if (R() < 0.25) scrub(x + R() * 2, zc + (R() - 0.5) * 12, 0.9);
     }
     // the stone footbridge (x −8): flat deck at road level across the trench, parapets, two arches
@@ -507,10 +550,11 @@ export function buildMap(K) {
         const w2 = K.wall(x0, z0, x1, z1, { h: 0.85, t: 0.3, mat: 'd_mudBrick', inMat: 'd_mudBrick', openings: [{ at: 0, w: 1.6 }] });
         for (const b of w2.boxes) b.vault = true;
       }
-      K.box(cx + 7.4, 0, cz, 0.3, 0.12, 6, 0, f => f === 'top' ? 'd_wadi' : 'd_mudBrick');
+      for (const sd of [-1, 1]) K.box(cx + 7.4 + sd * 0.27, 0, cz, 0.07, 0.13, 6, 0, f => f === 'bot' ? null : 'd_mudBrick');
+      K.box(cx + 7.4, 0, cz, 0.2, 0.015, 6, 0, f => f === 'top' ? 'd_wadi' : null); K.paint(cx + 7.4, cz, 1.2, 'mud', 0.35);
       for (let k = 0; k < 4; k++) { if (R() < 0.15) continue; palm(cx - 3.5 + (k % 2) * 7 + (R() - 0.5) * 3, cz - 2.5 + Math.floor(k / 2) * 5 + (R() - 0.5) * 3, 7 + R() * 4); }
       // alfalfa: low green crop rows between the palms
-      for (let rz = cz - 4.5; rz <= cz + 4.5; rz += 1.5) xadd(G.ubox, 'scrub', mat4(cx + 0.2, 0, rz, 0, 12.2, 0.12 + R() * 0.06, 0.45), false);
+      for (let rz = cz - 4.5; rz <= cz + 4.5; rz += 1.5) { for (let tx = cx - 5.8; tx <= cx + 6.2; tx += 0.75 + R() * 0.3) { const s2 = 0.7 + R() * 0.5; inst(G.tuft, 'crop', mat4(tx, 0, rz + (R() - 0.5) * 0.15, R() * 6, s2, s2 * (0.8 + R() * 0.5), s2), false); } K.paint(cx + 0.2, rz, 0.9, 'mud', 0.2); }
       K.paint(cx, cz, 6, 'mud', 0.3);
     }
     // the pump house: a small shed with the grove's tools
@@ -529,8 +573,8 @@ export function buildMap(K) {
     if (inVillage || onStrip || onRoad || inGrove || atPump || atPlane || Math.abs(z - wadiZ(x)) < 12) continue;
     if (R() < 0.18) cactus(x, z, 0.8 + R() * 0.5); else scrub(x, z, 0.7 + R() * 0.8);
   }
-  for (let i = 0; i < 26; i++) { const a = R() * 6.28, rr = R() * 14; K.rock(-90 + Math.cos(a) * rr, -90 + Math.sin(a) * rr, 1 + R() * 2.8); }
-  for (const [x, z, s] of [[-96, -40, 3], [-100, -12, 2.2], [-98, 40, 2.6], [30, -96, 2.8], [-40, -100, 3.4], [60, -100, 2.4], [104, 60, 2.6], [-20, 104, 2.2]]) K.rock(x, z, s);
+  for (let i = 0; i < 26; i++) { const a = R() * 6.28, rr = R() * 14; boulder(-90 + Math.cos(a) * rr, -90 + Math.sin(a) * rr, 1 + R() * 2.8); }
+  for (const [x, z, s] of [[-96, -40, 3], [-100, -12, 2.2], [-98, 40, 2.6], [30, -96, 2.8], [-40, -100, 3.4], [60, -100, 2.4], [104, 60, 2.6], [-20, 104, 2.2]]) boulder(x, z, s);
 
   // ================================================================ the airstrip, its shack and windsock
   {
@@ -582,14 +626,24 @@ export function buildMap(K) {
   // ================================================================ out beyond: mesas on the horizon
   {
     const mr = rng(77);
+    const talusG = G.cone.clone(); { const uv = talusG.attributes.uv; for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * 24, uv.getY(k) * 3); }
     for (let i = 0; i < 16; i++) {
       const a = i / 16 * PI * 2 + mr() * 0.3, d = 330 + mr() * 220;
-      const sh = new THREE.Shape(), n = 14, rad = 30 + mr() * 50;
-      for (let k = 0; k < n; k++) { const t2 = k / n * PI * 2, rr = rad * (0.7 + mr() * 0.45); const p = [Math.cos(t2) * rr * 1.6, Math.sin(t2) * rr]; if (k) sh.lineTo(p[0], p[1]); else sh.moveTo(p[0], p[1]); }
+      const sh = new THREE.Shape(), n = 28, rad = 30 + mr() * 50, ph = mr() * 6;
+      for (let k = 0; k < n; k++) { const t2 = k / n * PI * 2, rr = rad * (0.78 + 0.14 * Math.sin(t2 * 3 + ph) + 0.1 * Math.sin(t2 * 7 + ph * 2) + mr() * 0.12); const p = [Math.cos(t2) * rr * 1.6, Math.sin(t2) * rr]; if (k) sh.lineTo(p[0], p[1]); else sh.moveTo(p[0], p[1]); }
       const hgt = 16 + mr() * 34;
-      const g = new THREE.ExtrudeGeometry(sh, { depth: hgt, bevelEnabled: true, bevelThickness: 8, bevelSize: 10, bevelSegments: 2, curveSegments: 4 }).rotateX(-PI / 2);
-      const uv = g.attributes.uv, pos = g.attributes.position; for (let k = 0; k < uv.count; k++) uv.setXY(k, (pos.getX(k) + pos.getZ(k)) / 14, pos.getY(k) / 14);
-      xadd(g, 'rock', mat4(Math.cos(a) * d, -6, Math.sin(a) * d, mr() * 6, 1, 1, 1), false);
+      const g = new THREE.ExtrudeGeometry(sh, { depth: hgt, steps: 5, bevelEnabled: true, bevelThickness: 8, bevelSize: 10, bevelSegments: 2, curveSegments: 4 }).rotateX(-PI / 2);
+      const uv = g.attributes.uv, pos = g.attributes.position;
+      for (let k = 0; k < pos.count; k++) {   // weather the cliffs: the face wanders in and out with height (ledges, gullies)
+        const x = pos.getX(k), y = pos.getY(k), z = pos.getZ(k), an = Math.atan2(z, x), w = 1 + 0.05 * Math.sin(an * 9 + y * 0.21 + ph) + 0.035 * Math.sin(an * 17 - y * 0.37) + 0.03 * Math.sin(y * 0.6 + an * 4);
+        pos.setXYZ(k, x * w, y, z * w);
+        uv.setXY(k, (x + z) / 46, y / 70);
+      }
+      g.computeVertexNormals();
+      const mx = Math.cos(a) * d, mz = Math.sin(a) * d, ry = mr() * 6;
+      xadd(g, 'rock', mat4(mx, -6, mz, ry, 1, 1, 1), false);
+      // the talus: a skirt of fallen rock sloping out from the cliff foot into the sand
+      xadd(talusG, 'boulder', mat4(mx, -6, mz, ry, rad * 1.6 * 1.32, hgt * 0.42, rad * 1.32), false);
     }
   }
 
@@ -602,7 +656,7 @@ export function buildMap(K) {
     K.chaos(HWY, -98, () => {
       for (const x of [HWY - 3.5, HWY, HWY + 3.5]) K.barricade(x, -96, 0);
       K.car(HWY + 1.5, -101, PI / 2 + 0.2, 4, 'suv');
-      for (let k = 0; k < 8; k++) { const x = HWY - 5 + k * 1.4; inst(G.sack, 'fabricC', mat4(x, 0, -94.6, 0, 1.4, 0.7, 1.4)); inst(G.sack, 'fabricC', mat4(x + 0.7, 0.36, -94.6, 0, 1.4, 0.7, 1.4)); }
+      for (let k = 0; k < 8; k++) { const x = HWY - 5 + k * 1.4; inst(G.sack, 'burlap', mat4(x, 0, -94.6, 0, 1.4, 0.7, 1.4)); inst(G.sack, 'burlap', mat4(x + 0.7, 0.36, -94.6, 0, 1.4, 0.7, 1.4)); }
       K.solid(HWY, -94.6, 5.8, 0.4, 0, 0.75, 'dirt', 0, { vault: true });
       K.container('police', HWY + 3, -98.5, 0.6, 'Army ammo crate', 0); xadd(G.crate, 'greenWood', mat4(HWY + 3, 0, -98.5));
       sign(['ROAD CLOSED', 'QUARANTINE — ARMY'], HWY - 6.5, 1.6, -95.5, 0, 2.4, 1.0, '#d8c020', '#111');
@@ -627,6 +681,10 @@ export function buildMap(K) {
   for (let i = 0; i < 36; i++) { const a = i / 36 * PI * 2, x = Math.cos(a) * 106, z = Math.sin(a) * 106; if (Math.abs(x - STRIP) < 12 && z < 0) continue; spawns.push({ x, z }); }
   spawns.push({ x: -104, z: wadiZ(-104) }, { x: 104, z: wadiZ(104) }, { x: HWY, z: -104 }, { x: HWY, z: 104 }, { x: -60, z: 100 }, { x: -30, z: 98 });
   for (const s of spawns) K.spawn(s.x, s.z);
+
+  // dusk to dawn: the lanterns brighten, their pools of light fade in on the ground (world.daylight, like the street lamps)
+  { let last = -1; W.anims.push(() => { const n = Math.max(0, Math.min(1, (0.5 - (W.daylight ?? 1)) * 3)); if (Math.abs(n - last) < 0.01) return; last = n;
+    M.lanternOn.emissiveIntensity = 0.4 + n * 2.8; M.pool.opacity = n * 0.3; M.pool.visible = n > 0.01; }); }
 
   const home = H0;
   return {

@@ -5,9 +5,9 @@
 // At 10:50 he dies in the infirmary. At 11:04 he gets back up. The nurse hits the alarm — and the whole prison goes
 // into LOCKDOWN with the dead on the inside.
 // You are a guard (a corrections officer on the day shift) or an inmate (B-Block, cell 1-14), depending on who you
-// picked: role(who) decides. The way out is the same: three keycards, the warden's office, and then either the
-// warden's helicopter on the pad outside the south gate (01:00, sixty seconds) or the old storm sewer under the
-// west wall to the river outfall, where the State Police boat waits at 03:00 for ninety seconds.
+// picked: role(who) decides. The way out is the same: three keycards open the barred stair up to the warden's
+// office; his safe holds the sewer key; the old storm sewer runs under the west wall to the river outfall, where
+// the State Police boat waits at 03:00 for ninety seconds. (The warden's helicopter never comes: the State grounded it.)
 // Same shape as maple.story.js (see kit.js "STORY MODULE"): title, intro, chapters, notes, radio, news, ending,
 // beats(G, api) — plus cast, role(), keycards, the alternative ending and the PA lines.
 
@@ -57,11 +57,11 @@ export const cast = [
 // what you're doing now, for each chapter (main.js adds the checklist and the countdown).
 // done: when it moves on (reach:<spot> · note:<id> · item:<id> · time:<hour> · board) — same words the other maps use
 export const chapters = [
-  { id: 'count', title: 'MORNING COUNT', goal: { guard: 'Report to <b>Control</b> in the admin block. Sgt. Okafor has your radio.', inmate: 'Morning count. Go down to the <b>yard</b> — or the <b>cafeteria</b> for chow.' }, done: 'time:11.05' },
-  { id: 'lockdown', title: 'LOCKDOWN', goal: 'The alarm. The doors are jammed open — the dead are out of the <b>infirmary</b>. Get a <b>weapon</b>. Stay alive.', done: 'item:weapon' },
-  { id: 'cards', title: 'THE KEYCARDS', goal: 'Three keycards open the <b>admin block</b>: <b>RED</b> (Dr. Hale, infirmary) · <b>BLUE</b> (Control, admin) · <b>GREEN</b> (tower 3 or the workshop).', done: 'item:keycardRed+keycardBlue+keycardGreen' },
-  { id: 'warden', title: 'THE WARDEN', goal: 'Up to the <b>warden\'s office</b>, 2nd floor of the admin block. His <b>radio</b>, his <b>gold card</b>, the <b>sewer key</b>.', done: 'note:wardenLog' },
-  { id: 'out', title: 'THE WAY OUT', goal: 'Two ways out: the <b>warden\'s helicopter</b> on the pad outside the south gate at <b>01:00</b> — or the <b>storm sewer</b> under the laundry to the <b>river outfall</b> at <b>03:00</b>. Get in — <b>E</b>.', done: 'board' },
+  { id: 'count', title: 'MORNING COUNT', goal: { guard: 'Report to <b>Control</b> in the admin block. Sgt. Okafor has your radio.', inmate: 'Morning count. Go down to the <b>yard</b> — or the <b>cafeteria</b> for chow.' }, done: 'time:11.0' },
+  { id: 'lockdown', title: 'LOCKDOWN', goal: 'Lockdown! The dead are out of the <b>infirmary</b>. Find a <b>weapon</b>. Stay alive.', done: 'item:weapon' },
+  { id: 'cards', title: 'THE KEYCARDS', goal: 'Get 3 keycards: <b>RED</b> (infirmary) · <b>BLUE</b> (Control) · <b>GREEN</b> (tower 3). They open the admin stairs.', done: 'item:keycardRed+keycardBlue+keycardGreen' },
+  { id: 'warden', title: 'THE WARDEN', goal: 'Upstairs to the <b>warden\'s office</b>. Read his <b>radio log</b>. Open his <b>safe</b> for the sewer key.', done: 'note:wardenLog' },
+  { id: 'out', title: 'THE WAY OUT', goal: 'Take the <b>storm sewer</b> under the laundry to the <b>river outfall</b>. The boat comes at <b>03:00</b>.', done: 'board' },
 ];
 
 // notes, logs and documents (found in drawers, on desks, on bodies; text may use \n)
@@ -70,8 +70,8 @@ export const notes = {
   hale: { title: 'Dr. Hale — patient notes', text: '08:10 VANCE. T 104.8. Grey, diaphoretic. Says he ate "a couple of the burgers off the truck."\n09:30 T 106.1. Seizure. Restrained.\n10:12 Blood under the UV lamp GLOWS. Pale green. I have never seen this.\n10:50 Asystole. Time of death 10:50.\n10:58 Patient sat up.\n\nHe bit Nurse Ames. He is cuffed to the bed. The cuffs are holding. I am going to call—\n\n[The rest is blood.]' },
   okafor: { title: 'Control room — shift log', text: '07:00 Count clear. 1104.\n09:15 Infirmary requests county medical records on VANCE. County not answering.\n11:04 ALARM — INFIRMARY. Code Red. Facility LOCKDOWN.\n11:06 Lockdown fault. Tier doors in A and B will NOT close. Repeat, will NOT close.\n11:20 Officers down in the yard. They are getting back up.\n11:41 Warden has ordered the outer gate SEALED. Nobody out. Including us.\n\nBlue card\'s in my desk. If you\'re reading this, take it. — R.O.' },
   dee: { title: 'Paperback, a page folded down', text: '[Scribbled in the margin of a western:]\n\nStorm drain — 1931 plans, Library shelf 9.\nLaundry floor grate → 300 ft west → under the wall → river outfall.\nGrate padlocked. Key: maintenance board in the workshop office? Or Pruitt keeps it.\nHigh water = drown. Go at night when the dam\'s closed.\n\n— D.W.' },
-  pruitt: { title: 'Memo, on the warden\'s desk', text: 'FROM: Office of the Warden\nTO: All staff\n\nThe State has asked us to hold the facility until the National Guard arrives. Under no circumstances is the outer gate to be opened. Staff will remain at their posts.\n\nMy helicopter will be on the pad at 01:00 for the Governor\'s briefing in the capital. It will not wait.\n\n— D. Pruitt' },
-  wardenLog: { title: 'The warden\'s radio log (his handwriting)', text: '23:10 — State Police on the river. They\'ll send a boat to the old sewer outfall at 03:00. Ninety seconds. No more.\n23:30 — Tom (pilot) says he can land on the pad outside the south gate at 01:00. One minute on the ground.\n23:45 — I am not leaving my men. I am not leaving my men.\n\n[Under it, shakier:]\nI\'m bitten. Take the gold card. Take the sewer key. Somebody should get out of here.' },
+  pruitt: { title: 'Memo, on the warden\'s desk', text: 'FROM: Office of the Warden\nTO: All staff\n\nThe State has asked us to hold the facility until the National Guard arrives. Under no circumstances is the outer gate to be opened. Staff will remain at their posts.\n\nThe State has grounded all aircraft. My helicopter is not coming. Nobody is.\n\n— D. Pruitt' },
+  wardenLog: { title: 'The warden\'s radio log (his handwriting)', text: '23:10 — State Police on the river. They\'ll send a boat to the old sewer outfall at 03:00. Ninety seconds. No more.\n23:30 — Tom (pilot) says the State grounded him. No helicopter. The river is the only way.\n23:45 — I am not leaving my men. I am not leaving my men.\n\n[Under it, shakier:]\nI\'m bitten. The sewer key is in my safe. The gold card opens the staff door. Somebody should get out of here.' },
   reyes: { title: 'Tower 3 — log book', text: '11:15 Yard full of runners. Fired 30 rds. They don\'t stop unless it\'s the head.\n12:40 Ran out. Green card\'s in the gun locker for the workshop roll-up door. Workshop is CLEAR, last I saw.\n14:00 Somebody\'s going to have to come get me.\n14:05 No. Nobody\'s coming.' },
   kite: { title: 'A "kite" (a note passed between cells)', text: 'C-dog —\n\nthe new guy from county is in the infirmary and the CO\'s are all wearing masks. somethings wrong.\nif the doors pop, dont go to the yard. go UP. the walkways. they cant do stairs good.\n\n— T' },
   menu: { title: 'Cafeteria menu board', text: 'TUESDAY\nBreakfast — oatmeal, toast, coffee\nLunch — BURGERS (donated, Maple County Meats)\nDinner — chili\n\n[Somebody has drawn a skull next to BURGERS.]' },
@@ -85,8 +85,8 @@ export const radio = [
   [1.6, '"...State Police Marine Unit Four to Blackwater, come in Blackwater..."'],
   [5.8, '"...the county is under quarantine. The facility will be sealed until the Guard arrives. That could be days..."'],
   [10.4, '"...we can take survivors off at the old storm sewer outfall on the river, zero-three-hundred. Ninety seconds..."'],
-  [15.2, '"...Warden, your pilot confirms the pad outside the south gate at zero-one-hundred. One minute on the ground..."'],
-  [20.0, '"...anyone who has been bitten stays behind. Repeat: the outfall at 0300, or the pad at 0100. Godspeed..."'],
+  [15.2, '"...Warden, all aircraft are grounded by the State. Repeat: no helicopter. The river is the only way..."'],
+  [20.0, '"...anyone who has been bitten stays behind. Repeat: the outfall at 0300. Godspeed..."'],
   [24.0, '*static*'],
 ];
 
@@ -120,8 +120,8 @@ export const pa = [
 export const keycards = {
   keycardRed: { name: 'Red keycard (Medical)', icon: '🟥', where: 'Dr. Hale — infirmary office desk' },
   keycardBlue: { name: 'Blue keycard (Control)', icon: '🟦', where: 'Sgt. Okafor\'s desk — Control room, admin block' },
-  keycardGreen: { name: 'Green keycard (Workshop)', icon: '🟩', where: 'Tower 3 gun locker (or the workshop office)' },
-  keycardGold: { name: 'Gold keycard (Warden)', icon: '🟨', where: 'the warden\'s desk' },
+  keycardGreen: { name: 'Green keycard (Workshop)', icon: '🟩', where: 'Tower 3 gun locker (or the tool crib: blue card)' },
+  keycardGold: { name: 'Gold keycard (Warden)', icon: '🟨', where: 'the warden\'s desk (it opens the staff door)' },
   sewerKey: { name: 'Sewer grate key', icon: '🗝️', where: 'the warden\'s safe' },
 };
 
@@ -133,8 +133,8 @@ export const tips = {
   sewer: { title: 'THE SEWER', keys: ['F'], text: 'Most of the bulbs down there are dead. Press <b>F</b> for your flashlight.' },
 };
 
-// the way out (main ending): the storm-sewer outfall on the river, 03:00, 90 s. The alternative: the warden's
-// helicopter on the pad outside the south gate, 01:00, 60 s. 'at' is world x/z (same as SPOTS in prison.js).
+// the way out: the storm-sewer outfall on the river, 03:00, 90 s. 'at' is world x/z (same as SPOTS in prison.js).
+// (the warden's helicopter is grounded — the story says so in the memo, his log and on the radio)
 export const ending = {
   kind: 'tunnel',
   at: { x: -140.5, z: -80, yaw: -Math.PI / 2 },
@@ -145,13 +145,9 @@ export const ending = {
   window: 90,
   needs: ['sewerKey'],
 };
-export const endings = [
-  ending,
-  { kind: 'heli', at: { x: 80, z: 130, yaw: 0 }, name: 'the warden\'s helipad, outside the south gate', hour: 1, schedule: [{ day: 2, hour: 1 }], window: 60, needs: ['keycardGold'] },
-];
+export const endings = [ending];
 export const outro = {
   tunnel: ['The boat\'s engine. A flashlight in your face. Hands pulling you over the side.', 'Behind you the prison lights go out, tower by tower.', 'YOU MADE IT'],
-  heli: ['The skids lift. The yard falls away under you, full of slow grey shapes.', 'Tom doesn\'t ask where the warden is. You don\'t say.', 'YOU MADE IT'],
 };
 
 // the per-frame / per-event hook for map-specific moments.

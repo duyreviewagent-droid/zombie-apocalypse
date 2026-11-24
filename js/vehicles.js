@@ -448,7 +448,34 @@ export function makeDrivable(root, type) {
   }
   const tail = K.tail.clone(), rev = K.reverse.clone(); rev.emissive = new THREE.Color(0xfff4e0); rev.emissiveIntensity = 0;
   body.traverse(o => { if (!o.isMesh) return; if (o.material === K.tail) o.material = tail; else if (o.material === K.reverse) o.material = rev; });
-  return (U.live = { body, wheels, r: P.r, tail, rev, head: U.lamps[1], steerWheel: U.steerWheel, doors: U.door ? [frontDoor(body, P, U.door, 1), frontDoor(body, P, U.door, -1)] : [] });
+  // the amber lamps split left and right, so each side's indicator can blink on its own (both: the hazards)
+  const ind = splitAmber(body, U.lamps[0]);
+  if (ind) U.lamps = [ind[0], ind[1], U.lamps[1]];   // (an alarm flashes both, as before)
+  return (U.live = { body, wheels, r: P.r, tail, rev, head: U.lamps[U.lamps.length - 1], ind, steerWheel: U.steerWheel, doors: U.door ? [frontDoor(body, P, U.door, 1), frontDoor(body, P, U.door, -1)] : [] });
+}
+function splitAmber(body, amb) {
+  if (!amb) return null;
+  let mesh = null; body.traverse(o => { if (o.isMesh && o.material === amb) mesh = o; });
+  if (!mesh) return null;
+  const g = mesh.geometry, pos = g.attributes.position, idx = g.index ? g.index.array : null, n = idx ? idx.length : pos.count;
+  const L = [], R = [];
+  for (let i = 0; i < n; i += 3) {
+    const a = idx ? idx[i] : i, b = idx ? idx[i + 1] : i + 1, c = idx ? idx[i + 2] : i + 2;
+    ((pos.getX(a) + pos.getX(b) + pos.getX(c)) > 0 ? L : R).push(a, b, c);
+  }
+  const mk = (list, m) => { const gg = new THREE.BufferGeometry(); for (const k in g.attributes) gg.setAttribute(k, g.attributes[k]); gg.setIndex(list); const o = new THREE.Mesh(gg, m); o.position.copy(mesh.position); o.quaternion.copy(mesh.quaternion); o.scale.copy(mesh.scale); o.castShadow = mesh.castShadow; mesh.parent.add(o); return o; };
+  const mL = amb, mR = amb.clone();
+  mk(L, mL); mk(R, mR); mesh.parent.remove(mesh);
+  return [mL, mR];   // [left (+x), right]
+}
+// a smashed or crashed car's glass: the crazed safety-glass look (put back for a new run)
+export function crackGlass(root, on = true) {
+  const K = mats();
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    if (on && o.material === K.glass) { o.userData.glass0 = o.material; o.material = K.broken; }
+    else if (!on && o.userData.glass0) { o.material = o.userData.glass0; delete o.userData.glass0; }
+  });
 }
 // a front door that can swing open: a Group pivoted at its A-pillar hinge (rotation.y = open angle, +sx side) with the
 // panel, its window, inner trim and handle; and the dark door opening it leaves in the body. Both hidden while shut
@@ -528,6 +555,24 @@ function bikeWheel(r) {   // tyre, rim, hub and 32 spokes on the axle (x axis), 
   }
   piece(L, B.chain, rb(0.012, 0.04, 0.012, 0.004), 0, r - 0.075, 0);                                                // the valve
   return (BIKE_WHEEL[r] = [...L].map(([m, gs]) => [mergeGeometries(gs), m]));
+}
+// a bike's paint job (not one flat colour): metallic flake in the paint, cream pinstripes and lugs where the tubes meet
+// (each tube's UV runs 0..1 along it, so the bands land at its ends), the maker's name down the middle, a little wear
+const BIKE_NAMES = ['ROADSTER', 'HOLLOW CYCLES', 'SCHWINN-ISH', 'TOURER', 'CRUISER 3', 'COMET', 'RAMBLER', 'LIBERTY'];
+export function bikePaint(hex, i = 0) {
+  const col = new THREE.Color(hex), css = '#' + col.getHexString(), lite = '#' + col.clone().offsetHSL(0, -0.1, 0.18).getHexString(), dark = '#' + col.clone().offsetHSL(0, 0, -0.16).getHexString();
+  const map = canvasTex(64, 512, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, dark); gr.addColorStop(0.35, lite); gr.addColorStop(0.55, css); gr.addColorStop(1, dark);   // the light across the round tube
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 1400; k++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.12})`; g.fillRect(Math.random() * w, Math.random() * h, 1, 1); }   // flake
+    for (const y of [0, h - 26]) { g.fillStyle = '#d8d2c0'; g.fillRect(0, y, w, 26); g.fillStyle = '#9a958a'; g.fillRect(0, y + (y ? 0 : 22), w, 4); }   // lugs at the ends
+    g.fillStyle = '#f2ecd8'; for (const y of [40, 46, h - 50, h - 44]) g.fillRect(0, y, w, 2);   // pinstripes
+    g.save(); g.translate(w / 2, h / 2); g.rotate(Math.PI / 2); g.font = 'bold 30px Helvetica'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillText(BIKE_NAMES[i % BIKE_NAMES.length], 1.5, 1.5); g.fillStyle = '#f4efe2'; g.fillText(BIKE_NAMES[i % BIKE_NAMES.length], 0, 0); g.restore();
+    for (let k = 0; k < 30; k++) { g.fillStyle = `rgba(40,36,30,${0.15 + Math.random() * 0.25})`; g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 3, 1 + Math.random() * 2); }   // chips
+  });
+  map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
+  return new THREE.MeshStandardMaterial({ map, roughness: 0.32, metalness: 0.45 });
 }
 export function buildBike(paint) {
   const B = bikeMats(), r = 0.335;

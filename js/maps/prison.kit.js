@@ -68,6 +68,32 @@ function epoxyTex(base, seed) {
     g.fillStyle = rgba(base, 0.6, 0.8); g.fillRect(0, 0, w, 2); g.fillRect(0, 0, 2, h);   // saw-cut joints
   });
 }
+// ---- relief (height fields → normal maps, desktop only): mortar joints sunk into the block, the cast panels' joints
+// and tie-holes, the raised diamonds on the tread plate. Same layouts as the colour textures above, so they line up.
+function cinderH() {
+  const r = rng(91);
+  return cv(512, 512, (g, w, h) => {
+    g.fillStyle = '#5a5a5a'; g.fillRect(0, 0, w, h);
+    const bw = w / 6, bh = h / 12;
+    for (let row = 0; row < 12; row++) for (let k = -1; k < 7; k++) { const x = k * bw + (row % 2 ? bw / 2 : 0), y = row * bh; g.fillStyle = '#c8c8c8'; g.fillRect(x + 3, y + 3, bw - 6, bh - 6); g.fillStyle = '#b0b0b0'; g.fillRect(x + 4, y + 4, bw - 8, bh - 8); }
+    speck(g, w, h, 6000, ['rgba(0,0,0,0.35)', 'rgba(255,255,255,0.2)'], r, 1.6);
+  }, null, false).image;
+}
+function wallH() {
+  const r = rng(78);
+  return cv(512, 512, (g, w, h) => {
+    g.fillStyle = '#808080'; g.fillRect(0, 0, w, h);
+    speck(g, w, h, 9000, ['rgba(0,0,0,0.25)', 'rgba(255,255,255,0.2)'], r, 2.5);
+    g.fillStyle = '#202020'; g.fillRect(0, 0, 3, h); g.fillRect(w / 2, 0, 2, h);
+    for (const x of [64, 192, 320, 448]) for (const y of [96, 256, 416]) { g.fillStyle = '#101010'; g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill(); }
+  }, null, false).image;
+}
+function treadH() {
+  return cv(256, 256, (g, w, h) => {
+    g.fillStyle = '#404040'; g.fillRect(0, 0, w, h);
+    for (let y = 0; y < h; y += 32) for (let x = 0; x < w; x += 32) for (const [ox, oy, a] of [[8, 8, 0.6], [24, 24, -0.6]]) { g.save(); g.translate(x + ox, y + oy); g.rotate(a); g.fillStyle = '#e0e0e0'; g.fillRect(-9, -2.5, 18, 5); g.restore(); }
+  }, null, false).image;
+}
 function treadTex() {   // diamond plate
   return cv(256, 256, (g, w, h) => {
     g.fillStyle = '#6a6e72'; g.fillRect(0, 0, w, h);
@@ -127,6 +153,27 @@ function helipadTex() {
     g.strokeStyle = '#d8b030'; g.lineWidth = 8; g.strokeRect(14, 14, w - 28, h - 28);
   }, null);
 }
+// spray-paint tags on bare concrete (transparent: the wall shows through): crews, numbers, a heart, tally marks
+function graffitiTex() {
+  const r = rng(404);
+  return cv(1024, 332, (g, w, h) => {
+    g.clearRect(0, 0, w, h); g.lineJoin = g.lineCap = 'round'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const tag = (txt, x, y, size, col, rot, out = null) => {
+      g.save(); g.translate(x, y); g.rotate(rot); g.font = `bold ${size}px "Arial Black", Impact, sans-serif`;
+      const tw = g.measureText(txt).width, k = Math.min(1, (w * 0.4) / tw); g.scale(k, 1);   // (never wider than its patch)
+      if (out) { g.strokeStyle = out; g.lineWidth = size * 0.14; g.strokeText(txt, 0, 0); }
+      g.shadowColor = col; g.shadowBlur = 6; g.fillStyle = col; g.fillText(txt, 0, 0); g.restore();
+    };
+    tag('B-BLOCK', 210, 90, 96, 'rgba(40,90,190,0.85)', -0.08, 'rgba(240,240,240,0.7)');
+    tag('1187', 560, 70, 70, 'rgba(200,40,30,0.8)', 0.05);
+    tag('YARD KINGS', 800, 120, 64, 'rgba(30,30,30,0.85)', -0.04, 'rgba(220,180,40,0.75)');
+    tag('C-DOG', 420, 230, 74, 'rgba(30,120,60,0.8)', 0.06, 'rgba(20,20,20,0.6)');
+    tag('NO SNITCH', 760, 250, 46, 'rgba(25,25,25,0.75)', -0.03);
+    g.strokeStyle = 'rgba(200,40,30,0.8)'; g.lineWidth = 7; g.beginPath(); g.moveTo(80, 250); g.bezierCurveTo(40, 200, 90, 180, 110, 220); g.bezierCurveTo(130, 180, 180, 200, 140, 250); g.lineTo(110, 290); g.closePath(); g.stroke();   // a heart
+    g.strokeStyle = 'rgba(240,240,240,0.7)'; g.lineWidth = 4; for (let i = 0; i < 4; i++) { const x0 = 960 - i * 40; for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(x0 + k * 7, 280); g.lineTo(x0 + k * 7, 320); g.stroke(); } g.beginPath(); g.moveTo(x0 - 4, 312); g.lineTo(x0 + 28, 286); g.stroke(); }   // tally marks
+    for (let i = 0; i < 400; i++) { g.fillStyle = `rgba(${r() < 0.5 ? '40,90,190' : '200,40,30'},${0.25 * r()})`; g.fillRect(r() * w, r() * h, 1.5, 1.5); }   // overspray
+  }, null);
+}
 function bloodSmearTex() {
   const r = rng(66);
   return cv(256, 256, (g, w, h) => {
@@ -143,15 +190,22 @@ export function prisonMats(K) {
   if (MATS_DONE && M.pCinder) return M;
   MATS_DONE = true;
   const add = (k, m, tile = 1) => { M[k] = m; T[k] = tile; };
-  add('pCinder', std({ map: cinderTex([206, 200, 182], 3), roughness: 0.55 }), 2.4);       // cream (cell blocks)
-  add('pCinderG', std({ map: cinderTex([150, 170, 150], 4), roughness: 0.55 }), 2.4);      // institutional green
-  add('pCinderB', std({ map: cinderTex([160, 176, 190], 5), roughness: 0.55 }), 2.4);      // pale blue (infirmary)
-  add('pCinderOut', std({ map: cinderTex([168, 160, 146], 6), roughness: 0.9 }), 2.4);     // unpainted outside
-  add('pWall', std({ map: wallTex(), roughness: 0.95 }), 6);
+  // relief: one normal map shared by all four block colours (same bond), one for the wall panels, one for the tread
+  const TXm = K.TX || {}, low = TXm.isLow ? TXm.isLow() : true, nrm = (fn, k) => (!low && TXm.normalFromHeight) ? TXm.normalFromHeight(fn(), k) : null;
+  const relief = (n, s) => n ? { normalMap: n, normalScale: new THREE.Vector2(s, s) } : {};
+  const nCinder = nrm(cinderH, 2.2), nWall = nrm(wallH, 1.6), nTread = nrm(treadH, 2.6);
+  add('pCinder', std({ map: cinderTex([206, 200, 182], 3), roughness: 0.55, ...relief(nCinder, 0.8) }), 2.4);       // cream (cell blocks)
+  add('pCinderG', std({ map: cinderTex([150, 170, 150], 4), roughness: 0.55, ...relief(nCinder, 0.8) }), 2.4);      // institutional green
+  add('pCinderB', std({ map: cinderTex([160, 176, 190], 5), roughness: 0.55, ...relief(nCinder, 0.8) }), 2.4);      // pale blue (infirmary)
+  add('pCinderOut', std({ map: cinderTex([168, 160, 146], 6), roughness: 0.9, ...relief(nCinder, 1.0) }), 2.4);     // unpainted outside
+  add('pWall', std({ map: wallTex(), roughness: 0.95, ...relief(nWall, 0.9) }), 6);
+  // the walls darken where they meet the ground (world.js's baked contact shading; 'ext' for all: these rooms are
+  // taller than a house, so the house-ceiling band of 'int' would sit halfway up a cell-block wall)
+  if (K.contactAO) for (const k of ['pCinder', 'pCinderG', 'pCinderB', 'pCinderOut', 'pWall']) K.contactAO(M[k], 'ext');
   add('pFloor', std({ map: epoxyTex([128, 130, 128], 8), roughness: 0.35 }), 4);
   add('pFloorR', std({ map: epoxyTex([132, 70, 58], 9), roughness: 0.4 }), 4);              // red-oxide (cafeteria)
   add('pFloorW', std({ map: epoxyTex([196, 198, 192], 10), roughness: 0.25 }), 4);          // white (infirmary)
-  add('pTread', std({ map: treadTex(), roughness: 0.4, metalness: 0.75 }), 1.2);
+  add('pTread', std({ map: treadTex(), roughness: 0.4, metalness: 0.75, ...relief(nTread, 1.0) }), 1.2);
   add('pCourt', std({ map: courtTex(), roughness: 0.8 }), 4);
   add('pBars', std({ color: 0x5a646c, roughness: 0.45, metalness: 0.7 }), 1);
   add('pSteel', std({ color: 0xc4c8cc, roughness: 0.28, metalness: 0.85 }), 1);
@@ -160,7 +214,8 @@ export function prisonMats(K) {
   add('pWool', std({ map: woolTex([110, 108, 100], 12), roughness: 1 }), 1);                // grey blanket
   add('pOrange', std({ map: woolTex([226, 110, 30], 13), roughness: 0.95 }), 1);            // jumpsuits
   add('pRubber', std({ color: 0x1a1a1c, roughness: 0.85 }), 1);
-  add('pIron', std({ color: 0x2a2a2c, roughness: 0.4, metalness: 0.8 }), 1);
+  add('pIron', std({ color: 0x3c3f44, roughness: 0.45, metalness: 0.75 }), 1);
+  add('pGraffiti', std({ map: graffitiTex(), transparent: true, depthWrite: false, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), 1);   // tags on the handball wall
   add('pScreen', std({ map: cctvTex(), emissive: 0xffffff, emissiveMap: cctvTex(), emissiveIntensity: 0.55, roughness: 0.2 }), 1);
   add('pLight', std({ color: 0xf4f4f0, emissive: 0xf8f4e8, emissiveIntensity: 1.1, roughness: 0.3 }), 1);
   add('pLightF', std({ color: 0xf4f4f0, emissive: 0xf8f4e8, emissiveIntensity: 1.1, roughness: 0.3 }), 1);   // the tubes that go bad after the alarm

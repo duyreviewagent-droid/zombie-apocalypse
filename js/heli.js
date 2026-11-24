@@ -6,6 +6,8 @@
 // lift off and away), rotor-wash dust, a synthesized rotor sound (blade-pass thump + turbine whine, heard across town),
 // a big countdown, and a camera for the lift-off shot. Self-contained: everything it needs comes in through init(ctx).
 import * as THREE from 'three';
+import { C as GAME } from './state.js';
+import { paintedMetalTexture, fabricTexture } from './tex.js';
 
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -40,9 +42,19 @@ export function init(ctx) {
   C = Object.assign({ lz: { x: 0, z: 0 }, lzName: 'Main St & Maple Ave', schedule: [{ day: 2, hour: 2 }, { day: 3, hour: 2 }], boardKey: 'E', ui: true, boardRadius: 2.6, noiseRadius: 90 }, ctx);
   H = build();
   C.scene.add(H.group, H.spot, H.spot.target, H.beam, H.dust.mesh, H.lamp);
+  routeLamp();
   if (C.ui) UI = makeUI();
   configure(C.ending || null);
   return api;
+}
+// the cabin / landing lamp is a world-space point light: hand it to the world's light pool (a fixed set of real lights,
+// so it never recompiles a shader and doesn't light every pixel of town) once the pool exists. The searchlight is a
+// spot: it stays a real light (always in the scene, intensity 0 when away).
+function worldLights() { const w = C.world || GAME.world; return w && w.addLight ? w : null; }
+function routeLamp() {
+  if (!H || H.lampPooled) return;
+  const w = worldLights(); if (!w) return;
+  C.scene.remove(H.lamp); (C.addLight || w.addLight)(H.lamp, C.scene); H.lampPooled = w;
 }
 // which way out this map has (story.ending): 'plane' lands a Cessna on the strip, vehicle 'boat' brings a police launch
 // to the dock; anything else is the helicopter. Safe to call again (a new map): it resets the flight.
@@ -55,10 +67,19 @@ export function configure(e) {
   C.boardRadius = MODE === 'plane' ? 4 : MODE === 'boat' ? 3.2 : (C.boardRadius0 ??= C.boardRadius);
   if (MODE === 'plane' && !PL) { PL = buildPlane(); C.scene.add(PL.group); }
   if (MODE === 'boat' && !BT) { BT = buildBoat(); C.scene.add(BT.group); }
-  if (UI) UI.top.textContent = MODE === 'plane' ? 'RESCUE PLANE' : MODE === 'boat' ? 'POLICE BOAT' : 'RESCUE HELICOPTER';
+  if (UI) { UI.top.textContent = topName(); }
   reset();
 }
 export const mode = () => MODE;
+// what this map calls its ride: the name in the story's prompt ('Board the RIO LENTO' -> 'RIO LENTO'), else the kind
+const KIND_NAME = () => MODE === 'plane' ? 'PLANE' : MODE === 'boat' ? 'BOAT' : 'HELICOPTER';
+function rideName() {
+  const e = C && C.ending, pr = e && e.prompt && String(e.prompt).trim();
+  const m = pr && /^(?:board|get on(?: board)?|get in(?:to)?|climb (?:in(?:to)?|aboard)|take)\s+(?:the\s+)?(.+)$/i.exec(pr);
+  return ((e && e.vehicleName) || (m && m[1]) || KIND_NAME()).toUpperCase();
+}
+const named = () => rideName() !== KIND_NAME();   // a ride with its own name (the RIO LENTO)
+const topName = () => named() ? 'THE ' + rideName() : MODE === 'plane' ? 'RESCUE PLANE' : MODE === 'boat' ? 'POLICE BOAT' : 'RESCUE HELICOPTER';
 
 // back to the start of a run: no helicopter, nothing flown yet (newGame / toTitle / load)
 export function reset() {
@@ -75,8 +96,13 @@ export function reset() {
 // once a frame from the game loop: dt (real seconds), the game's hour (0-24) and day (1, 2, ...)
 export function update(dt, hour, day) {
   if (!C || !S) return;
+  // how fast the game's clock runs (game hours per real second), so a flight can set off early enough to land on the hour
+  const nowH = (day - 1) * 24 + hour;
+  if (S.lastH != null && dt > 0) { const dh = nowH - S.lastH; if (dh > 0 && dh < 0.05) S.hRate = S.hRate ? lerp(S.hRate, dh / dt, Math.min(1, dt * 2)) : dh / dt; }
+  S.lastH = nowH;
   dt = Math.min(dt, 0.1);
   S.T += dt;
+  if (!H.lampPooled) routeLamp();
   if (S.st === 'waiting') checkSchedule(hour, day);
   if (S.st !== 'waiting' && S.st !== 'over') (MODE === 'plane' ? flyPlane : MODE === 'boat' ? flyBoat : fly)(dt);
   animate(dt);
@@ -111,13 +137,43 @@ export function doorPos(out = V()) { const v = VEH(); return v.group.localToWorl
 export function seatPos(i, out = V()) { const v = VEH(); return v.group.localToWorld(v.seat ? v.seat(i, out) : heliSeat(i, out)); }
 export function lzPos(out = V()) { return out.set(C.lz.x, ground(C.lz.x, C.lz.z), C.lz.z); }
 // is (x, z) inside the parked helicopter? (r: the body's radius) — for the lead's collision so nobody walks through it
+// the solid footprint, in the vehicle's own frame: boxes [x0, x1, z0, z1] grown by r
+function footprint(r) {
+  if (MODE === 'plane') return [[-0.72 - r, 0.72 + r, -5.1 - r, 3.2 + r], [0.95 - r, 1.45 + r, -0.35 - r, 0.35 + r], [-1.45 - r, -0.95 + r, -0.35 - r, 0.35 + r]];
+  if (MODE === 'boat') return [[-1.15 - r, 1.15 + r, -3.1 - r, 3.1 + r]];
+  return [[-1.12 - r, 1.12 + r, -2.7 - r, 4.3 + r], [-0.4 - r, 0.4 + r, -8.8 - r, -2.6 + r]];
+}
+const solid = () => S && VEH().group.visible && S.pos.y - S.gy <= 2.5;
+const inBox = (b, lx, lz) => lx > b[0] && lx < b[1] && lz > b[2] && lz < b[3];
 export function blocks(x, z, r = 0.3) {
-  if (!S || !VEH().group.visible || S.pos.y - S.gy > 2.5) return false;
+  if (!solid()) return false;
   const dx = x - S.pos.x, dz = z - S.pos.z, c = Math.cos(S.yaw), s = Math.sin(S.yaw);
   const lx = dx * c - dz * s, lz = dx * s + dz * c;
-  if (MODE === 'plane') return (Math.abs(lx) < 0.72 + r && lz > -5.1 - r && lz < 3.2 + r) || (Math.abs(lx) < 1.45 + r && Math.abs(lz) < 0.35 + r && Math.abs(lx) > 0.95 - r);
-  if (MODE === 'boat') return Math.abs(lx) < 1.15 + r && Math.abs(lz) < 3.1 + r;
-  return (Math.abs(lx) < 1.12 + r && lz > -2.7 - r && lz < 4.3 + r) || (Math.abs(lx) < 0.4 + r && lz > -8.8 - r && lz < -2.6);
+  return footprint(r).some(b => inBox(b, lx, lz));
+}
+// someone is inside the parked vehicle (it landed on them, or they were already standing there): move them out to the
+// nearest free edge. pos: anything with x / z (changed in place). Returns true when it moved them.
+export function pushOut(pos, r = 0.3) {
+  if (!pos || !solid()) return false;
+  const dx = pos.x - S.pos.x, dz = pos.z - S.pos.z, c = Math.cos(S.yaw), s = Math.sin(S.yaw);
+  const lx = dx * c - dz * s, lz = dx * s + dz * c, B = footprint(r);
+  if (!B.some(b => inBox(b, lx, lz))) return false;
+  let bx = 0, bz = 0, bd = Infinity;
+  for (const b of B) for (const [cx, cz] of [[b[0] - 0.02, lz], [b[1] + 0.02, lz], [lx, b[2] - 0.02], [lx, b[3] + 0.02]]) {
+    const d = Math.hypot(cx - lx, cz - lz);
+    if (d < bd && !B.some(o => inBox(o, cx, cz))) { bd = d; bx = cx; bz = cz; }
+  }
+  if (bd === Infinity) return false;
+  pos.x = S.pos.x + bx * c + bz * s; pos.z = S.pos.z - bx * s + bz * c;   // back to the world (the inverse turn)
+  return true;
+}
+// on touch-down: nobody stands inside it (the player, the townspeople)
+function clearLanding() {
+  try {
+    const pp = C.playerPos?.(); if (pp) pushOut(pp, 0.33);
+    const ppl = C.bodies ? C.bodies() : globalThis.ZA?.PEOPLE?.PPL?.list;
+    if (ppl) for (const u of ppl) { const p = u && (u.s ? u.s.pos : u.pos || u); if (p && typeof p.x === 'number') pushOut(p, 0.3); }
+  } catch { }
 }
 // the lift-off shot: { pos, look } for the camera while it climbs away (orbits round it over the town), else null
 // While it waits with you aboard: the view from inside, out of the open door (watching the others run for it), t = 0.
@@ -178,23 +234,27 @@ export function restore(d) { reset(); if (d && d.done) d.done.forEach((v, i) => 
 export function dispose() {
   if (!C) return;
   stopSound();
+  if (H) { H.lamp.intensity = 0; const vl = H.lampPooled && H.lampPooled.vlights; if (vl && vl.includes(H.lamp)) vl.splice(vl.indexOf(H.lamp), 1); }
   if (H) { C.scene.remove(H.group, H.spot, H.spot.target, H.beam, H.dust.mesh, H.lamp); H.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   for (const v of [PL, BT]) if (v) { C.scene.remove(v.group); v.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
   PL = BT = null; MODE = 'heli';
-  if (UI) { UI.root.remove(); UI.mark.remove(); UI.style.remove(); }
+  if (UI) { UI.root.remove(); UI.mark.remove(); UI.style.remove(); document.body.classList.remove('heliOn'); }
   C = H = S = UI = null;
 }
-const api = { init, configure, mode, leaveIn, reset, update, canBoard, board, passengers, state, timeLeft, position, group, nextFlight, doorPos, seatPos, lzPos, blocks, cameraTarget, cinematicDone, callNow, leaveNow, setMuted, setUIVisible, snapshot, restore, dispose };
+const api = { init, configure, mode, leaveIn, reset, update, canBoard, board, passengers, state, timeLeft, position, group, nextFlight, doorPos, seatPos, lzPos, blocks, pushOut, cameraTarget, cinematicDone, callNow, leaveNow, setMuted, setUIVisible, snapshot, restore, dispose };
 export default api;
 
 // ================================================================== schedule + flight
 const ground = (x, z) => (C.groundY ? C.groundY(x, z) : 0) || 0;
+// real seconds from setting off to touching down (measured): the helicopter, the plane (glide + roll-out), the boat
+const FLIGHT = { heli: 45, plane: 53, boat: 29 };
+const lead = () => Math.min(0.9, FLIGHT[MODE] * clamp(S.hRate || 1 / 40, 1 / 400, 1 / 20));
 function checkSchedule(hour, day) {
   const now = (day - 1) * 24 + hour;
   for (let i = 0; i < C.schedule.length; i++) {
     if (S.done[i]) continue;
     const at = (C.schedule[i].day - 1) * 24 + C.schedule[i].hour;
-    if (now < at) return;                                          // not yet
+    if (now < at - lead()) return;                                 // not yet (it sets off early: it lands at the hour)
     if (now < at + 1) { S.slot = i; startInbound(); S.noGo = !!(C.ready && !C.ready()); return; }   // its time: here it comes (if it can't land, it circles)
     S.done[i] = true;                                              // long past (a loaded save): that one's gone
     if (i === C.schedule.length - 1) { S.st = 'over'; C.onMissed?.(true); }
@@ -223,6 +283,7 @@ function startInbound(from) {
 function touchDown() {
   S.st = 'landed'; S.t = 0; S.pos.y = S.gy; S.vel.set(0, 0, 0); S.boardT = WAITS(); S.lastSec = -1; S.settle = 1;
   S.rpmT = MODE === 'heli' ? 0.86 : MODE === 'plane' ? 0.34 : 0.3;   // throttled back to ground idle (never shut down)
+  VEH().group.position.copy(S.pos); clearLanding();
   C.onArrive?.();
 }
 const _f = V(), _w = V();
@@ -241,6 +302,7 @@ function fly(dt) {
     v.y = lerp(v.y, clamp((yT - p.y) * 0.5, -7, 5), 1 - Math.exp(-dt * 2));
     const vh = Math.hypot(v.x, v.z);
     yawT = vh > 6 ? Math.atan2(v.x, v.z) : S.lzYaw;
+    if (C.ready) S.noGo = !C.ready();   // (it set off early: whether it can land is decided when it gets here)
     if (S.noGo && dh < 150) { S.st = 'orbit'; S.t = 0; S.orbA = Math.atan2(p.x - lx, p.z - lz); C.onNotReady?.(); }
     else if (dh < 1.5 && vh < 1.1) { S.st = 'descend'; S.t = 0; }
   } else if (S.st === 'orbit') {
@@ -338,6 +400,13 @@ function canvasTex(w, h, draw, srgb = true) {
   const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
   const t = new THREE.CanvasTexture(c); if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 }
+// text that always fits its canvas: the font shrinks until the words are no wider than the space (never cut off)
+function fitFill(g, txt, x, y, font, maxW) {
+  const m = /(\d+)px/.exec(font); let px = m ? +m[1] : 40;
+  g.font = font;
+  while (m && px > 8 && g.measureText(txt).width > maxW) { px = Math.floor(px * 0.93); g.font = font.replace(m[0], px + 'px'); }
+  g.fillText(txt, x, y, maxW);
+}
 const glowTex = () => canvasTex(64, 64, (g, w) => { const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,0.55)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, w, w); });
 
 function build() {
@@ -354,8 +423,8 @@ function build() {
   });
   const M = {
     body: new THREE.MeshStandardMaterial({ map: skin, roughness: 0.62, metalness: 0.25 }),
-    olive: new THREE.MeshStandardMaterial({ color: 0x4a5332, roughness: 0.6, metalness: 0.25 }),
-    dark: new THREE.MeshStandardMaterial({ color: 0x1d1f1a, roughness: 0.75, metalness: 0.4 }),
+    olive: new THREE.MeshStandardMaterial({ map: paintedMetalTexture([74, 83, 50]), roughness: 0.6, metalness: 0.25 }),
+    dark: new THREE.MeshStandardMaterial({ map: paintedMetalTexture([30, 32, 26]), roughness: 0.75, metalness: 0.4 }),
     metal: new THREE.MeshStandardMaterial({ color: 0x5e615a, roughness: 0.4, metalness: 0.85 }),
     glass: new THREE.MeshStandardMaterial({ color: 0x4a5e68, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.5 }),
     inside: new THREE.MeshStandardMaterial({ color: 0x24261f, roughness: 0.9, emissive: 0xffd8a0, emissiveIntensity: 0.08 }),
@@ -408,7 +477,7 @@ function build() {
   add(new THREE.BoxGeometry(0.06, 0.05, 2.3), M.metal, sideX(dzc) + 0.1, 0.62, dzc);           // boarding step
   for (const z of [dZ0 - 0.15, dZ1 + 0.1]) add(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 8), M.metal, sideX(z) + 0.08, 1.75, z);   // grab handles
   // right side: the closed door with a window and the big red cross; small windows; both sides: number, ARMY
-  const textTex = (txt, w = 512, h = 128, col = '#111408', font = 'bold 86px Arial') => canvasTex(w, h, (g) => { g.clearRect(0, 0, w, h); g.fillStyle = col; g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(txt, w / 2, h / 2 + 4); });
+  const textTex = (txt, w = 512, h = 128, col = '#111408', font = 'bold 86px Arial') => canvasTex(w, h, (g) => { g.clearRect(0, 0, w, h); g.fillStyle = col; g.textAlign = 'center'; g.textBaseline = 'middle'; fitFill(g, txt, w / 2, h / 2 + 4, font, w * 0.94); });
   const decal = (tex, w, h, x, y, z, ry, parent = group) => { const m = add(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false }), x, y, z, parent, 0, ry, 0); m.castShadow = false; return m; };
   add(new THREE.PlaneGeometry(dzl, dY1 - dY0), M.olive, -sideX(dzc) - 0.03, (dY0 + dY1) / 2, dzc, group, 0, -Math.PI / 2, 0);
   add(new THREE.PlaneGeometry(1.15, 1.15), crossM, -sideX(dzc) - 0.045, 1.75, dzc + 0.15, group, 0, -Math.PI / 2, 0);
@@ -492,7 +561,7 @@ function build() {
 // ---- simple figures: an army crewman (flight helmet, visor, olive flight suit, vest) and two pilots' heads and shoulders
 function makePeople(M) {
   const g = new THREE.Group();
-  const suit = new THREE.MeshStandardMaterial({ color: 0x5a5e42, roughness: 0.9 }), vest = new THREE.MeshStandardMaterial({ color: 0x3e4230, roughness: 0.85 });
+  const suit = new THREE.MeshStandardMaterial({ map: fabricTexture([90, 94, 66], 201), roughness: 0.95 }), vest = new THREE.MeshStandardMaterial({ map: fabricTexture([62, 66, 48], 202), roughness: 0.9 });
   const skin = new THREE.MeshStandardMaterial({ color: 0xc08a68, roughness: 0.7 }), helm = new THREE.MeshStandardMaterial({ color: 0x40452e, roughness: 0.45, metalness: 0.2 });
   const visor = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.05, metalness: 0.9 }), glove = new THREE.MeshStandardMaterial({ color: 0x2a2a24, roughness: 0.8 });
   const mesh = (geo, mat, x, y, z, p) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; p.add(m); return m; };
@@ -538,12 +607,12 @@ const JACKETS = [0x7a2a24, 0x2c4a6e, 0x5b5f3a, 0x8a6a3a, 0x3a3a40, 0x6a3a6a, 0x2
 const SKINS = [0xc08a68, 0x8a5a3e, 0xe0b090, 0x6a4430, 0xd09a78];
 const HAIRS = [0x2a1d14, 0x14100c, 0x6a4a2a, 0x9a7a4a, 0x3a2a1e];
 function makeSeated(g, mesh) {
-  const seatM = new THREE.MeshStandardMaterial({ color: 0x3c4030, roughness: 0.95 }), metalM = new THREE.MeshStandardMaterial({ color: 0x8a8c88, roughness: 0.4, metalness: 0.8 });
+  const seatM = new THREE.MeshStandardMaterial({ map: fabricTexture([60, 64, 48], 203), roughness: 0.95 }), metalM = new THREE.MeshStandardMaterial({ color: 0x8a8c88, roughness: 0.4, metalness: 0.8 });
   const EYE = new THREE.SphereGeometry(0.011, 8, 6), BROW = new THREE.BoxGeometry(0.03, 0.007, 0.01), NOSE = new THREE.BoxGeometry(0.018, 0.035, 0.025), MOUTH = new THREE.BoxGeometry(0.035, 0.007, 0.01);
   const eyeM = new THREE.MeshStandardMaterial({ color: 0x1a1612, roughness: 0.3 }), lipM = new THREE.MeshStandardMaterial({ color: 0x7a3a34, roughness: 0.7 });
-  const out = [], jeans = new THREE.MeshStandardMaterial({ color: 0x2e3a52, roughness: 0.9 }), shoe = new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.8 });
+  const out = [], jeans = new THREE.MeshStandardMaterial({ map: fabricTexture([46, 58, 82], 204), roughness: 0.95 }), shoe = new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.8 });
   for (let i = 0; i < 8; i++) {
-    const jk = new THREE.MeshStandardMaterial({ color: JACKETS[i], roughness: 0.85 }), sk = new THREE.MeshStandardMaterial({ color: SKINS[i % SKINS.length], roughness: 0.7 });
+    const jc = new THREE.Color(JACKETS[i]), jk = new THREE.MeshStandardMaterial({ map: fabricTexture([jc.r * 255 | 0, jc.g * 255 | 0, jc.b * 255 | 0], 210 + i), roughness: 0.9 }), sk = new THREE.MeshStandardMaterial({ color: SKINS[i % SKINS.length], roughness: 0.7 });
     const hr = new THREE.MeshStandardMaterial({ color: HAIRS[(i * 3) % HAIRS.length], roughness: 0.95 });
     const p = new THREE.Group(); heliSeat(i, p.position); p.rotation.y = Math.PI / 2 + (i < 4 ? 0 : 0.25); p.visible = false; g.add(p);   // facing the open door
     const hd = new THREE.Group(); hd.position.set(0, 1.12, 0.02); p.add(hd);
@@ -579,7 +648,8 @@ function makeDust() {
   aOff.setUsage(THREE.DynamicDrawUsage); aDat.setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute('aOff', aOff); geo.setAttribute('aDat', aDat); geo.instanceCount = N;
   const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { map: { value: tex }, uCol: { value: new THREE.Color(0.55, 0.47, 0.36) } },
-    vertexShader: 'attribute vec3 aOff; attribute vec3 aDat; varying vec2 vUv; varying float vA; void main(){ vUv = uv; vA = aDat.y; vec4 mv = modelViewMatrix * vec4(aOff, 1.); float c = cos(aDat.z), s = sin(aDat.z); vec2 q = vec2(c * position.x - s * position.y, s * position.x + c * position.y) * aDat.x; mv.xy += q; gl_Position = projectionMatrix * mv; }',
+    // (a cloud right in front of the lens fades out and never grows bigger than the view: no brown wall over the screen)
+    vertexShader: 'attribute vec3 aOff; attribute vec3 aDat; varying vec2 vUv; varying float vA; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(aOff, 1.); float dist = -mv.z; vA = aDat.y * smoothstep(2., 8., dist); float sz = min(aDat.x, max(0.4, dist * 0.55)); float c = cos(aDat.z), s = sin(aDat.z); vec2 q = vec2(c * position.x - s * position.y, s * position.x + c * position.y) * sz; mv.xy += q; gl_Position = projectionMatrix * mv; }',
     fragmentShader: 'uniform sampler2D map; uniform vec3 uCol; varying vec2 vUv; varying float vA; void main(){ vec4 t = texture2D(map, vUv); float a = t.a * vA; if (a < 0.004) discard; gl_FragColor = vec4(uCol * (0.75 + 0.25 * t.r), a); }' });
   const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.renderOrder = 3;
   const P = []; for (let i = 0; i < N; i++) P.push({ life: 0, max: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, s: 1, g: 1, r: 0, vr: 0 });
@@ -636,6 +706,7 @@ function animate(dt) {
   const ph = t % 1.1, flash = (ph < 0.08 || (ph > 0.18 && ph < 0.26)) ? 1 : 0;
   H.beacons.forEach((b, i) => { b.material.opacity = i ? (((t + 0.55) % 1.1) < 0.08 ? 1 : 0) : flash; });
   H.nav[2].material.opacity = (t % 1.6) < 0.06 ? 1 : 0.15;
+  { const nk = 1 - (C.daylight ? C.daylight() : 0); for (let i = 0; i < 2; i++) { H.nav[i].material.opacity = 0.2 + 0.8 * nk; H.nav[i].scale.setScalar(0.6 + 0.8 * nk); } }   // a glow at night, just the lamp by day
   // the searchlight: sweeps the ground ahead on the way in, circles the landing zone while it waits
   const night = 1 - (C.daylight ? C.daylight() : 0);
   g.localToWorld(_l.set(0, 0.62, 3.2));
@@ -747,14 +818,15 @@ function sound(dt) {
 function makeUI() {
   const style = document.createElement('style');
   style.textContent = `
-#heliUI{position:fixed;left:50%;top:8vh;transform:translateX(-50%);text-align:center;pointer-events:none;z-index:45;color:#fff;font-family:"Helvetica Neue",Arial,sans-serif;text-shadow:0 2px 6px rgba(0,0,0,.85),0 0 22px rgba(0,0,0,.6);display:none;user-select:none}
+#heliUI{position:fixed;left:50%;top:max(8vh,96px);transform:translateX(-50%);width:max-content;max-width:min(92vw,900px);box-sizing:border-box;text-align:center;pointer-events:none;z-index:45;color:#fff;font-family:"Helvetica Neue",Arial,sans-serif;text-shadow:0 2px 6px rgba(0,0,0,.85),0 0 22px rgba(0,0,0,.6);display:none;user-select:none;overflow-wrap:break-word}
 #heliUI.on{display:block}
 #heliUI .hTop{font-size:13px;letter-spacing:.32em;color:#ffd48a;font-weight:700;margin-bottom:2px}
-#heliUI .hT{font-size:88px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:.02em}
-#heliUI .hL{font-size:22px;font-weight:800;letter-spacing:.18em;margin-top:6px}
+#heliUI .hT{font-size:88px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+#heliUI .hL{font-size:22px;font-weight:800;letter-spacing:.18em;margin-top:6px;line-height:1.25}
 #heliUI .hS{font-size:14px;opacity:.85;margin-top:6px;letter-spacing:.06em}
 #heliUI .hK{display:inline-block;margin-top:10px;padding:6px 14px;border:2px solid #fff;border-radius:6px;font-weight:800;letter-spacing:.12em;font-size:16px;background:rgba(0,0,0,.35);visibility:hidden}
 #heliUI .hK.on{visibility:visible;animation:heliPulse .7s ease-in-out infinite alternate}
+#heliUI .hK.ctx{display:none}
 #heliUI.low .hT{color:#ff4a3a;animation:heliPulse .5s ease-in-out infinite alternate}
 #heliUI.inb .hT{display:none}
 #heliUI.inb .hL{font-size:20px;color:#ffd48a}
@@ -765,21 +837,36 @@ function makeUI() {
 #heliMark.edge{transform:translate(-50%,-50%)}
 #heliMark.edge .hA{animation:none}
 @keyframes heliBob{from{transform:translateY(0)}to{transform:translateY(6px)}}
-@media (max-width:600px){#heliUI .hT{font-size:64px}#heliUI .hL{font-size:17px}}`;
+@media (max-width:600px){#heliUI .hT{font-size:64px}#heliUI .hL{font-size:17px;letter-spacing:.12em}}
+@media (max-height:560px){#heliUI .hTop{font-size:11px}#heliUI .hT{font-size:50px}#heliUI .hL,#heliUI.inb .hL{font-size:15px;letter-spacing:.1em;margin-top:3px}#heliUI .hS{font-size:12px;margin-top:3px}#heliUI .hK{font-size:13px;margin-top:6px;padding:4px 10px}}`;
   document.head.appendChild(style);
   const root = document.createElement('div'); root.id = 'heliUI';
-  root.innerHTML = '<div class="hTop">RESCUE HELICOPTER</div><div class="hT">1:00</div><div class="hL">GET IN THE HELICOPTER</div><div class="hS"></div><div class="hK"></div>';
-  const mark = document.createElement('div'); mark.id = 'heliMark'; mark.innerHTML = '<div class="hN">HELICOPTER</div><div class="hA"></div>';
+  root.innerHTML = '<div class="hTop"></div><div class="hT">1:00</div><div class="hL"></div><div class="hS"></div><div class="hK"></div>';
+  const mark = document.createElement('div'); mark.id = 'heliMark'; mark.innerHTML = '<div class="hN"></div><div class="hA"></div>';
   document.body.append(root, mark);
-  return { style, root, mark, top: root.querySelector('.hTop'), T: root.querySelector('.hT'), L: root.querySelector('.hL'), S: root.querySelector('.hS'), K: root.querySelector('.hK'), N: mark.querySelector('.hN'), A: mark.querySelector('.hA'), last: '' };
+  const ui = { style, root, mark, top: root.querySelector('.hTop'), T: root.querySelector('.hT'), L: root.querySelector('.hL'), S: root.querySelector('.hS'), K: root.querySelector('.hK'), N: mark.querySelector('.hN'), A: mark.querySelector('.hA'), last: '', clockT: 0, clockB: 0 };
+  ui.top.textContent = topName();
+  return ui;
 }
-function showUI(mode) { if (!UI) return; UI.root.classList.toggle('on', !!mode); UI.mark.classList.toggle('on', !!mode); }
+function showUI(mode) {
+  if (!UI) return; UI.root.classList.toggle('on', !!mode); UI.mark.classList.toggle('on', !!mode);
+  if (document.body) document.body.classList.toggle('heliOn', !!mode);
+}
+const setTxt = (el, t) => { if (el.textContent !== t) el.textContent = t; };
+// the bottom of the game clock (top centre) — the countdown and the marker stay below it
+function clockBottom() {
+  if (--UI.clockT > 0) return UI.clockB;
+  UI.clockT = 30; const c = document.getElementById('clock'), r = c ? c.getBoundingClientRect() : null;   // (0 x 0 when it's hidden)
+  return (UI.clockB = r && r.height ? r.bottom : 0);
+}
 const _m = V();
 function ui() {
   if (!UI) return;
   const st = S.st, show = uiOn && (st === 'inbound' || st === 'descend' || st === 'landed' || st === 'orbit');
   if (!show) { showUI(null); return; }
   showUI(true);
+  { const cb = clockBottom(), t = Math.round(Math.max(innerHeight * 0.08, cb + 8)) + 'px'; if (UI.root.style.top !== t) UI.root.style.top = t; }
+  setTxt(UI.top, topName());
   const me = C.playerPos?.() || (C.camera && C.camera.position);
   const target = st === 'landed' ? doorPos(_m) : lzPos(_m), dist = me ? Math.round(Math.hypot(target.x - me.x, target.z - me.z)) : 0;
   UI.root.classList.toggle('inb', st !== 'landed');
@@ -788,34 +875,42 @@ function ui() {
     if (UI.T.textContent !== txt) UI.T.textContent = txt;
     UI.root.classList.toggle('low', s <= 15);
     const aboard = S.passengers.some(isMe);
-    UI.L.textContent = aboard ? 'YOU\'RE ON BOARD · WAITING FOR STRAGGLERS' : MODE === 'heli' && !C.ending?.prompt ? 'GET IN THE HELICOPTER' : (C.ending?.prompt || (MODE === 'plane' ? 'Board the plane' : 'Get on the boat')).toUpperCase();
-    UI.S.textContent = `${C.lzName} · ${dist} m`;
+    setTxt(UI.L, aboard ? 'YOU\'RE ON BOARD · WAITING FOR STRAGGLERS' : (C.ending?.prompt || (MODE === 'heli' ? 'Get in the ' : MODE === 'plane' ? 'Board the ' : 'Get on the ') + rideName()).toUpperCase());
+    setTxt(UI.S, `${C.lzName} · ${dist} m`);
     const can = me && canBoard(me) && !S.passengers.includes('player');
-    UI.K.textContent = `[${C.boardKey}] ${MODE === 'heli' ? 'CLIMB IN' : 'GET ON BOARD'}`; UI.K.classList.toggle('on', !!can);
+    // the game's own prompt ([E] Board the RIO LENTO) is up: don't say it twice
+    const pr = document.getElementById('prompt'), ctx = !!(pr && pr.textContent.trim() && (!pr.checkVisibility || pr.checkVisibility()));
+    setTxt(UI.K, `[${C.boardKey}] ${MODE === 'heli' ? 'CLIMB IN' : 'GET ON BOARD'}`); UI.K.classList.toggle('on', !!can && !ctx); UI.K.classList.toggle('ctx', ctx);
   } else {
     UI.root.classList.remove('low');
-    const where = MODE === 'plane' ? 'THE AIRSTRIP' : MODE === 'boat' ? 'THE DOCK' : 'THE LANDING ZONE';
-    UI.L.textContent = st === 'orbit' ? 'IT CAN\'T LAND — IT\'S CIRCLING' : st === 'descend' ? (MODE === 'plane' ? 'IT\'S DOWN — GET TO THE PLANE' : MODE === 'boat' ? 'IT\'S DOCKING — GET TO THE DOCK' : 'IT\'S LANDING — GET TO THE LANDING ZONE') : `INBOUND — GET TO ${where}`;
-    UI.S.textContent = `${C.lzName} · ${dist} m`; UI.K.classList.remove('on');
+    const where = MODE === 'plane' ? 'THE AIRSTRIP' : MODE === 'boat' ? 'THE DOCK' : 'THE LANDING ZONE', nm = rideName();
+    setTxt(UI.L, st === 'orbit' ? 'IT CAN\'T LAND — IT\'S CIRCLING' : st === 'descend' ? (MODE === 'plane' ? `IT'S DOWN — GET TO THE ${nm}` : MODE === 'boat' ? 'IT\'S DOCKING — GET TO THE DOCK' : 'IT\'S LANDING — GET TO THE LANDING ZONE') : `${named() ? 'THE ' + nm : 'INBOUND'} — GET TO ${where}`);
+    setTxt(UI.S, `${C.lzName} · ${dist} m`); UI.K.classList.remove('on');
   }
   // the marker over the door (or the landing zone): on screen it bobs above the spot; off screen it sits on the edge and points
   // (not once you're aboard: you're sitting in it)
-  const aboardNow = st === 'landed' && S.passengers.some(isMe);
-  UI.mark.classList.toggle('on', !aboardNow);
-  if (!C.camera || aboardNow) return;
+  const aboardNow = st === 'landed' && S.passengers.some(isMe), atIt = st === 'landed' && dist < 4;   // (right by the door: the prompt says it)
+  UI.mark.classList.toggle('on', !aboardNow && !atIt);
+  if (!C.camera || aboardNow || atIt) return;
   const tgt = st === 'landed' ? doorPos(_m).setY(S.gy + 3.2) : (st === 'descend' ? _m.copy(S.pos).setY(S.pos.y + 5) : lzPos(_m).setY(lzPos(_m).y + 3));
   const v = tgt.clone().project(C.camera), W = innerWidth, Hh = innerHeight;
   const behind = v.z > 1;
   let x = (v.x * 0.5 + 0.5) * W, y = (-v.y * 0.5 + 0.5) * Hh;
   if (behind) { x = W - x; y = Hh - y; }
-  const m = 40, inside = !behind && x > m && x < W - m && y > m && y < Hh - m;
-  UI.N.textContent = `${st === 'landed' ? (MODE === 'plane' ? 'PLANE' : MODE === 'boat' ? 'BOAT' : 'HELICOPTER') : MODE === 'plane' ? 'AIRSTRIP' : MODE === 'boat' ? 'DOCK' : 'LANDING ZONE'} ${dist} m`;
+  const m = 40, top = Math.max(120, clockBottom() + 12), inside = !behind && x > m && x < W - m && y > top && y < Hh - m;
+  setTxt(UI.N, `${st === 'landed' ? rideName() : MODE === 'plane' ? 'AIRSTRIP' : MODE === 'boat' ? 'DOCK' : 'LANDING ZONE'} ${dist} m`);
   if (inside) { UI.mark.classList.remove('edge'); UI.A.style.transform = ''; }
   else {
     const cx = W / 2, cy = Hh / 2, dx = x - cx, dy = y - cy, k = Math.min((W / 2 - m) / Math.abs(dx || 1e-3), (Hh / 2 - m) / Math.abs(dy || 1e-3));
     x = cx + dx * k; y = cy + dy * k;
     UI.mark.classList.add('edge'); UI.A.style.transform = `rotate(${Math.atan2(dy, dx) * 180 / Math.PI - 90}deg)`;
   }
+  // never off the side (the label is wider than the arrow) and never up over the clock
+  const mw = UI.mark.offsetWidth || 120, mh = UI.mark.offsetHeight || 40, edge = !inside;
+  x = clamp(x, mw / 2 + 6, W - mw / 2 - 6);
+  // nor over the countdown panel (top centre): below it when it's in the way
+  const pr = UI.root.getBoundingClientRect(), under = Math.abs(x - (pr.left + pr.right) / 2) < pr.width / 2 + mw / 2 + 6 ? pr.bottom + 8 : 0;
+  y = clamp(y, Math.max(top, under) + (edge ? mh / 2 : mh), Hh - (edge ? mh / 2 : 0) - 6);
   UI.mark.style.left = x.toFixed(1) + 'px'; UI.mark.style.top = y.toFixed(1) + 'px';
 }
 
@@ -844,7 +939,17 @@ function buildPlane() {
     g.save(); g.translate(0.745 * w, zy(-3.3)); g.rotate(Math.PI / 2); g.textAlign = 'center'; g.fillText('N7241K', 0, 0); g.restore();
   });
   const white = new THREE.MeshStandardMaterial({ map: paint, roughness: 0.32, metalness: 0.05 });
-  const wing = new THREE.MeshStandardMaterial({ color: 0xeceeec, roughness: 0.38, metalness: 0.05 });
+  const skinTex = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#eceeec'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 700; i++) { g.fillStyle = `rgba(${Math.random() < 0.6 ? '70,66,56' : '255,255,255'},${Math.random() * 0.05})`; g.fillRect(Math.random() * w, Math.random() * h, 2 + Math.random() * 9, 1 + Math.random() * 3); }
+    g.strokeStyle = 'rgba(60,62,64,0.35)'; g.lineWidth = 1.2;
+    for (const u of [0.25, 0.5, 0.75]) { g.beginPath(); g.moveTo(u * w, 0); g.lineTo(u * w, h); g.stroke(); }
+    for (const v of [0.33, 0.66]) { g.beginPath(); g.moveTo(0, v * h); g.lineTo(w, v * h); g.stroke(); }
+    g.fillStyle = 'rgba(80,82,84,0.45)'; for (const u of [0.25, 0.5, 0.75]) for (let y = 3; y < h; y += 7) { g.fillRect(u * w - 4, y, 1.4, 1.4); g.fillRect(u * w + 3, y, 1.4, 1.4); }
+    const gr = g.createLinearGradient(0, h, 0, 0); gr.addColorStop(0, 'rgba(90,80,60,0.18)'); gr.addColorStop(0.4, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h);   // exhaust / dust stain
+  });
+  skinTex.wrapS = skinTex.wrapT = THREE.RepeatWrapping;
+  const wing = new THREE.MeshStandardMaterial({ map: skinTex, roughness: 0.38, metalness: 0.05 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x24272a, roughness: 0.6, metalness: 0.4 });
   const tyre = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
   const blue = new THREE.MeshStandardMaterial({ color: 0x1d3f8a, roughness: 0.4 }), red = new THREE.MeshStandardMaterial({ color: 0xb8282a, roughness: 0.4 });
@@ -896,7 +1001,7 @@ function buildPlane() {
   const discM = new THREE.MeshBasicMaterial({ color: 0x404040, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
   const disc = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.97, 40), discM); prop.add(disc);
   // pilot in the left seat, a passenger seat empty for you
-  const suit = new THREE.MeshStandardMaterial({ color: 0x6a7480, roughness: 0.9 }), skin = new THREE.MeshStandardMaterial({ color: 0xb07a58, roughness: 0.7 });
+  const suit = new THREE.MeshStandardMaterial({ map: fabricTexture([106, 116, 128], 221), roughness: 0.95 }), skin = new THREE.MeshStandardMaterial({ color: 0xb07a58, roughness: 0.7 });
   const pilot = new THREE.Group(); pilot.position.set(0.3, 1.05, 0.65); group.add(pilot);
   add(new THREE.BoxGeometry(0.4, 0.5, 0.25), suit, 0, 0.3, 0, pilot); const ph = new THREE.Group(); ph.position.set(0, 0.68, 0.02); pilot.add(ph);
   add(new THREE.SphereGeometry(0.1, 12, 10), skin, 0, 0, 0, ph); add(new THREE.SphereGeometry(0.105, 12, 8, 0, Math.PI * 2, 0, 1.4), new THREE.MeshStandardMaterial({ color: 0x8a8070, roughness: 0.9 }), 0, 0.02, 0, ph);
@@ -920,6 +1025,7 @@ function flyPlane(dt) {
   if (S.st === 'inbound' || S.st === 'orbit') {
     // the glide: 5 degrees down to the threshold, 122 m short of the pad; a flare over the last few metres
     const tdx = at.x - fx * 122, tdz = at.z - fz * 122, dtd = (tdx - p.x) * fx + (tdz - p.z) * fz, lat = (at.x - p.x) * fz - (at.z - p.z) * fx;
+    if (S.st === 'inbound' && C.ready) S.noGo = !C.ready();
     if (S.st === 'inbound' && S.noGo && dtd < 900) { S.st = 'orbit'; S.t = 0; S.orbA = Math.atan2(p.x - at.x, p.z - at.z); C.onNotReady?.(); }
     if (S.st === 'orbit') {
       S.orbA += (40 / 260) * dt; const tx = at.x + Math.sin(S.orbA) * 260, tz = at.z + Math.cos(S.orbA) * 260;
@@ -953,6 +1059,7 @@ function flyPlane(dt) {
     S.turn = Math.min(1, S.turn + dt / 7); const k = S.turn * S.turn * (3 - 2 * S.turn);
     S.yaw = hd + Math.PI * k; yawT = S.yaw; S.rpmT = S.turn < 1 ? 0.5 : 0.34;
     const off = Math.sin(Math.PI * k) * 2.2; p.set(at.x + fz * off, gyHere, at.z - fx * off); v.set(0, 0, 0);
+    if (S.turn < 1) { VEH().group.position.copy(p); clearLanding(); }   // nobody gets swept through by the turn
     S.boardT -= dt;
     const sec = Math.max(0, Math.ceil(S.boardT));
     if (sec !== S.lastSec) { S.lastSec = sec; C.onCountdown?.(sec); }
@@ -995,8 +1102,15 @@ function flyPlane(dt) {
 const BOAT_DOOR = V(1.6, 0.55, 0.2);
 function buildBoat() {
   const group = new THREE.Group(); group.name = 'rescueBoat'; group.rotation.order = 'YXZ';
-  const navy = new THREE.MeshStandardMaterial({ color: 0x1a2740, roughness: 0.45, metalness: 0.3 }), white = new THREE.MeshStandardMaterial({ color: 0xe8eaea, roughness: 0.4 });
-  const deckM = new THREE.MeshStandardMaterial({ color: 0x6a6c68, roughness: 0.9 }), dark = new THREE.MeshStandardMaterial({ color: 0x141a20, roughness: 0.1, metalness: 0.5 });
+  const navyT = paintedMetalTexture([28, 42, 68]); navyT.repeat.set(0.5, 0.5);
+  const navy = new THREE.MeshStandardMaterial({ map: navyT, roughness: 0.45, metalness: 0.3 }), white = new THREE.MeshStandardMaterial({ map: paintedMetalTexture([226, 228, 228]), roughness: 0.4 });
+  const deckT = canvasTex(128, 128, (g, w) => {   // grey non-skid tread plate: raised diamonds, scuffs
+    g.fillStyle = '#66686a'; g.fillRect(0, 0, w, w);
+    for (let y = 0; y < w; y += 8) for (let x = (y / 8 % 2) * 4; x < w; x += 8) { g.save(); g.translate(x + 2, y + 2); g.rotate((y / 8 % 2 ? 1 : -1) * 0.7); g.fillStyle = 'rgba(150,152,154,0.55)'; g.fillRect(-2.5, -0.8, 5, 1.6); g.fillStyle = 'rgba(30,30,30,0.35)'; g.fillRect(-2.5, 0.8, 5, 0.8); g.restore(); }
+    for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '40,36,30' : '120,110,90'},${Math.random() * 0.12})`; g.beginPath(); g.arc(Math.random() * w, Math.random() * w, 2 + Math.random() * 10, 0, 7); g.fill(); }
+  });
+  deckT.wrapS = deckT.wrapT = THREE.RepeatWrapping; deckT.repeat.set(0.8, 0.8);
+  const deckM = new THREE.MeshStandardMaterial({ map: deckT, roughness: 0.9 }), dark = new THREE.MeshStandardMaterial({ color: 0x141a20, roughness: 0.1, metalness: 0.5 });
   const metal = new THREE.MeshStandardMaterial({ color: 0xb0b4b8, roughness: 0.3, metalness: 0.9 }), black = new THREE.MeshStandardMaterial({ color: 0x18191a, roughness: 0.6 });
   const add = (geo, mat, x = 0, y = 0, z = 0, par = group) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; par.add(m); return m; };
   // the hull: a pointed-bow plan extruded up (shape y = -z, see rotateX)
@@ -1005,7 +1119,7 @@ function buildBoat() {
   add(new THREE.ExtrudeGeometry(sh, { depth: 1.0, bevelEnabled: true, bevelThickness: 0.06, bevelSize: 0.06, bevelSegments: 2 }).rotateX(-Math.PI / 2), navy, 0, -0.45, 0);
   add(new THREE.ExtrudeGeometry(sh, { depth: 0.16, bevelEnabled: false }).rotateX(-Math.PI / 2).scale(1.03, 1, 1.01), white, 0, 0.45, 0);   // the sheer stripe
   add(new THREE.ExtrudeGeometry(sh, { depth: 0.02, bevelEnabled: false }).rotateX(-Math.PI / 2).scale(0.94, 1, 0.95), deckM, 0, 0.5, 0);
-  const word = canvasTex(512, 128, (g, w, h) => { g.fillStyle = '#1a2740'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.font = 'bold 84px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('POLICE', w / 2, h / 2 + 4); g.fillStyle = '#f0c020'; g.fillRect(0, h - 12, w, 6); });
+  const word = canvasTex(512, 128, (g, w, h) => { g.fillStyle = '#1a2740'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; fitFill(g, named() ? rideName() : 'POLICE', w / 2, h / 2 + 4, 'bold 84px Arial', w * 0.92); g.fillStyle = '#f0c020'; g.fillRect(0, h - 12, w, 6); });
   for (const sx of [-1, 1]) { const m = add(new THREE.PlaneGeometry(2.4, 0.6), new THREE.MeshStandardMaterial({ map: word, roughness: 0.5 }), sx * 1.2, 0.05, -0.6); m.rotation.y = sx * Math.PI / 2; }
   // wheelhouse
   add(new THREE.BoxGeometry(1.7, 1.1, 1.8), white, 0, 1.08, -0.55);

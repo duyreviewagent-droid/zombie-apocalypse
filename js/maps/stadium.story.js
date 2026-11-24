@@ -75,7 +75,7 @@ export const calmGoal = 'Find <b>Ben</b> at the burger van, get a <b>programme</
 export const chapters = [
   { id: 'down', title: 'PITCH INVASION', goal: 'The lights are out and the gates are chained. Get <b>down from the stand</b> into the <b>concourse</b>. Find a <b>weapon</b>.', done: 'reach:concourseN' },
   { id: 'tunnel', title: 'THE TUNNEL', goal: 'Through the <b>players\' tunnel</b> and the <b>dressing rooms</b>: the <b>floodlight key</b> is in the red cabinet in the <b>groundsman\'s store</b>.' },
-  { id: 'lights', title: 'LIGHTS ON', goal: 'Up the <b>back stairs</b> of the Main Stand to the <b>switch room</b>. Turn the <b>floodlights</b> on. Hold out until <b>02:00</b>.', done: 'time:1.5' },
+  { id: 'lights', title: 'LIGHTS ON', goal: 'Up the <b>back stairs</b> of the Main Stand to the <b>switch room</b>. Turn the <b>floodlights</b> on. Hold out until <b>02:00</b>.' },   // (done in beats(): only once the lights are on — the helicopter can't land in the dark)
   { id: 'heli', title: 'THE HELICOPTER', goal: 'The air ambulance lands on the <b>centre circle</b>. It waits <b>one minute</b>. Get in — <b>E</b>.', done: 'board' },
 ];
 
@@ -139,6 +139,8 @@ export function beats(G, api = {}) {
   if (B.cut && B.panicT > 0) { B.panicT = Math.max(0, B.panicT - dt); S.cheer(B.panicT > 0 ? 0.6 * Math.min(1, B.panicT / 3) : 0); }
   if (S.hasKey) { say('key', 'The floodlight key. Now the switch room — up the back stairs, outside the Main Stand.'); if (phase === 'outbreak' && api.setStage) api.setStage(2, 1.2); }   // (THE TUNNEL is done: LIGHTS ON)
   if (S.lockedTry && S.lockedTry !== B.lockedSeen) { B.lockedSeen = S.lockedTry; if (api.think && !S.hasKey) api.think('Locked. It needs the floodlight key — Gus keeps it in the red cabinet in his store.', 3); }
+  // LIGHTS ON is done when the floodlights are on and it's nearly two (not on the clock alone: in the dark the helicopter turns away)
+  if (S.switchedOn && phase === 'outbreak' && G && Math.floor(G.stage) === 2 && h >= 1.5 && h < 12 && api.setStage) api.setStage(3, 0.8);
   if (S.switchedOn && (S.switchT || 0) > 8) say('lights', 'The lamps hum, glow orange... then white. The whole ground lit up like match night. They\'ll see that for miles.', 4);
   if (G && G.player && G.player.pos) {
     const p = G.player.pos, near = (k, r) => SPOTS[k] && Math.hypot(p.x - SPOTS[k].x, p.z - SPOTS[k].z) < r;

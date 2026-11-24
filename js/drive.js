@@ -9,14 +9,18 @@
 //  - a car you leave somewhere new stays solid: pushBodies() keeps people and zombies out of it (and of the bikes).
 // Sound is its own small Web Audio graph (an engine whose note follows the revs, road and tyre noise, the chain).
 import * as THREE from 'three';
-import { tier } from './tex.js';
-import { buildBike, bikeParked, makeDrivable, carSpec, setDoor } from './vehicles.js';
+import { tier, glowSprite } from './tex.js';
+import { buildBike, bikeParked, makeDrivable, carSpec, setDoor, bikePaint, crackGlass } from './vehicles.js';
 import { aimBone, addTurn, clamp, lerp, damp, wrapPi, smooth, dampAngle } from './soldier.js';
 import { knockDown } from './zombies.js';
 
 let E = null;                    // { scene, world, SND, fx, camera, damage, noise, Z, C }
 export const bikes = [];         // { kind: 'bike', g, U, x, z, yaw, y, v, steer, lean, crank, spin, home }
 export const cars = [];          // { kind: 'car', C, g, type, spec, keys, x, z, yaw, v, vs, steer, ..., home, moved }
+// [traffic] the town's own traffic (traffic.js): cars and bikes other people are driving. Solid to you, the dead and
+// your car (pushBodies / collideCar / bikeStep), never yours to get in while they're driven. A car they leave behind
+// comes over to cars[] (adoptCar) and is then just another parked car you can drive.
+export const others = [];        // { kind: 'car'|'bike', ai: true, x, z, yaw, v, hx, hz, bo, belt, onHit(dx, dz, sp) }
 let cur = null;                  // what you're in right now
 const boxOwner = new Map();      // a parked car's static boxes → its entry here (so a car you ram gets shoved)
 let rider = null;                // the player (P) while in it
@@ -46,13 +50,14 @@ export function initDrive(env) {
       home: { x: C.x, z: C.z, yaw: C.yaw }, moved: false, live: null, hitT: 0, wantOut: false, truck: C === W.truck,
       orig: { x: C.x, z: C.z, yaw: C.yaw, bx: b.x, bz: b.z, cx: C.cab ? C.cab.x : 0, cz: C.cab ? C.cab.z : 0 } };
     if (V.truck) V.keys = false;
+    V.keys0 = V.keys;
     // the trunk (a search spot) rides along with the car
     V.trunks = W.containers.filter(c => c.car === C).map(c => ({ c, ...toLocal(V, c.x, c.z), st: c.stand ? toLocal(V, c.stand.x, c.stand.z) : null, dy: c.yaw - C.yaw, sdy: c.stand ? c.stand.yaw - C.yaw : 0 }));
     cars.push(V); n++;
     boxOwner.set(b, V); if (C.cab) boxOwner.set(C.cab, V);
   }
   // bicycles: on driveways and lawns in front of the houses (one by your own front door), by the park, the store
-  const BIKE_PAINT = [0x8a1a14, 0x1a3a7a, 0x2a5a2a, 0xb8b2a0, 0x1a1a1a, 0xc89a1a, 0x5a2a6a, 0x2a6a7a].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.35, metalness: 0.45 }));
+  const BIKE_PAINT = [0x8a1a14, 0x1a3a7a, 0x2a5a2a, 0xb8b2a0, 0x1a1a1a, 0xc89a1a, 0x5a2a6a, 0x2a6a7a].map((c, i) => bikePaint(c, i));   // painted, flaked, pinstriped, the maker's name on it
   const spots = [];
   const home = W.houses.find(H => H.x === -44 && H.z === 17);
   const byHouse = H => { const s = H.flip || 1; return [[s * -(H.hw - 2.4), H.hd + 2.6, Math.PI / 2 - 0.25], [s * (H.hw - 0.6), H.hd + 2.4, Math.PI / 2 + 0.3]].map(([lx, lz, ly]) => [H.x + lx * Math.cos(H.yaw) + lz * Math.sin(H.yaw), H.z - lx * Math.sin(H.yaw) + lz * Math.cos(H.yaw), H.yaw + ly]); };
@@ -106,7 +111,12 @@ export function canUse(px, pz, P = null) {
   if (!best) return null;
   const V = best, name = V.truck ? 'Dale\'s pickup' : V.C.police ? 'police cruiser' : V.type === 'suv' ? 'SUV' : V.type === 'pickup' ? 'pickup' : V.type === 'van' ? 'van' : 'car';
   if (V.truck) return { label: `Drive ${name}`, sub: 'tank full, keys in your hand · W / S drive · A / D steer · Space handbrake · E get out', go: () => enter(lastP || (E.getP && E.getP()), V) };
-  if (!V.keys) return { label: 'Locked — no keys', sub: `the ${name}'s doors won't open`, locked: true, go: () => rattle(V) };
+  // locked: try the handle; then (E again) put an elbow through the window and hotwire it — loud, and it takes a few seconds
+  if (!V.keys) {
+    const t = E.C ? E.C.t : 0;
+    if (V.smashArm > t) return { label: `Smash the window & hotwire the ${name}`, sub: 'E: break in (loud — the dead will hear it) · then a few seconds under the dash', go: () => smashIn(lastP || (E.getP && E.getP()), V) };
+    return { label: 'Locked — no keys', sub: `E: try the door · E again: smash the window and hotwire it`, go: () => { rattle(V); V.smashArm = t + 5; } };
+  }
   return { label: `Drive the ${name}`, sub: 'the keys are in it · W / S drive · A / D steer · Space handbrake · E get out', go: () => enter(lastP || (E.getP && E.getP()), V) };
 }
 
@@ -230,7 +240,7 @@ function animStep(V, dt) {
     s.yaw = s.aimYaw = s.moveA = ent ? face : V.yaw; s.pivot.rotation.set(0, s.yaw, 0);
   }
   if (k >= 1) {
-    if (ent) { V.anim = null; if (car) { V.engineT = -0.3; sound('start', V); } }
+    if (ent) { V.anim = null; if (car && V.hotwire) { V.hotwire = false; V.hotT = 2.6; V.crankT = 0; } else if (car) { V.engineT = -0.3; sound('start', V); } }
     else finishExit(V, rider, A.at);
   }
 }
@@ -286,11 +296,14 @@ export function reset() {
   for (const B of bikes) { B.anim = null; if (B.down) { B.down = false; park(B); } }
   // a new game: every car back where it was parked (whole again), every bike back on its stand where it was
   for (const V of cars) restoreCar(V);
+  clearSkids(); horn(false);
   for (const B of bikes) { const h = B.home; if (B.x === h.x && B.z === h.z && B.yaw === h.yaw) continue; B.x = h.x; B.z = h.z; B.yaw = h.yaw; B.y = E.world.groundY(h.x, h.z, 0, true); park(B); }
 }
 function restoreCar(V) {
   const o = V.orig, C = V.C, W = E.world;
   undent(V);
+  if (V.keys0 !== undefined) V.keys = V.keys0;
+  V.hp = 100; V.lampsDead = V.engineDead = false; V.hotT = 0; V.hotwire = false; V.smashArm = 0; if (V.cracked) { V.cracked = false; crackGlass(V.g, false); }
   if (V.live) for (const D of V.live.doors || []) setDoor(D, 0);
   V.tp = V.tr = 0;
   if (V.x === o.x && V.z === o.z && V.yaw === o.yaw && !V.moved) return;
@@ -315,7 +328,43 @@ export function pushBodies(p, r = 0.33) {
     hit = pushRect(p, r, V.x, V.z, V.yaw, V.hx, V.hz, V.bo) || hit;
   }
   for (const B of bikes) { if (B === cur || gy > 0.9) continue; hit = pushRect(p, r * 0.8, B.x, B.z, B.yaw, 0.1, 0.78, -0.02) || hit; }
+  for (const O of others) {   // [traffic]
+    if (O.kind === 'car') { if (gy > O.belt + 0.2) continue; hit = pushRect(p, r, O.x, O.z, O.yaw, O.hx, O.hz, O.bo) || hit; }
+    else if (gy <= 0.9) hit = pushRect(p, r * 0.8, O.x, O.z, O.yaw, 0.12, 0.8, -0.02) || hit;
+  }
   return hit;
+}
+// [traffic] a car somebody left (traffic.js): from now on it's one of the parked cars — keys in it, its boxes where it
+// stands (the caller put them there), drivable, shoved by yours. releaseCar takes it back for a new run.
+export function adoptCar(C, at, live = null) {
+  if (!E || cars.some(V => V.C === C)) return null;
+  const spec = carSpec(C.type), b = C.box, home = { x: at.x, z: at.z, yaw: at.yaw };
+  const bo = (b.x - at.x) * Math.sin(at.yaw) + (b.z - at.z) * Math.cos(at.yaw);
+  const V = { kind: 'car', C, g: C.g, type: C.type, spec, keys: true, x: at.x, z: at.z, yaw: at.yaw, y: at.y || 0,
+    v: 0, vs: 0, steer: at.steer || 0, roll: 0, pitch: 0, spin: at.spin || 0, rpm: 900, hx: b.hx, hz: b.hz, bo, belt: b.y1, top: C.cab ? C.cab.y1 : b.y1 + 0.5,
+    home, moved: false, live: live || (C.g.userData && C.g.userData.live) || null, hitT: 0, wantOut: false, truck: false, adopted: true, trunks: [],
+    orig: { x: at.x, z: at.z, yaw: at.yaw, bx: b.x, bz: b.z, cx: C.cab ? C.cab.x : 0, cz: C.cab ? C.cab.z : 0 } };
+  C.x = at.x; C.z = at.z; C.yaw = at.yaw; b.off = false; C.hidden = false;
+  cars.push(V); boxOwner.set(b, V); if (C.cab) boxOwner.set(C.cab, V);
+  return V;
+}
+export function releaseCar(C) {
+  const i = cars.findIndex(V => V.C === C); if (i < 0) return;
+  const V = cars[i];
+  if (V === cur) exit(rider, true);
+  if (V.pass) unseatPassenger(V, { x: V.x, z: V.z });
+  undent(V); cars.splice(i, 1); boxOwner.delete(C.box); if (C.cab) boxOwner.delete(C.cab);
+  C.box.off = true; C.hidden = true;
+}
+export function adoptBike(B) {
+  if (!E || bikes.includes(B)) return;
+  B.v = 0; B.anim = null; B.home = { x: B.x, z: B.z, yaw: B.yaw }; B.foot = 1;
+  park(B); bikes.push(B);
+}
+export function releaseBike(B) {
+  const i = bikes.indexOf(B); if (i < 0) return;
+  if (B === cur) exit(rider, true);
+  bikes.splice(i, 1); B.down = false; bikeParked(B.g, false);
 }
 function pushRect(p, r, x, z, yaw, hx, hz, bo) {
   const c = Math.cos(yaw), s = Math.sin(yaw), dx = p.x - x, dz = p.z - z;
@@ -359,7 +408,7 @@ export function update(dt, input = {}) {
   if (cur !== V) return;   // thrown off
   hitThings(V, dt);
   if (cur !== V) return;
-  if (V.kind === 'car') carLook(V, dt, input); else pose(V, dt, input);
+  if (V.kind === 'car') { carLook(V, dt, input); carDamageFx(V, dt); tyres(V, dt, input); hotwireStep(V, dt); } else pose(V, dt, input);
   seat(V, dt);
   seatPassengerPose(V, dt);
   sounds(V, dt, input);
@@ -368,6 +417,33 @@ export function update(dt, input = {}) {
   if (V.noiseT <= 0) { V.noiseT = 0.45; tv.set(V.x, 0, V.z); if (V.kind === 'car') E.noise(tv, 20 + Math.abs(V.v) * 1.6 + (input.up ? 6 : 0)); else if (Math.abs(V.v) > 1) E.noise(tv, 2.5); }
 }
 
+// hotwiring: a few seconds under the dash, the starter turning over, then it catches
+function hotwireStep(V, dt) {
+  if (!(V.hotT > 0)) return;
+  V.hotT -= dt; V.crankT = (V.crankT || 0) - dt;
+  if (V.crankT <= 0 && V.hotT > 0.4) { V.crankT = 0.75; if (audio() && AC.state === 'running') { const t = AC.currentTime + 0.01; for (let i = 0; i < 4; i++) blip(t + i * 0.09, { f: 140, f1: 115, osc: 'sawtooth', noise: false, d: 0.07, g: 0.11 }); } blip0Spark(V); }
+  V.engineT = -0.3;
+  if (V.hotT <= 0) { V.hotT = 0; sound('start', V); }
+}
+function blip0Spark(V) { if (E.fx && E.fx.sparks) { const w = toWorld(V, V.hx - 0.5, V.spec.cab.front - 0.2); E.fx.sparks(tv3.set(w.x, (V.y || 0) + 0.55, w.z), 3); } }
+// the horn (H) — on a bike, its bell. The dead hear a horn a long way off.
+let hornK = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', e => { if (e.code !== 'KeyH' || e.repeat || !cur || cur.anim) return; const el = e.target; if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return; horn(true); });
+  window.addEventListener('keyup', e => { if (e.code === 'KeyH') horn(false); });
+  window.addEventListener('blur', () => horn(false));
+}
+let HORN = null;
+export function horn(on) {
+  if (!E || !cur) on = false;
+  if (on === hornK) return; hornK = on;
+  if (!audio()) return;
+  const t = AC.currentTime;
+  if (on && cur.kind === 'bike') { hornK = false; for (const dt0 of [0, 0.15]) for (const [f, g] of [[2350, 0.06], [3180, 0.035]]) { const o = AC.createOscillator(), e = AC.createGain(); o.frequency.value = f; e.gain.setValueAtTime(0, t + dt0); e.gain.linearRampToValueAtTime(g, t + dt0 + 0.004); e.gain.exponentialRampToValueAtTime(0.0003, t + dt0 + 0.9); o.connect(e).connect(OUT); o.start(t + dt0); o.stop(t + dt0 + 0.95); } E.noise(tv.set(cur.x, 0, cur.z), 8); return; }
+  if (!HORN) { HORN = { g: AC.createGain(), lp: AC.createBiquadFilter() }; HORN.g.gain.value = 0; HORN.lp.type = 'lowpass'; HORN.lp.frequency.value = 1900; HORN.lp.connect(HORN.g).connect(OUT); for (const f of [392, 494]) { const o = AC.createOscillator(); o.type = 'square'; o.frequency.value = f; o.connect(HORN.lp); o.start(); } }
+  HORN.g.gain.cancelScheduledValues(t); HORN.g.gain.setTargetAtTime(on && !cur.engineDead ? 0.11 : 0, t, 0.015);
+  if (on) { const lure = () => { if (!hornK || !cur) return; E.noise(tv.set(cur.x, 0, cur.z), 60); setTimeout(lure, 500); }; lure(); }
+}
 // ---- car physics: a bicycle model with a little slip; four gears for the sound
 const CAR = { vmax: 18, acc: 6.5, brake: 11, rev: 5.5, revMax: 6, hand: 7, wbK: 1 };
 // each kind its own engine: a police cruiser pulls hard and runs to ~85 km/h, a loaded van wheezes up to ~70
@@ -377,10 +453,15 @@ const GRIP = 8.5;   // m/s² the tyres hold sideways (~0.85 g); ask for more and
 function carStep(V, dt, I) {
   const want = V.wantOut, up = I.up && !want, down = I.down && !want, hand = (I.brake && !want) || want;
   let a = 0; const v = V.v, CK = carOf(V);
+  const pow = V.engineDead || V.hotT > 0 ? 0 : (V.hp ?? 100) < 25 ? 0.45 : 1;   // a dead engine pushes nothing; a burning one coughs along
   if (want) a = -Math.sign(v) * CAR.brake;
-  else if (up) a = v < -0.3 ? CAR.brake : CK.acc * Math.pow(Math.max(0, 1 - v / CK.vmax), 0.7) + (v < 0 ? CAR.brake : 0);
-  else if (down) a = v > 0.3 ? -CAR.brake : -CAR.rev * Math.max(0, 1 + v / CAR.revMax);
-  const drag = (0.3 + 0.006 * v * v) * Math.sign(v);
+  else if (up) a = v < -0.3 ? CAR.brake : pow * CK.acc * Math.pow(Math.max(0, 1 - v / CK.vmax), 0.7) + (v < 0 ? CAR.brake : 0);
+  else if (down) a = v > 0.3 ? -CAR.brake : -pow * CAR.rev * Math.max(0, 1 + v / CAR.revMax);
+  // off the road: grass and mud drag at the tyres, the ruts throw the body about
+  V.gkT = (V.gkT || 0) - dt; if (V.gkT <= 0) { V.gkT = 0.2; V.gk = E.world.groundKind ? E.world.groundKind(V.x, V.z) : 'asphalt'; }
+  const rough = { grass: 1.5, mud: 2.2, sand: 2.0, dirt: 0.9, gravel: 0.7, leaves: 1.2 }[V.gk] || 0;
+  if (rough && Math.abs(v) > 2.5 && Math.random() < dt * 4 * rough) V.bump = Math.max(V.bump || 0, 0.015 + Math.random() * 0.025 * Math.min(1, Math.abs(v) / 12));
+  const drag = (0.3 + rough * (0.55 + 0.03 * Math.abs(v)) + 0.006 * v * v) * Math.sign(v);
   let nv = v + (a - drag) * dt;
   if (hand) nv -= Math.sign(nv) * Math.min(Math.abs(nv), CAR.hand * dt);
   if (!up && !down && Math.abs(nv) < 0.15) nv = 0;
@@ -479,6 +560,7 @@ function collideCar(V) {
     let b = W.collide(cp, R.r, LIEOPT), hitO = b && boxOwner.get(b);
     if (hitO === V) hitO = null;
     for (const O of cars) if (O !== V && O.moved && Math.hypot(O.x - V.x, O.z - V.z) < 8 && pushRect(cp, R.r, O.x, O.z, O.yaw, O.hx, O.hz, O.bo)) { b = b || { mat: 'metal' }; hitO = O; }
+    for (const O of others) if (Math.hypot(O.x - V.x, O.z - V.z) < 8 && (O.kind === 'car' ? pushRect(cp, R.r, O.x, O.z, O.yaw, O.hx, O.hz, O.bo) : pushRect(cp, R.r, O.x, O.z, O.yaw, 0.15, 0.8, 0))) { b = b || { mat: 'metal' }; hitO = O; }   // [traffic]
     const dx = cp.x - x0, dz = cp.z - z0, d = Math.hypot(dx, dz);
     if (d < 1e-5) continue;
     // move the body out, and turn it a little about the hit (a glancing blow swings the car)
@@ -513,6 +595,7 @@ function collideCar(V) {
 }
 // a car shoved by yours: it gets a velocity (and a spin about where it was hit) that idleCars() rolls out
 function shoveCar(O, dx, dz, sp, hx, hz) {
+  if (O.ai) { if (O.onHit) O.onHit(dx, dz, sp, hx, hz); return; }   // [traffic] somebody else's car: traffic.js reacts
   if (!O.live) O.live = makeDrivable(O.g, O.type);
   if (!O.moved) { O.C.box.off = true; O.moved = true; }
   const k = 0.45 * sp;
@@ -557,6 +640,45 @@ function crash(V, sp, mat) {
   const lim = V.kind === 'car' ? carOf(V).vmax * 0.4 : 5.5;   // hurts past ~40% of the car's top speed
   if (sp > lim && rider) E.damage(rider, (sp - lim) * (V.kind === 'car' ? 4 : 6), null, { crash: true });
   if (V.kind === 'bike' && sp > 6 && rider && cur === V) bail(V, sp);
+  if (V.kind === 'car') hurtCar(V, sp, p);
+}
+// ---- what a car can take: smoke from under the bonnet, then fire; the glass crazes, the lamps go out, the engine dies
+function hurtCar(V, sp, p) {
+  if (sp < 3.2) return;
+  V.hp = (V.hp ?? 100) - (sp - 3) * 5.5;
+  if (V.hp < 72 && !V.cracked) { V.cracked = true; crackGlass(V.g, true); if (E.SND.glass) E.SND.glass(p.clone(), 0.6); }
+  if (V.hp < 40) V.lampsDead = true;
+  if (V.hp <= 0 && !V.engineDead) { V.engineDead = true; sound('stop', V); }
+}
+function carDamageFx(V, dt) {
+  const hp = V.hp ?? 100; if (hp >= 60 || !E.fx) return;
+  V.smokeT = (V.smokeT || 0) - dt; if (V.smokeT > 0) return;
+  V.smokeT = hp < 25 ? 0.12 : 0.18 + hp / 160;
+  const w = toWorld(V, 0, V.spec.L / 2 - 0.75), p = tv3.set(w.x, (V.y || 0) + 1.0, w.z);
+  if (E.fx.smokePuff) E.fx.smokePuff(p, 1, hp < 25 ? 1.1 : 0.7, hp < 25 ? 0.12 : 0.45);
+  if (hp < 25 && E.fx.fire) E.fx.fire(p, 1);
+}
+// ---- skid marks and tyre smoke while the tyres slide
+let SKID = null;
+function skidMark(x, z, yaw, y) {
+  if (!SKID) {
+    SKID = { m: new THREE.InstancedMesh(new THREE.PlaneGeometry(0.24, 0.42).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0a0a0a, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5 }), 700), i: 0, n: 0 };
+    SKID.m.frustumCulled = false; SKID.m.count = 0; SKID.m.renderOrder = 1; E.scene.add(SKID.m);
+  }
+  const M = new THREE.Matrix4().compose(tv2.set(x, y + 0.025, z), new THREE.Quaternion().setFromAxisAngle(UPV, yaw), tv.set(1, 1, 1));
+  SKID.m.setMatrixAt(SKID.i, M); SKID.i = (SKID.i + 1) % 700; SKID.n = Math.min(700, SKID.n + 1); SKID.m.count = SKID.n; SKID.m.instanceMatrix.needsUpdate = true;
+}
+export function clearSkids() { if (SKID) { SKID.i = SKID.n = 0; SKID.m.count = 0; } }
+function tyres(V, dt, I) {
+  const slide = Math.abs(V.vs) > 1.1 || (I.brake && Math.abs(V.v) > 4) || (I.down && V.v > 8) || (I.up && V.v < 3 && V.v > 0.5 && (V.hp ?? 100) > 25 && carOf(V).acc > 6.5);
+  if (!slide) { V.skidL = null; return; }
+  const wz = V.spec.wheelZ[1], hw = V.hx - 0.15;
+  for (const sx of [-1, 1]) {
+    const w = toWorld(V, sx * hw, wz), k = sx > 0 ? 'skA' : 'skB', last = V[k];
+    if (!last || Math.hypot(w.x - last.x, w.z - last.z) > 0.32) { skidMark(w.x, w.z, V.yaw, V.y || 0); V[k] = { x: w.x, z: w.z }; }
+  }
+  V.tyreT = (V.tyreT || 0) - dt;
+  if (V.tyreT <= 0 && E.fx && E.fx.smokePuff) { V.tyreT = 0.07; const w = toWorld(V, (Math.random() < 0.5 ? 1 : -1) * hw, wz); E.fx.smokePuff(tv3.set(w.x, (V.y || 0) + 0.25, w.z), 1, 0.45, 0.78); }
 }
 // off the bike: over the bars and onto the road; the bike goes down on its side and stays there till picked up
 function bail(V, sp) {
@@ -660,44 +782,96 @@ function hitThings(V, dt) {
 
 // ---- the car's look: wheels, body on its springs, lights, steering wheel
 const spot = { L: null };
+// the dipped beam's pool of light on the road in front (an additive decal that rides with the car you're in)
+let POOL = null;
+function beamPool(V) {
+  if (!POOL) {
+    const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256; const g = cv.getContext('2d');
+    const gr = g.createRadialGradient(70, 230, 4, 70, 200, 190); gr.addColorStop(0, 'rgba(255,246,225,0.9)'); gr.addColorStop(0.45, 'rgba(255,240,210,0.35)'); gr.addColorStop(1, 'rgba(255,240,210,0)');
+    g.fillStyle = gr; g.beginPath(); g.moveTo(40, 256); g.lineTo(0, 40); g.lineTo(70, 0); g.lineTo(128, 70); g.lineTo(92, 256); g.closePath(); g.fill();
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+    POOL = new THREE.Mesh(new THREE.PlaneGeometry(9, 22).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+    POOL.renderOrder = 2; POOL.rotation.y = Math.PI;
+  }
+  const body = V.live.body;
+  if (POOL.parent !== body) body.add(POOL);
+  POOL.position.set(-0.3, 0.04, V.spec.L / 2 + 11.5);
+  POOL.material.opacity = spot.L ? Math.min(0.55, spot.L.intensity / 170 * 0.55) : 0;
+}
 function headlight(V) {
-  if (!V) { if (spot.L) spot.L.intensity = 0; return; }
+  if (!V) { if (spot.L) spot.L.intensity = 0; if (POOL) POOL.material.opacity = 0; return; }
   // one light for both lamps, made the first time you drive (and kept, dark, so the scene's shaders never change again)
   if (!spot.L) { spot.L = new THREE.SpotLight(0xfff0d8, 0, 48, 0.62, 0.5, 1.3); spot.L.castShadow = false; }
   const body = V.live.body, L = spot.L;
   if (L.parent !== body) { body.add(L); body.add(L.target); }
-  L.position.set(0, 0.75, V.spec.L / 2 - 0.1); L.target.position.set(0, 0, V.spec.L / 2 + 14);
+  // low beams: aimed down the road ~40 m ahead and a touch down, reaching ~80 m, a cut-off cone (the pool on the road below
+  // is the 'cookie': brighter to the near right, as dipped headlights are)
+  L.position.set(0, 0.75, V.spec.L / 2 - 0.1); L.target.position.set(0.6, -0.6, V.spec.L / 2 + 40);
+  L.distance = 80; L.angle = 0.5; L.penumbra = 0.55;
+  beamPool(V);
 }
 const QW = { x: 0, z: 0 }, xz = o => [o.x, o.z];
+const ROLL_MAX = { sedan: 0.05, suv: 0.068, pickup: 0.062, van: 0.08, police: 0.04 };
 function carLook(V, dt, I) {
   const g = V.g, L = V.live, W = E.world, wz = V.spec.wheelZ, wb = wz[0] - wz[1], hw = V.hx - 0.12, mz = (wz[0] + wz[1]) / 2;
-  // the ground under each axle and each side: the car sits on all four, pitched and rolled to the slope (a kerb lifts
-  // one end, not the whole car)
-  const yF = W.groundY(...xz(toWorld(V, 0, wz[0], QW)), 0, true), yR = W.groundY(...xz(toWorld(V, 0, wz[1], QW)), 0, true);
-  const yL = W.groundY(...xz(toWorld(V, hw, mz, QW)), 0, true), yRt = W.groundY(...xz(toWorld(V, -hw, mz, QW)), 0, true);
-  V.y = damp(V.y, (yF + yR + yL + yRt) / 4, 14, dt);
+  // the ground under each wheel: the car sits on the plane through all four, pitched and rolled to the slope (a kerb
+  // lifts one end, not the whole car); what the plane can't follow, each wheel's spring takes (it rises into its arch)
+  const gW = [[hw, wz[0]], [-hw, wz[0]], [hw, wz[1]], [-hw, wz[1]]].map(([lx, lz]) => W.groundY(...xz(toWorld(V, lx, lz, QW)), 0, true));
+  const yF = (gW[0] + gW[1]) / 2, yR = (gW[2] + gW[3]) / 2, yL = (gW[0] + gW[2]) / 2, yRt = (gW[1] + gW[3]) / 2, yC = (yF + yR) / 2;
+  V.y = damp(V.y, yC, 14, dt);
   V.tp = damp(V.tp || 0, Math.atan2(yR - yF, wb), 12, dt); V.tr = damp(V.tr || 0, Math.atan2(yL - yRt, 2 * hw), 12, dt);
   g.position.set(V.x, V.y, V.z); g.rotation.set(V.tp, V.yaw, V.tr, 'YXZ');
-  // springs: nose dips under braking, squats under power, leans out in a turn; a jolt on a hit
-  const lat = (V.yawRate || 0) * V.v;
+  // springs: nose dips under braking, squats under power, leans out in a turn (a van more, a cop car less); a jolt on a hit
+  const lat = (V.yawRate || 0) * V.v, rm = (V.C && V.C.police ? ROLL_MAX.police : ROLL_MAX[V.type]) || 0.05;
   V.pitch = damp(V.pitch, clamp(-(V.accel || 0) * 0.0045, -0.045, 0.035), 7, dt);
-  V.roll = damp(V.roll, clamp(lat * 0.006, -0.05, 0.05), 6, dt);
+  V.roll = damp(V.roll, clamp(lat * 0.006 * (rm / 0.05), -rm, rm), 6, dt);
   V.bump = Math.max(0, (V.bump || 0) - dt * 0.4);
   const jolt = V.bump * Math.sin((E.C ? E.C.t : 0) * 40);
   L.body.rotation.set(V.pitch + jolt * 0.3, 0, V.roll, 'YXZ');
   L.body.position.y = Math.abs(V.v) > 3 ? Math.sin((E.C ? E.C.t : 0) * 13) * 0.003 * Math.min(1, Math.abs(V.v) / 15) : 0;
-  for (const w of L.wheels) { w.spin.rotation.x = V.spin; w.hub.rotation.y = w.front ? V.steer : 0; }
+  V.susp = V.susp || [0, 0, 0, 0];
+  for (const w of L.wheels) {
+    w.spin.rotation.x = V.spin; w.hub.rotation.y = w.front ? V.steer : 0;
+    const k = (w.front ? 0 : 2) + (w.sx > 0 ? 0 : 1), plane = yC + (w.front ? 1 : -1) * (yF - yR) / 2 + (w.sx > 0 ? 1 : -1) * (yL - yRt) / 2;
+    V.susp[k] = damp(V.susp[k], clamp(gW[k] - plane, -0.07, 0.07), 18, dt);
+    w.hub.position.y = L.r + V.susp[k];
+  }
   if (L.steerWheel) L.steerWheel.rotation.set(0.5, 0, -V.steer * 3.2);
-  // brake lights (and the reversing lamps); headlights after dark
+  // brake lights (and the reversing lamps); headlights after dark, coming on as the light goes (not all at once)
   const braking = (I.down && V.v > 0.3) || (I.up && V.v < -0.3) || I.brake || V.wantOut;
-  L.tail.emissiveIntensity = braking ? 2.2 : 0.35;
+  const brake = V.ai ? !!I.brakeLit : braking;   // [traffic] its driver's foot on the brake
+  const nk = smooth(0.18, 0.5, E.world.night || 0), dead = !!V.lampsDead;
+  L.tail.emissiveIntensity = dead ? 0 : brake ? 2.2 : 0.35 + nk * 0.6;
   L.rev.emissiveIntensity = V.v < -0.2 && I.down ? 1.2 : 0;
-  const night = (E.world.night || 0) > 0.3;
-  if (L.head) L.head.emissiveIntensity = night ? 2.5 : 0;
-  headlight(V); spot.L.intensity = night ? 160 : 0;
+  if (L.head) L.head.emissiveIntensity = dead ? 0 : nk * 2.5;
+  // the indicators: blinking on the side it's turning to (both: the hazards)
+  const ind = V.ai ? (I.ind || 0) : (!V.anim && Math.abs(V.v) < 9 && Math.abs(V.steer) > 0.28 ? Math.sign(V.steer) : 0);
+  if (L.ind) {
+    const on = Math.floor((E.C ? E.C.t : 0) / 0.38) % 2 === 0;
+    if (!V.hazard) { L.ind[0].emissiveIntensity = on && (ind > 0 || ind === 2) ? 2.4 : 0; L.ind[1].emissiveIntensity = on && (ind < 0 && ind !== 2 || ind === 2) ? 2.4 : 0; }
+    if (V === cur && ind && ind !== V.indWas && on) sound('tick', V);
+  }
+  V.indWas = ind;
+  glows(V, nk, brake, dead);
+  if (V === cur) { headlight(V); spot.L.intensity = dead ? 0 : nk * 170; }   // [traffic] (the one real headlight is yours)
   // the trunk (searchable) comes along
   for (const T of V.trunks) { const w = toWorld(V, T.lx, T.lz); T.c.x = w.x; T.c.z = w.z; T.c.yaw = V.yaw + T.dy; if (T.st && T.c.stand) { const s2 = toWorld(V, T.st.lx, T.st.lz); T.c.stand.x = s2.x; T.c.stand.z = s2.z; T.c.stand.yaw = V.yaw + T.sdy; } }
   V.C.x = V.x; V.C.z = V.z; V.C.yaw = V.yaw;
+}
+// the lamps' glow in the air (sprites): white at the front after dark, red at the back (bright under braking)
+let GLOWM = null;
+function glows(V, nk, brake, dead) {
+  const L = V.live;
+  if (!L.glow) {
+    if (!GLOWM) GLOWM = { w: new THREE.SpriteMaterial({ map: glowSprite('255,244,220'), color: 0xfff2dc, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), r: new THREE.SpriteMaterial({ map: glowSprite('255,60,40'), color: 0xff3020, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }) };
+    const P = V.spec, hw2 = P.W / 2 - 0.28, mk = (m, x, y, z, s0) => { const o = new THREE.Sprite(m); o.position.set(x, y, z); o.scale.setScalar(s0); o.renderOrder = 3; L.body.add(o); return o; };
+    const wm = GLOWM.w.clone(), rm = GLOWM.r.clone();
+    L.glow = { wm, rm, s: [mk(wm, hw2, 0.72, P.L / 2 + 0.05, 0.9), mk(wm, -hw2, 0.72, P.L / 2 + 0.05, 0.9), mk(rm, hw2, 0.88, -P.L / 2 - 0.05, 0.6), mk(rm, -hw2, 0.88, -P.L / 2 - 0.05, 0.6)] };
+  }
+  const G = L.glow;
+  G.wm.opacity = dead ? 0 : nk * 0.85;
+  G.rm.opacity = dead ? 0 : brake ? 0.75 : nk * 0.35;
+  for (const o of G.s) o.visible = (o.material === G.wm ? G.wm.opacity : G.rm.opacity) > 0.01;
 }
 
 // ---- bike physics
@@ -744,6 +918,7 @@ function bikeStep(B, dt, I) {
     cp.x = x0; cp.z = z0; cp.gy = B.hopY || 0;   // in the air: whatever's lower than the hop passes under
     const b = W.collide(cp, 0.3);
     for (const O of cars) if (O.moved && Math.hypot(O.x - B.x, O.z - B.z) < 7) pushRect(cp, 0.3, O.x, O.z, O.yaw, O.hx, O.hz, O.bo);
+    for (const O of others) if (O.kind === 'car' && Math.hypot(O.x - B.x, O.z - B.z) < 7) pushRect(cp, 0.3, O.x, O.z, O.yaw, O.hx, O.hz, O.bo);   // [traffic]
     const dx = cp.x - x0, dz = cp.z - z0, d = Math.hypot(dx, dz);
     if (d < 1e-5) continue;
     B.x += dx; B.z += dz;
@@ -877,7 +1052,8 @@ function audio() {
 const REC = {};
 function loadRec() {
   if (REC.tried || !AC) return; REC.tried = true;
-  for (const k of ['idle', 'rev', 'door', 'start']) fetch(`sounds/car_${k}.ogg`).then(r => r.ok ? r.arrayBuffer() : Promise.reject(0)).then(b => AC.decodeAudioData(b)).then(buf => { REC[k] = buf; }).catch(() => {});
+  // (there are no car engine recordings in sounds/ — the synthesized engine plays; the door is a real recorded door shutting)
+  for (const [k, f] of [['door', 'door_close_2.mp3']]) fetch(`sounds/${f}`).then(r => r.ok ? r.arrayBuffer() : Promise.reject(0)).then(b => AC.decodeAudioData(b)).then(buf => { REC[k] = buf; }).catch(() => {});
 }
 function playRec(k, t, g = 0.6) { const b = REC[k]; if (!b) return false; const s = AC.createBufferSource(); s.buffer = b; const e = AC.createGain(); e.gain.value = g; s.connect(e).connect(OUT); s.start(t); return true; }
 const noiseSrc = () => { const s = AC.createBufferSource(); s.buffer = NB; s.loop = true; s.start(); return s; };
@@ -965,6 +1141,7 @@ function sound(kind, V) {
     for (let i = 0; i < 6; i++) blip(t + 0.25 + i * 0.09, { f: 140, f1: 120, osc: 'sawtooth', noise: false, d: 0.07, g: 0.12 });
     blip(t + 0.85, { f: 180, d: 0.35, g: 0.35 }); V.engineT = -0.3;
   }
+  else if (kind === 'tick') { blip(t, { f: 2600, type: 'bandpass', q: 4, d: 0.02, g: 0.08 }); blip(t + 0.19, { f: 2100, type: 'bandpass', q: 4, d: 0.02, g: 0.07 }); }   // the indicator relay
   else if (kind === 'stop') { blip(t, { f: 60, f1: 30, osc: 'sawtooth', noise: false, d: 0.45, g: 0.25 }); }
   else if (kind === 'bikeOn' || kind === 'bikeOff') { blip(t, { f: 3200, type: 'bandpass', q: 3, d: 0.03, g: 0.2 }); blip(t + 0.07, { f: 2400, type: 'bandpass', q: 3, d: 0.03, g: 0.15 }); blip(t + 0.1, { f: 200, d: 0.08, g: 0.15 }); }
   else if (kind === 'rattle') for (let i = 0; i < 3; i++) { blip(t + i * 0.11, { f: 1800, type: 'bandpass', q: 2, d: 0.04, g: 0.3 }); blip(t + i * 0.11 + 0.02, { f: 300, d: 0.05, g: 0.2 }); }
@@ -977,3 +1154,17 @@ function crunch(k) {
   for (let i = 0; i < 2 + k * 6; i++) blip(t + Math.random() * 0.15, { f: 2500 + Math.random() * 3000, type: 'bandpass', q: 4, d: 0.05, g: 0.12 + k * 0.15 });
 }
 function rattle(V) { sound('rattle', V); return false; }
+// elbow through the driver's window (glass everywhere, a noise the dead come to), then in and hotwire it
+function smashIn(P, V) {
+  if (!P || cur) return;
+  const w = toWorld(V, V.hx + 0.05, V.spec.cab.front), p = tv3.set(w.x, 1.1, w.z);
+  if (E.SND.glass) E.SND.glass(p.clone(), 1); else if (E.SND.impact) E.SND.impact(p.clone(), 'metal', 1.2);
+  if (E.fx && E.fx.debris) E.fx.debris(p.clone(), tv2.set(-Math.cos(V.yaw), 0.2, Math.sin(V.yaw)), 'plastic', 14, 0.6, 0.4);
+  E.noise(p, 38);
+  crackGlass(V.g, true); V.cracked = true;
+  if (P.s && P.s.playUp) P.s.playUp('Push', { rate: 1.6, fade: 0.05 });
+  V.keys = true; V.hotwire = true;
+  enter(P, V);
+}
+// [traffic] the pieces traffic.js drives its own cars and bikes with (the same body, wheels, lights and seated pose)
+export { seat as seatRider, pose as bikePose, carLook, ringOf, pushRect, toWorld as carToWorld, toLocal as carToLocal, LIEOPT, dent as dentCar };

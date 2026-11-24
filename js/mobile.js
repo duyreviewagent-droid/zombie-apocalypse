@@ -40,25 +40,26 @@ export const PROFILE = !DEV.mobile ? null : {
   farMin: 160, farK: 2.7,                                           // draw distance follows the fog: far = farK / density
   texMax: phone || lowMem ? 512 : 1024,                             // biggest texture side we upload
   aniso: phone ? 2 : 4,
-  shadowEvery: 1,                                                   // re-render the sun's shadow every Nth frame (governor raises it)
+  texMaxDetail: phone ? 256 : (lowMem ? 512 : 1024),               // normal / roughness / bump maps: fine detail nobody sees on a phone
+  shadowEvery: 2,                                                   // re-render the sun's shadow every Nth frame (governor raises it to 3)
 };
 if (PROFILE) { C.mobile = true; C.lowPower = lowPower; C.profile = PROFILE; }
 C.touch = touch;
 
 // ---- shrink textures before they're uploaded (GPU memory is what gets a tab killed on iOS)
 const capped = new WeakSet();
-function capOne(t) {
+function capOne(t, detail = false) {
   if (!t || capped.has(t) || !t.isTexture) return; capped.add(t);
   if (t.anisotropy > PROFILE.aniso) t.anisotropy = PROFILE.aniso;
   if (t.isRenderTargetTexture || t.isDataTexture || t.isCompressedTexture || t.isCubeTexture || t.isVideoTexture || t.isData3DTexture) return;
   const im = t.image; if (!im || !im.width || !im.height) return;
-  const max = PROFILE.texMax, w = im.width, h = im.height;
+  const max = detail ? Math.min(PROFILE.texMax, PROFILE.texMaxDetail) : PROFILE.texMax, w = im.width, h = im.height;
   if (w <= max && h <= max) return;
   const isCanvas = typeof HTMLCanvasElement !== 'undefined' && im instanceof HTMLCanvasElement;
   const isImg = (typeof HTMLImageElement !== 'undefined' && im instanceof HTMLImageElement) || (typeof ImageBitmap !== 'undefined' && im instanceof ImageBitmap);
   // canvases that get redrawn later (TV screens, scoreboards) are clamp-wrapped: leave those alone; the painted
-  // tiling materials repeat
-  if (!(isImg || (isCanvas && t.wrapS === 1000 /* RepeatWrapping */))) return;
+  // tiling materials repeat — and a clamp-wrapped canvas that's painted once can say so with userData.capOK
+  if (!(isImg || (isCanvas && (t.wrapS === 1000 /* RepeatWrapping */ || (t.userData && t.userData.capOK))))) return;
   const k = max / Math.max(w, h), c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
   try { c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); } catch { return; }
@@ -68,14 +69,17 @@ function capOne(t) {
 const TEX_KEYS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'bumpMap', 'alphaMap', 'displacementMap', 'specularMap', 'lightMap'];
 export function capTextures(root) {
   if (!PROFILE || !root) return;
+  // a texture that's anyone's colour map keeps the full size, even where it's also used as a bump / roughness map
+  const DETAIL = new Set(['normalMap', 'roughnessMap', 'bumpMap', 'metalnessMap', 'aoMap']), colour = new Set(), list = [];
   root.traverse(o => {
     const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : null; if (!ms) return;
     for (const m of ms) {
       if (!m) continue;
-      for (const k of TEX_KEYS) if (m[k]) capOne(m[k]);
-      if (m.uniforms) for (const u of Object.values(m.uniforms)) if (u && u.value && u.value.isTexture) capOne(u.value);
+      for (const k of TEX_KEYS) if (m[k]) { list.push([m[k], DETAIL.has(k)]); if (!DETAIL.has(k)) colour.add(m[k]); }
+      if (m.uniforms) for (const u of Object.values(m.uniforms)) if (u && u.value && u.value.isTexture) { list.push([u.value, false]); colour.add(u.value); }
     }
   });
+  for (const [t, d] of list) capOne(t, d && !colour.has(t));
 }
 
 // ---- the governor: watches the frame rate and trades sharpness / shadows / glow for smoothness.

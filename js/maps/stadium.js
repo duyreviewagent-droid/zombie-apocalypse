@@ -87,10 +87,10 @@ export function buildMap(K) {
   add('sdTile', std({ map: T.tile, roughness: 0.3 }), 1.6);
   add('sdLocker', std({ map: T.locker, roughness: 0.6 }), 2);
   add('sdConc', std({ map: K.TX.concreteTexture(0.85), color: 0xb8b4aa, roughness: 0.55 }), 4);   // polished concourse floor
-  add('sdSteel', std({ color: 0xe8eaec, roughness: 0.4, metalness: 0.6 }));
+  add('sdSteel', std({ color: 0xa8adb2, roughness: 0.45, metalness: 0.6 }));   // (painted steel: a white one glared under the floodlights)
   add('sdGlassBand', std({ color: 0x1a2430, roughness: 0.08, metalness: 0.6, envMapIntensity: 1.5 }), 4);
   add('sdRoofTop', std({ map: K.TX.corrugatedTexture([170, 176, 182]), roughness: 0.5, metalness: 0.6 }), 4);
-  add('sdRoofUnder', std({ color: 0xd8dadc, roughness: 0.7, metalness: 0.3 }), 4);
+  add('sdRoofUnder', std({ map: K.TX.corrugatedTexture([206, 208, 210]), roughness: 0.7, metalness: 0.3 }), 3);   // (the underside of the profiled steel deck)
   add('sdPalisade', std({ color: 0x1e3a2a, roughness: 0.5, metalness: 0.6 }));
   { const bt2 = barsTexture(); add('sdBars', std({ map: bt2, color: 0x2a4a36, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.6 }), 2.9); bt2.repeat.set(2.9 / 0.8, 1); }
   add('sdAsphalt', std({ ...K.TX.relief(K.TX.asphaltTexture ? K.TX.asphaltTexture() : K.TX.concreteTexture(0.6), 0.4), roughness: 0.95 }), 6);
@@ -106,10 +106,13 @@ export function buildMap(K) {
   const boards = add('sdBoards', std({ map: bt, emissive: 0xffffff, emissiveMap: bt, emissiveIntensity: 1.1, roughness: 0.4 }), 32);
   const rt = T.boards.clone(); rt.needsUpdate = true; rt.repeat.set(1, 32 / 1.5); rt.offset.set(0, -(L1 + 2.98) / 1.5);
   const ribbon = add('sdRibbon', std({ map: rt, emissive: 0xffffff, emissiveMap: rt, emissiveIntensity: 1.1, roughness: 0.4 }), 32);
+  // the ends of a board run (between whole sponsor panels): a claret panel with a pale-blue rule, lit like the rest
+  const bEnd = K.ctex ? K.ctex(64, 64, (g, w, h) => { g.fillStyle = HOME.col; g.fillRect(0, 0, w, h); g.fillStyle = HOME.col2; g.fillRect(0, h * 0.42, w, h * 0.16); g.fillStyle = 'rgba(0,0,0,0.2)'; for (let y = 0; y < h; y += 3) g.fillRect(0, y, w, 1); }, [1, 1]) : null;
+  const boardEnd = add('sdBoardEnd', std({ map: bEnd, color: 0xffffff, emissive: 0xffffff, emissiveMap: bEnd, emissiveIntensity: 0.9, roughness: 0.4 }), 0.92);
   const strip = add('sdStrip', glow(0xf6f6f2, 0xfff6e8, 2.2));
   const lens = add('sdLens', glow(0xfffbe8, 0xfff4dc, 6, { side: THREE.DoubleSide }));
   const screenM = add('sdScreen', std({ map: T.screen, emissive: 0xffffff, emissiveMap: T.screen, emissiveIntensity: 1.25, roughness: 0.3 }));
-  const GLOW = [boards, ribbon, strip, screenM];
+  const GLOW = [boards, boardEnd, ribbon, strip, screenM];
   const GLOW0 = GLOW.map(m => m.emissiveIntensity);
   // every sign shares one atlas texture (one material)
   const ATL = signAtlas(2048), signMat = add('sdSigns', std({ map: ATL.tex, roughness: 0.5, emissive: 0xffffff, emissiveMap: ATL.tex, emissiveIntensity: 0.35 }));
@@ -164,7 +167,7 @@ export function buildMap(K) {
       const cut = st.main && y - 0.3 < 3.25 ? [[-3.3, 3.3]] : [];
       const spans = cut.length ? [[-st.L, -3.3], [3.3, st.L]] : [[-st.L, st.L]];
       for (const [u0, u1] of spans) {
-        sbox(st, u0, v0, u1, v1, yb, y, f => f === 'top' ? 'sdTread' : f === 'bot' ? null : 'sdRiser', { surf: 'concrete', extra: { noWalk: true } });
+        sbox(st, u0, v0, u1, v1, yb, y, f => f === 'top' ? 'sdTread' : 'sdRiser', { surf: 'concrete', extra: { noWalk: true } });   // (with an underside: no see-through gaps from below)
         deck(st, u0, v0, u1, v1, y);
       }
       // aisle half-steps with yellow nosings
@@ -182,6 +185,7 @@ export function buildMap(K) {
           const [x, z] = P(st, u, v0 + 0.42);
           K.inst(G.seat, seatMat(st), K.mat4(x, y, z, yaw), false);
           if (st.main && Math.abs(x - PLAYER_SEAT[0]) < 1.1 && Math.abs(z - PLAYER_SEAT[1]) < 0.4) continue;   // your seat and Ben's
+          if (st.main && i > 11 && i <= 13 && Math.abs(x - PLAYER_SEAT[0]) < 1.6) continue;   // (the two rows behind you: nobody's head in the camera)
           if (R() < 0.82) fans.push([x, y, z, yaw, st.away ? (R() < 0.8 ? 2 : 3) : R() < 0.55 ? 0 : R() < 0.7 ? 1 : 3]);
         }
       }
@@ -267,7 +271,7 @@ export function buildMap(K) {
       K.inst(G.turnstile, MAT.metal, K.mat4(x, 0, z, yaw + Math.PI / 2));
       sbox(st, u - 0.17, st.back - 0.15, u + 0.17, st.back + 0.55, 0, 1.0, null, { surf: 'metal' });   // (a little narrower than the cabinet: the 0.7 m lane between two was too tight to get through)
     }
-    const [x, z] = P(st, (u0 + u1) / 2, st.back + 0.42); sign([label, 'TURNSTILES'], x, 3.4, z, yaw, 3.2, 0.8, '#0e2a4a');
+    const [x, z] = P(st, (u0 + u1) / 2, st.back + 0.42); sign([label, 'TURNSTILES'], x, 2.72, z, yaw, 3.2, 0.62, '#0e2a4a');   // (under the canopy, over the lanes: the canopy hid a higher one)
     // after the outbreak: the steel shutters are down over every turnstile block (police orders)
     K.chaos(x, z, () => { sbox(st, u0, st.back + 0.42, u1, st.back + 0.52, 0, 3.0, { side: 'sdRoofTop' }, { surf: 'metal' }); });
     gates.push({ st: st.id, x, z });
@@ -286,7 +290,7 @@ export function buildMap(K) {
     let ug = -L + 0.6;
     for (const [a, b, ya, yb] of ops.concat([[L - 0.6, L, 0, 99]])) { if (yb > g0 && ya < g1) { if (a - 0.3 > ug) sbox(st, ug, out, a - 0.3, out + 0.04, g0, g1, { [bf(st)]: 'sdGlassBand' }, { solid: false }); ug = b + 0.3; } }
     for (let uf = -L + 2.5; uf < L - 1; uf += 5) {
-      if (ops.some(([a, b]) => uf > a - 0.6 && uf < b + 0.6)) continue;
+      if (ops.some(([a, b]) => uf > a - 0.6 && uf < b + 0.6) || Math.abs(uf) < 8.6) continue;   // (none across the stand's name)
       const [x, z] = P(st, uf, out + 0.3); K.inst(G.box, MAT.sdSteel, K.mat4(x, (yTop - 1.2) / 2, z, Math.atan2(st.o[0], st.o[1]), 0.22, yTop - 1.2, 0.6));
     }
     // a canopy over each ground-level gate
@@ -299,6 +303,7 @@ export function buildMap(K) {
   function roof(st, vFront) {
     const L = st.L + 0.8, y = st.roofY, vb = st.back + 0.4;
     sbox(st, -L, vFront, L, vb, y - 0.3, y, { top: 'sdRoofTop', bot: 'sdRoofUnder', side: 'sdBand' }, { solid: false });
+    for (let v = vFront + 1.2; v < vb - 0.6; v += 2.6) { const a = P(st, -L + 0.2, v), b = P(st, L - 0.2, v); K.wbeam([a[0], y - 0.42, a[1]], [b[0], y - 0.42, b[1]], 0.1, 0.24, MAT.sdSteel, false); }   // purlins under the deck
     for (let u = -st.L; u <= st.L + 0.01; u += 10) {
       const a = P(st, u, vb), b = P(st, u, vFront + 0.5);
       K.wbeam([a[0], y, a[1]], [a[0], y + 4.2, a[1]], 0.35, 0.35, MAT.sdSteel);
@@ -478,7 +483,7 @@ export function buildMap(K) {
   facade(N, [[-31, -25, 0, 3.0], [-1.6, 1.6, 0, 2.6], [25, 31, 0, 3.0], [48.1, 49.2, L1, L1 + 2.2]]);
   turnstiles(N, -31, -25, 'GATE A'); turnstiles(N, 25, 31, 'GATE C');
   { const [x0, z0] = P(N, -1.6, 30.2), [x1, z1] = P(N, 1.6, 30.2); K.wall(x0, z0, x1, z1, { h: 2.6, t: 0.12, mat: 'alu', openings: [{ at: -0.8, w: 1.5, door: true, dir: 1, glassDoor: true }, { at: 0.8, w: 1.5, door: true, dir: -1, glassDoor: true }] });
-    const [sx, sz] = P(N, 0, 30.45); sign(['MAIN RECEPTION'], sx, 3.3, sz, Math.PI, 3.6, 0.6, '#1a1a1a'); }
+    const [sx, sz] = P(N, 0, 30.45); sign(['MAIN RECEPTION'], sx, 2.98, sz, Math.PI, 3.6, 0.5, '#1a1a1a'); }
 
   // ---- the first floor (y = L1): executive boxes and the press box, a corridor, lounge, control room, switch room ----
   const up = (st, u0, v0, u1, v1, h, mat, opts) => sbox(st, u0, v0, u1, v1, L1, L1 + h, mat, opts);
@@ -493,7 +498,7 @@ export function buildMap(K) {
   // a door hung on the first floor: the leaf and both its boxes up at y
   function liftDoor(D2, y) { D2.pivot.position.y = y; for (const b of [D2.box, D2.obox]) { b.y0 += y; b.y1 += y; } D2.y = y; }
   // the glass front of the boxes, open at each box's balcony door
-  { const ops = []; for (let u = -45; u <= 45; u += 10) ops.push({ at: u - 2.2, w: 3.6, glass: true, sill: 0.25, top: 2.6, glassMat: 'shopGlass' }, { at: u + 2.4, w: 1.0 }); fwall(-50, 15, 50, 15, ops, 'sdClad', 'paint0'); }
+  { const ops = []; for (let u = -45; u <= 45; u += 10) ops.push({ at: u - 1.3, w: 6.2, glass: true, sill: 0.25, top: 2.75, glassMat: 'shopGlass' }, { at: u + 2.4, w: 1.0 }, { at: u + 3.9, w: 1.6, glass: true, sill: 0.25, top: 2.75, glassMat: 'shopGlass' }); fwall(-50, 15, 50, 15, ops, 'sdClad', 'paint0'); }   // (the boxes' fronts: glass wall to wall, a balcony door in each)
   for (let u = -40; u <= 40; u += 10) if (Math.abs(u) > 10) fwall(u, 15, u, 19, []);
   fwall(-8, 15, -8, 19, []); fwall(8, 15, 8, 19, []);
   { const ops = []; for (let u = -45; u <= 45; u += 10) if (Math.abs(u) > 6) ops.push({ at: u + 3, w: 0.95, door: true, dir: -1, col: 0x6a4a32 }); ops.push({ at: 0, w: 0.95, door: true, dir: -1, col: 0x2a3a4a }); fwall(-50, 19, 50, 19, ops); }   // (they open into the boxes, not across the corridor)
@@ -502,6 +507,9 @@ export function buildMap(K) {
   // the ceiling of the first floor (the upper tier sits on it)
   sbox(N, -50, 15, 50, 30, L1 + 2.98, L1 + 3.2, { bot: 'ceilTile' }, {});
   for (let u = -47; u < 48; u += 5) for (const v of [17, 20, 25.5]) sbox(N, u - 0.5, v - 0.08, u + 0.5, v + 0.08, L1 + 2.93, L1 + 2.98, { bot: 'sdStrip' }, { solid: false });
+  // a searchable spot on the first floor: y given as a height (L1 + …), stored relative to the floor (main.js only
+  // offers a prompt for a container on the floor you're standing on)
+  const cUp = (kind, x, z, y, label, yaw = 0, house = null, extra = {}) => K.container(kind, x, z, y - L1, label, yaw, house, { ...extra, floorY: L1 });
   // in the boxes: a table and chairs each; the press box: desks, monitors, the commentators' notes
   for (let u = -45; u <= 45; u += 10) {
     if (Math.abs(u) < 6) continue;
@@ -511,34 +519,50 @@ export function buildMap(K) {
     for (let k = 0; k < 8; k++) { const [bx2, bz2] = P(N, u - 4.3 + k * 0.62, 14.3); K.inst(G.seat, MAT.sdSeatG, K.mat4(bx2, L1, bz2, 0)); }
   }
   { for (let k = 0; k < 6; k++) { const [x, z] = P(N, -6.5 + k * 2.6, 15.6); K.block(x, L1, z, 1.2, L1 + 0.75, 0.35, 0, f => f === 'top' ? 'counter' : 'black', 'wood', true, { vault: true }); K.inst(G.monitor, MAT.screen, K.mat4(x, L1 + 0.75, z + 0.1 * (N.o[1] < 0 ? -1 : 1), Math.PI)); K.inst(G.chair, MAT.black, K.mat4(x, L1, z - 0.9, Math.PI)); }
-    const [x, z] = P(N, 0, 15.6); K.container('cabinet', x, z, L1 + 0.8, 'Commentary desk', 0);
+    const [x, z] = P(N, 0, 15.6); cUp('cabinet', x, z, L1 + 0.8, 'Commentary desk', 0);
     const [sx, sz] = P(N, 0, 14.85); sign(['PRESS'], sx, L1 + 2.75, sz, 0, 1.6, 0.36, '#1a1a1a'); }
   // the hospitality lounge: a long bar, tables
-  { const [x, z] = P(N, -31, 29.2); K.block(x, L1, z, 9, L1 + 1.08, 0.4, 0, f => f === 'top' ? 'counter' : 'darkWood', 'wood'); K.container('cooler', x - 3, z, L1 + 1.0, 'Behind the bar', 0); K.container('kitchen2', x + 4, z, L1 + 1.0, 'Bar fridge', 0);
+  { const [x, z] = P(N, -31, 29.2); K.block(x, L1, z, 9, L1 + 1.08, 0.4, 0, f => f === 'top' ? 'counter' : 'darkWood', 'wood'); cUp('cooler', x - 3, z, L1 + 1.0, 'Behind the bar', 0); cUp('kitchen2', x + 4, z, L1 + 1.0, 'Bar fridge', 0);
     for (let k = 0; k < 6; k++) { const [tx, tz] = P(N, -46 + k * 6, 24.5); K.block(tx, L1, tz, 0.6, L1 + 0.74, 0.6, 0, f => f === 'top' ? 'white' : 'black', 'wood', true, { vault: true }); for (const a of [0, 1.57, 3.14, 4.71]) K.inst(G.chair, MAT.darkWood, K.mat4(tx + Math.sin(a) * 0.95, L1, tz + Math.cos(a) * 0.95, a + Math.PI)); } }
   // the police control room: a wall of CCTV monitors over the pitch-side window, desks, the radio
   { for (let k = 0; k < 5; k++) { const [x, z] = P(N, -10 + k * 3.4, 29.3); K.block(x, L1, z, 1.4, L1 + 0.75, 0.4, 0, f => f === 'top' ? 'counter' : 'black', 'wood'); for (let j = 0; j < 2; j++) K.inst(G.monitor, MAT.screen, K.mat4(x - 0.4 + j * 0.8, L1 + 0.75, z, Math.PI)); }
-    const [x, z] = P(N, -2, 29.3); K.container('police', x, z, L1 + 0.8, 'Police equipment locker', 0, null, { fixed: [['ammo9', 12]] });
-    const [cx, cz] = P(N, -8, 22); K.container('cabinet', cx, cz, L1 + 0.9, 'Briefing table', 0);
+    const [x, z] = P(N, -2, 29.3); cUp('police', x, z, L1 + 0.8, 'Police equipment locker', 0, null, { fixed: [['ammo9', 12]] });
+    const [cx, cz] = P(N, -8, 22); cUp('cabinet', cx, cz, L1 + 0.9, 'Briefing table', 0);
     K.block(cx, L1, cz, 1.6, L1 + 0.74, 0.7, 0, f => f === 'top' ? 'white' : 'black', 'wood', true, { vault: true }); }
   // the kitchen, the office
-  { const [x, z] = P(N, 20, 29.4); K.block(x, L1, z, 6, L1 + 0.92, 0.35, 0, f => f === 'top' ? 'counter' : 'appliance', 'metal'); K.container('kitchen', x - 3, z, L1 + 0.95, 'Catering kitchen', 0); K.container('fridge', x + 4, z, L1 + 1.0, 'Walk-in fridge', 0);
-    const [ox, oz] = P(N, 35, 27); K.block(ox, L1, oz, 1.0, L1 + 0.75, 0.5, 0, f => f === 'top' ? 'darkWood' : 'cabinet', 'wood'); K.container('cabinet', ox, oz, L1 + 0.8, 'Stadium manager\'s desk', 0); }
+  { const [x, z] = P(N, 20, 29.4); K.block(x, L1, z, 6, L1 + 0.92, 0.35, 0, f => f === 'top' ? 'counter' : 'appliance', 'metal'); cUp('kitchen', x - 3, z, L1 + 0.95, 'Catering kitchen', 0); cUp('fridge', x + 4, z, L1 + 1.0, 'Walk-in fridge', 0);
+    const [ox, oz] = P(N, 35, 27); K.block(ox, L1, oz, 1.0, L1 + 0.75, 0.5, 0, f => f === 'top' ? 'darkWood' : 'cabinet', 'wood'); cUp('cabinet', ox, oz, L1 + 0.8, 'Stadium manager\'s desk', 0); }
   // THE SWITCH ROOM: breaker cabinets, the floodlight panel (needs the key)
   let switchC = null, switchLamp = null;
   { for (let k = 0; k < 4; k++) { const [x, z] = P(N, 39 + k * 2.6, 29.4); K.block(x, L1, z, 1.1, L1 + 2.1, 0.35, 0, f => f === 'top' ? 'darkMetal' : 'appliance', 'metal'); }
     const [x, z] = P(N, 46, 21.5); K.block(x, L1, z, 0.9, L1 + 1.9, 0.3, 0, 'appliance', 'metal');
-    switchC = K.container(LOOT_PANEL ? 'panel' : 'cabinet', x, z, L1 + 1.2, 'Floodlight panel (locked: needs the key)', 0, null, { floodSwitch: true });
+    switchC = cUp(LOOT_PANEL ? 'panel' : 'cabinet', x, z, L1 + 1.2, 'Floodlight panel (locked: needs the key)', 0, null, { floodSwitch: true });
     // (hidden until you have the key — a search would roll 'cabinet' loot again and again; once loot.js has an
     //  empty 'panel' kind it stays visible all along, labelled by state, and a keyless search is refused in update)
     switchC.hidden = !LOOT_PANEL;
+    // its front (the side facing into the room, away from the corridor wall): a breaker face, the status lamp, the key
+    // switch and a big red lever that's down until the lights go on
+    const [fx2, fz2] = P(N, 46, 21.81), fy = Math.atan2(-N.o[0], -N.o[1]) + Math.PI;   // (facing +v: into the room)
+    const face = K.ctex(128, 256, (g, w, h) => {
+      g.fillStyle = '#8e969c'; g.fillRect(0, 0, w, h); g.strokeStyle = '#5a6064'; g.lineWidth = 3; g.strokeRect(4, 4, w - 8, h - 8);
+      g.fillStyle = '#d8b020'; g.fillRect(10, 10, w - 20, 26); g.fillStyle = '#111'; g.font = 'bold 15px Helvetica, Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('FLOODLIGHTS', w / 2, 24);
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 4; c++) { const x0 = 14 + c * 26, y0 = 48 + r * 20; g.fillStyle = '#1a1c1e'; g.fillRect(x0, y0, 20, 15); g.fillStyle = (r + c) % 5 ? '#e8e8e4' : '#c82020'; g.fillRect(x0 + 7, y0 + 2, 6, 7); }
+      g.fillStyle = '#1a1c1e'; g.fillRect(14, 176, 100, 2); g.fillStyle = '#222'; g.font = 'bold 11px Helvetica, Arial'; g.fillText('PYLONS 1 – 4', w / 2, 190);
+      g.fillStyle = '#d8b020'; g.beginPath(); g.moveTo(64, 204); g.lineTo(82, 236); g.lineTo(46, 236); g.closePath(); g.fill(); g.fillStyle = '#111'; g.fillRect(62, 214, 4, 12); g.fillRect(62, 229, 4, 4);
+    });
+    K.xadd(G.plane, std({ map: face, roughness: 0.5, metalness: 0.3 }), K.mat4(fx2, L1 + 1.0, fz2, fy, 1.7, 1.75, 1), false);
     switchLamp = std({ color: 0x401010, emissive: 0xff2010, emissiveIntensity: 2.0, roughness: 0.3 });
-    K.WX(G.box, switchLamp, x, L1 + 1.75, z - 0.31 * (N.o[1] < 0 ? -1 : 1), 0, 0.12, 0.12, 0.03);
-    const fs = N.o[1] < 0 ? -1 : 1, fy = N.o[1] < 0 ? 0 : Math.PI;
-    sign(['FLOODLIGHTS', 'KEY ▸ BREAKER UP'], x, L1 + 2.35, z - 0.32 * fs, fy, 1.3, 0.42, '#8a6a10', '#111');
+    const [lx2, lz2] = P(N, 45.3, 21.84); K.WX(G.box, switchLamp, lx2, L1 + 1.78, lz2, 0, 0.12, 0.12, 0.04);
+    const [kx2, kz2] = P(N, 45.6, 21.84); K.WX(G.cyl, MAT.chrome, kx2, L1 + 1.0, kz2, 0, 0.09, 0.05, 0.09, Math.PI / 2, 0);   // the key switch
+    // the lever: pivots at the panel's side, handle down (off) / up (on)
+    { const [px2, pz2] = P(N, 46.7, 21.92), piv = new THREE.Group(); piv.position.set(px2, L1 + 1.1, pz2); piv.rotation.y = fy;
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.05).translate(0, 0.21, 0), MAT.chrome), grip = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.16, 10).rotateZ(Math.PI / 2).translate(0, 0.44, 0), MAT.redPaint || switchLamp);
+      piv.add(arm, grip); K.level.add(piv); piv.rotation.order = 'YXZ'; piv.rotation.x = 2.4; STADIUM.lever = piv; }
+    const [sx3, sz3] = P(N, 46, 21.13);
+    sign(['FLOODLIGHTS', 'KEY ▸ BREAKER UP'], sx3, L1 + 2.35, sz3, fy, 1.3, 0.42, '#8a6a10', '#111');
   }
   // the switch room's outside door, at the top of the back stairs (SPOTS.backStairs; the stairs run along the back wall)
-  { const [hx, hz] = P(N, 48.15, 30.2); liftDoor(K.door(hx, hz, 0, 1, 0x8a1010, null, { w: 1.0, hp: 320 }), L1);
+  { const [hx, hz] = P(N, 48.15, 30.2); liftDoor(K.door(hx, hz, 0, -1, 0x8a1010, null, { w: 1.0, hp: 320 }), L1);   // (it opens inward: swung out it blocked the top of the stairs)
     const [sx, sz] = P(N, 48.65, 30.45); sign(['SWITCH ROOM', 'AUTHORISED ONLY'], sx, L1 + 2.55, sz, Math.PI, 1.3, 0.42, '#d8b020', '#111'); }
   { const len = 12.5, [cx, cz] = P(N, 32.5 + len / 2, 31.6);
     K.stairs(cx, cz, Math.PI / 2, 2.4, len, 0, L1, 'sdTread', { open: true });
@@ -554,7 +578,7 @@ export function buildMap(K) {
     sbox(N, -50, 18.8, 50, 19.2, L1 + 4.48, yu + 0.9, { top: 'sdClad', side: 'sdClad' }, {});
     for (let j = 0; j < n; j++) {
       const v0 = vu + j * d2, y = yu + j * r2;
-      sbox(N, -50, v0, 50, v0 + d2, y - r2 - 0.1, y, f => f === 'top' ? 'sdTread' : f === 'bot' ? null : 'sdRiser', { extra: { noWalk: true } });
+      sbox(N, -50, v0, 50, v0 + d2, y - r2 - 0.1, y, f => f === 'top' ? 'sdTread' : 'sdRiser', { extra: { noWalk: true } });
       for (let u = -49.7; u <= 49.7; u += 0.5) { const [x, z] = P(N, u, v0 + 0.46); K.inst(G.seat, Math.abs(u) < 12 && j > 3 && j < 9 && ((Math.floor(u / 2) + j) % 3 === 0) ? MAT.sdSeatB : MAT.sdSeatC, K.mat4(x, y, z, 0), false); if (R() < 0.85) fans.push([x, y, z, 0, R() < 0.6 ? 0 : 1]); }
     }
     // the club crest on the upper tier's front, the clock
@@ -584,7 +608,13 @@ export function buildMap(K) {
   // LED ad boards round the pitch (low: you can vault them)
   const boardRun = (x0, z0, x1, z1) => {
     const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0), Lr = alongX ? Math.abs(x1 - x0) : Math.abs(z1 - z0);
-    box(alongX ? x0 : x0 - 0.15, alongX ? z0 - 0.15 : z0, alongX ? x1 : x0 + 0.15, alongX ? z0 + 0.15 : z1, 0, 0.92, f => f === 'top' ? 'black' : (alongX ? (f === 'pz' || f === 'nz') : (f === 'px' || f === 'nx')) ? 'sdBoards' : 'black', { surf: 'metal', extra: { vault: true } });
+    // one solid box for the run; the faces drawn in pieces so no sponsor is ever cut in half: whole 4 m sponsor panels
+    // (the texture repeats every 32 m of world position: a panel boundary every 4 m) and plain club-colour panels at the ends
+    const pc = (p, q, mat) => { if (q - p < 0.02) return; box(alongX ? p : x0 - 0.15, alongX ? z0 - 0.15 : p, alongX ? q : x0 + 0.15, alongX ? z0 + 0.15 : q, 0, 0.92, mat, { solid: false }); };
+    const lo = alongX ? Math.min(x0, x1) : Math.min(z0, z1), hi = alongX ? Math.max(x0, x1) : Math.max(z0, z1), s0 = Math.ceil(lo / 4 - 1e-6) * 4, s1 = Math.floor(hi / 4 + 1e-6) * 4;
+    const face = (m) => f => f === 'top' ? 'black' : (alongX ? (f === 'pz' || f === 'nz') : (f === 'px' || f === 'nx')) ? m : 'black';
+    box(alongX ? x0 : x0 - 0.15, alongX ? z0 - 0.15 : z0, alongX ? x1 : x0 + 0.15, alongX ? z0 + 0.15 : z1, 0, 0.92, null, { surf: 'metal', extra: { vault: true } });
+    if (s1 > s0) { pc(lo, s0, face('sdBoardEnd')); pc(s0, s1, face('sdBoards')); pc(s1, hi, face('sdBoardEnd')); } else pc(lo, hi, face('sdBoardEnd'));
     for (let a = 1.5; a < Lr; a += 3) { const x = alongX ? Math.min(x0, x1) + a : x0, z = alongX ? z0 : Math.min(z0, z1) + a; K.inst(G.box, MAT.darkMetal, K.mat4(x + (alongX ? 0 : (x0 > 0 ? 0.5 : -0.5)), 0.4, z + (alongX ? (z0 > 0 ? 0.5 : -0.5) : 0), 0, 0.06, 0.8, 0.06)); }
   };
   // (gaps where the stewards go through, in line with the aisles)
@@ -638,7 +668,7 @@ export function buildMap(K) {
     pylons.push({ x: px, z: pz, hx, hy, hz });
   }
   // the big screen on a frame over the East End's roof
-  { const x = 74.5, y = STANDS.E.roofY + 4.5;
+  { const x = 74.5, y = STANDS.E.roofY + 6.5;   // (clear of the roof's trusses, which rise 4.2 m over it)
     K.WX(G.box, MAT.black, x + 0.25, y, 0, 0, 0.4, 7.2, 16.4);
     K.xadd(G.plane, screenM, K.mat4(x, y, 0, -Math.PI / 2, 16, 6.8, 1), false);
     for (const s of [-1, 1]) K.wbeam([x + 0.4, STANDS.E.roofY, s * 7], [x + 0.4, y - 3.5, s * 7], 0.3, 0.3, MAT.metal); }
@@ -672,15 +702,37 @@ export function buildMap(K) {
     for (const sx of [-1, 1]) { K.WX(G.box, MAT.sdPalisade, sx * 8, 1.6, z, 0, 0.3, 3.2, 0.3); K.solid(sx * 8, z, 0.2, 0.2, 0, 3.2, 'metal'); }
   }
   // the club plaza (north): a statue, flagpoles, the burger van, the programme hut, the ticket office, trees
-  { K.block(0, 0, -92, 1.6, 1.6, 1.6, 0, f => f === 'top' ? 'concrete' : 'brick', 'concrete');
-    const bronze = std({ color: 0x6a4a2a, roughness: 0.35, metalness: 0.85 });
-    K.WX(G.cyl, bronze, 0, 2.5, -92, 0, 0.5, 1.8, 0.4); K.WX(G.cyl, bronze, 0, 3.6, -92, 0, 0.32, 0.45, 0.32);
-    K.WX(G.cyl, bronze, 0.35, 3.0, -92, 0, 0.14, 1.1, 0.14, 0, -0.9); K.WX(G.cyl, bronze, -0.32, 2.7, -91.9, 0, 0.13, 1.0, 0.13, 0.3, 0.4);
-    K.WX(G.ball, bronze, 0.55, 1.75, -91.6, 0, 1.6, 1.6, 1.6);
+  { // the plinth: dressed granite blocks with a moulded cap; on it, Jimmy Reid in bronze (one of the game's own people,
+    // posed and cast once), a foot on the ball
+    const stoneT = K.ctex(256, 256, (g, w, h, r) => {
+      g.fillStyle = '#a8a49a'; g.fillRect(0, 0, w, h);
+      for (let k = 0; k < 5000; k++) { const v = 120 + r() * 90 | 0; g.fillStyle = `rgba(${v},${v - 4},${v - 10},0.35)`; g.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2); }
+      g.fillStyle = '#6e6a62'; for (let y = 0; y < h; y += 64) { g.fillRect(0, y, w, 3); for (let x = (y / 64) % 2 ? 0 : 64; x < w; x += 128) g.fillRect(x, y, 3, 64); }
+    }, [1, 1]);
+    add('sdStone', std({ map: stoneT, roughness: 0.75 }), 2);
+    K.block(0, 0, -92, 1.6, 1.45, 1.6, 0, 'sdStone', 'concrete');
+    K.box(0, 1.45, -92, 1.72, 1.6, 1.72, 0, f => f === 'bot' ? null : 'sdStone');
+    K.box(0, 0, -92, 1.75, 0.22, 1.75, 0, f => f === 'bot' ? null : 'sdStone');
+    const bronze = std({ color: 0x7a5a34, roughness: 0.42, metalness: 0.65 });
+    let cast = false;
+    try {
+      const KD = globalThis.ZA && globalThis.ZA.KINDS, kd = KD && (KD.coach || KD.human);
+      if (kd && kd.root) {
+        const { geo, mats } = bakePerson(personSource(kd), 'stand'), hid = new THREE.MeshBasicMaterial({ visible: false });
+        const m = new THREE.Mesh(geo, mats.map(md => md.transparent || md.alphaTest ? hid : bronze));
+        m.position.set(0, 1.6, -92.1); m.scale.setScalar(1.45); m.castShadow = true; m.receiveShadow = true; K.level.add(m); cast = true;
+      }
+    } catch (e) { console.warn('stadium statue', e); }
+    if (!cast) {
+      K.WX(G.cyl, bronze, 0, 2.5, -92, 0, 0.5, 1.8, 0.4); K.WX(G.cyl, bronze, 0, 3.6, -92, 0, 0.32, 0.45, 0.32);
+      K.WX(G.cyl, bronze, 0.35, 3.0, -92, 0, 0.14, 1.1, 0.14, 0, -0.9); K.WX(G.cyl, bronze, -0.32, 2.7, -91.9, 0, 0.13, 1.0, 0.13, 0.3, 0.4);
+    }
+    K.WX(G.ball, bronze, 0.5, 1.76, -91.55, 0, 1.45, 1.45, 1.45);
+    K.solid(0, -92, 0.5, 0.5, 0, 4.3, 'metal');
     sign(['JIMMY "THE ANCHOR" REID', '1931 — 2004 · 512 GAMES'], 0, 0.9, -90.38, 0, 2.6, 0.6, '#3a2a1a', '#e8d8a0');
     for (const x of [-9, -6, -3, 3, 6, 9]) { K.WX(G.pole, MAT.alu, x, 0, -99, 0, 1, 9, 1); K.xadd(G.flag, x % 2 ? MAT.sdSeatC : MAT.sdSeatB, K.mat4(x, 8.2, -99, 0.3, 4, 4, 1), false); K.solid(x, -99, 0.12, 0.12, 0, 9, 'metal'); }
     for (const [x, z] of [[-60, -96], [-45, -100], [-28, -100], [28, -100], [45, -100], [60, -96], [-90, -90], [90, -90]]) { K.tree(x, z, 1.0 + R() * 0.3, 0); }
-    for (let x = -88; x <= 88; x += 22) K.streetLamp(x, -76, Math.PI);
+    for (let x = -77; x <= 77; x += 22) K.streetLamp(x, -76, Math.PI);   // (none on the axis of the main entrance)
   }
   // the burger van (where it started): a box van with a serving hatch and an awning
   { const x = -16, z = -88, van = std({ color: 0xe8e4dc, roughness: 0.4, metalness: 0.2 });
@@ -719,10 +771,10 @@ export function buildMap(K) {
       const z = 66 + row * 10;
       for (let x = -96; x <= 96; x += 2.8) K.box(x, 0.02, z + (row % 2 ? -2.4 : 2.4), 0.06, 0.03, 2.4, 0, f => f === 'top' ? 'roadWhite' : null);
     }
-    let ci = 0;
+    let ci = 0; const z0r = row => 66 + row * 10 + (row % 2 ? -2.4 : 2.4);   // (not where the wrecks and the ambulance go)
     for (let row = 0; row < 4; row++) for (let x = -94.6; x <= 94; x += 2.8) {
-      if (ci > 13) break;
-      if (R() > 0.2 || (Math.abs(x + 66) < 9 && row === 3)) continue;
+      if (ci >= (tier() > 1 ? 16 : tier() ? 24 : 34)) break;   // (cup final night: the car park's nearly full)
+      if (R() > 0.42 || (Math.abs(x + 66) < 9 && row === 3) || [[20, 81], [-30, 76], [55, 86], [4, 63], [-6, 64]].some(([wx, wz]) => Math.abs(x + 1.4 - wx) < 3.2 && Math.abs(z0r(row) - wz) < 3.5)) continue;
       const z = 66 + row * 10 + (row % 2 ? -2.4 : 2.4), yaw = row % 2 ? 0 : Math.PI;
       K.car(x + 1.4, z, yaw + (R() - 0.5) * 0.06, ci++ % 8, R() < 0.3 ? 'suv' : R() < 0.15 ? 'pickup' : 'sedan');
     }
@@ -789,13 +841,45 @@ export function buildMap(K) {
 
   // ================================================================ the city round the stadium (outside the bounds)
   { const R2 = rng(77);
+    // four façade styles (a 14 m tile: four 3.5 m storeys, eight 1.75 m window bays), each with its own night map in
+    // which only the lit windows glow (so the walls don't): grey concrete, dark glass curtain wall, brick, pale stone
+    const STY = [
+      { wall: '#7c7e80', win: '#1c232c', frame: '#55585c', band: '#8c8e90', w: 22, h: 36 },
+      { wall: '#2a3440', win: '#18222e', frame: '#5c6670', band: '#3a4652', w: 30, h: 56, curtain: true },
+      { wall: '#7a4a3a', win: '#1a1e24', frame: '#d8d2c4', band: '#8a5a48', w: 18, h: 34 },
+      { wall: '#b8ae9a', win: '#20262e', frame: '#8a8270', band: '#a89e8a', w: 20, h: 38 },
+    ];
+    STY.forEach((st, si) => {
+      const lit = [];
+      const map = K.ctex(256, 256, (g, w, h) => {
+        g.fillStyle = st.wall; g.fillRect(0, 0, w, h);
+        for (let k = 0; k < 900; k++) { g.fillStyle = `rgba(0,0,0,${0.05 * R2()})`; g.fillRect(R2() * w, R2() * h, 2, 2); }
+        for (let fl = 0; fl < 4; fl++) {
+          const y0 = fl * 64; g.fillStyle = st.band; g.fillRect(0, y0 + 60, w, 4);   // the floor slab's edge
+          for (let b = 0; b < 8; b++) {
+            const x = b * 32 + (32 - st.w) / 2, y = y0 + (st.curtain ? 4 : 14), on = R2() < 0.32;
+            g.fillStyle = st.frame; g.fillRect(x - 2, y - 2, st.w + 4, st.h + 4);
+            const gr = g.createLinearGradient(0, y, 0, y + st.h); gr.addColorStop(0, '#3a4654'); gr.addColorStop(1, st.win); g.fillStyle = gr; g.fillRect(x, y, st.w, st.h);
+            if (st.curtain) { g.fillStyle = st.frame; g.fillRect(x, y + st.h * 0.7, st.w, 2); }
+            if (on) lit.push([x, y, st.w, st.h, R2()]);
+          }
+        }
+        for (let k = 0; k < 6; k++) { const x = R2() * w; const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(30,25,20,0)'); gr.addColorStop(1, 'rgba(30,25,20,0.12)'); g.fillStyle = gr; g.fillRect(x, 0, 4, h); }   // weather streaks
+      }, [1, 1]);
+      const em = K.ctex(256, 256, (g, w, h) => {
+        g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+        for (const [x, y, ww, hh, t] of lit) { g.fillStyle = t < 0.7 ? `rgb(${230 + t * 30 | 0},${190 + t * 50 | 0},${120 + t * 60 | 0})` : '#a8c4ff'; g.fillRect(x, y, ww, hh); g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(x, y + hh * 0.55, ww, hh * 0.45); }   // (blinds half down)
+      }, [1, 1]);
+      add('sdTower' + si, std({ map, emissive: 0xffffff, emissiveMap: em, emissiveIntensity: 0, roughness: st.curtain ? 0.25 : 0.8, metalness: st.curtain ? 0.4 : 0 }), 14);
+    });
+    add('sdTowerCap', std({ map: K.TX.concreteTexture(0.7), color: 0x9a9c9e, roughness: 0.9 }), 4);
     for (let k = 0; k < 26; k++) {
       const a = k / 26 * Math.PI * 2 + R2() * 0.1, d = 135 + R2() * 25, x = Math.cos(a) * d, z = Math.sin(a) * d;
-      const hw = 7 + R2() * 9, hd = 7 + R2() * 9, h = 14 + R2() * 46;
-      K.box(x, 0, z, hw, h, hd, a, f => f === 'top' ? 'concrete' : f === 'bot' ? null : 'sdTower');
+      const hw = 7 + R2() * 9, hd = 7 + R2() * 9, h = Math.round((14 + R2() * 46) / 3.5) * 3.5, m = 'sdTower' + (k % 4);
+      K.box(x, 0, z, hw, h, hd, a, f => f === 'top' ? 'sdTowerCap' : f === 'bot' ? null : m);
+      K.box(x, h, z, hw + 0.25, h + 1.1, hd + 0.25, a, f => f === 'bot' ? null : 'sdTowerCap');   // the parapet
+      K.box(x + Math.cos(a) * hw * 0.3, h + 1.1, z - Math.sin(a) * hw * 0.3, hw * 0.3, h + 3.6, hd * 0.35, a, f => f === 'bot' ? null : 'sdTowerCap');   // the plant room on the roof
     }
-    MAT.sdTower = std({ map: K.ctex(128, 256, (g, w, h) => { g.fillStyle = '#5a5c60'; g.fillRect(0, 0, w, h); for (let y = 4; y < h; y += 16) for (let x = 4; x < w; x += 16) { const lit = R2() < 0.35; g.fillStyle = lit ? `rgb(${220 + R2() * 30 | 0},${190 + R2() * 40 | 0},${120 + R2() * 40 | 0})` : '#1c2026'; g.fillRect(x, y, 10, 10); } }, [1, 1]), emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.6 });
-    MAT.sdTower.emissiveMap = MAT.sdTower.map; TILE.sdTower = 12;   // (the window glow follows the night: see update)
   }
 
   // ---- the plaza and the concourses on match night: queues of standing fans (crowd layer), crowd barriers ----
@@ -853,10 +937,10 @@ export function buildMap(K) {
   const HAIR = [0x1a1410, 0x3a2414, 0x6a4a2a, 0xb89060, 0x8a8a88, 0x2a1a10, 0x101010].map(c => new THREE.Color(c));
   // everybody's look, picked once (its own random sequence: the layout's stays as it was)
   const CR = rng(909), pick = a => a[Math.floor(CR() * a.length)];
-  const dress = (list, seated) => list.map(f => {
+  const dress = (list, seated) => list.map((f, idx) => {
     const [x, y, z, yaw, ci] = seated ? f : [f[0], 0, f[1], f[2], f[3]], hair = pick(HAIR), dense = !seated && !!f[4];
     return { x, y, z, yaw, s: 0.9 + CR() * 0.18, shirt: (CR() < 0.2 ? SHIRT[3 + Math.floor(CR() * 3)] : SHIRT[ci]).clone().multiplyScalar(0.8 + CR() * 0.3),
-      legs: pick(JEANS), skin: pick(SKIN), hair, hat: CR() < 0.3 ? SHIRT[ci] : hair, kind: CR(), near: false, rank: CR(), dense };   // (rank: who's still there as the crowd thins — the shader and the collision go by the same number)
+      legs: pick(JEANS), skin: pick(SKIN), hair, hat: CR() < 0.3 ? SHIRT[ci] : hair, kind: (CR(), (idx * 0.381966) % 1), near: false, rank: CR(), dense };   // (rank: who's still there as the crowd thins — the shader and the collision go by the same number)
   });
   const mtx = new THREE.Matrix4(), qY = new THREE.Quaternion(), vS = new THREE.Vector3(), vP = new THREE.Vector3(), AY = new THREE.Vector3(0, 1, 0), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   const place = f => mtx.compose(vP.set(f.x, f.y, f.z), qY.setFromAxisAngle(AY, f.yaw), vS.setScalar(f.s));
@@ -965,6 +1049,7 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
       }
       for (const r of meshes) { r.im.visible = r.im.count > 0; r.im.instanceMatrix.needsUpdate = true; for (const a of Object.values(r.attrs)) a.needsUpdate = true; if (r.im.count) r.im.computeBoundingSphere(); }
     }
+    if (!STADIUM.crowd) for (const r of REAL) if (r.pose === 'sit') r.im.visible = false;   // (after the blackout nobody sits calmly in the seats next to you)
   };
 
   // ================================================================ the match and the stewards (stadium.match.js)
@@ -989,6 +1074,9 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
     const l = new THREE.SpotLight(0xf4f6ff, 0, 0, 0.62, 0.45, 0); l.position.set(p.hx, p.hy, p.hz); l.target.position.set(p.x * 0.15, 0, p.z * 0.15); l.castShadow = false;
     // (phones / tablets: two of the four, diagonally opposite, a little brighter — every light costs every pixel)
     if (tier() && (floods.length === 1 || floods.length === 2)) { floods.push(l); continue; }
+    // desktop: the north-west pylon's lamps throw real shadows (players, goals, the boards, you) across the pitch; its
+    // shadow map is only redrawn while the floodlights are on (see update) — toggling castShadow would recompile
+    if (!tier() && floods.length === 1) { l.castShadow = true; l.shadow.mapSize.set(2048, 2048); l.shadow.bias = -0.0004; l.shadow.normalBias = 0.04; l.shadow.camera.near = 8; l.shadow.camera.far = 170; l.shadow.autoUpdate = false; l.shadow.needsUpdate = true; }
     K.level.add(l, l.target); floods.push(l);
   }
   const fill = new THREE.HemisphereLight(0xe4ecff, 0x40503a, 0); K.level.add(fill);
@@ -996,7 +1084,7 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
   // and a handful of real lights where you have to find your way (concourses, tunnel, corridor, back stairs). Pooled
   // on phones / tablets (world.addLight).
   const exitTex = K.ctex ? K.ctex(128, 48, (g, w, h) => { g.fillStyle = '#0a8a3a'; g.fillRect(0, 0, w, h); g.fillStyle = '#eafff0'; g.font = 'bold 30px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('EXIT ➜', w / 2, h / 2 + 1); }, [1, 1]) : null;
-  const exitM = std({ map: exitTex, color: 0xffffff, emissive: 0xffffff, emissiveMap: exitTex, emissiveIntensity: 1.3, roughness: 0.5 });
+  const exitM = std({ map: exitTex, color: 0xffffff, emissive: 0xffffff, emissiveMap: exitTex, emissiveIntensity: 2.0, roughness: 0.5 });
   const emLamp = std({ color: 0xf4f6f0, emissive: 0xe8f0ff, emissiveIntensity: 0.15, roughness: 0.4 });
   const exitGeo = new THREE.PlaneGeometry(0.62, 0.24), lampGeo = new THREE.BoxGeometry(0.36, 0.1, 0.16);
   const exitSign = (st, u, v, y, face) => { const [x, z] = P(st, u, v); K.xadd(exitGeo, exitM, K.mat4(x, y, z, face), false); };
@@ -1011,8 +1099,9 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
   { const [x, z] = P(N, 46.5, 29.95); K.xadd(exitGeo, exitM, K.mat4(x, L1 + 2.5, z, 0), false); }   // over the switch-room door, inside
   for (let u = -47; u < 48; u += 11) { const [x, z] = P(N, u, 16.5); K.xadd(lampGeo, emLamp, K.mat4(x, 3.13, z, 0), false); const [x2, z2] = P(N, u + 4, 26); K.xadd(lampGeo, emLamp, K.mat4(x2, 5.33, z2, 0), false); const [x3, z3] = P(N, u + 2, 20); K.xadd(lampGeo, emLamp, K.mat4(x3, L1 + 2.9, z3, 0), false); }
   for (let v = 3; v < 15; v += 4) { const [x, z] = P(N, 0, v); K.xadd(lampGeo, emLamp, K.mat4(x + 0.9, 2.7, z, Math.PI / 2), false); }
-  const emLights = [[P(N, -24, 24), 4.6, 26], [P(N, 24, 24), 4.6, 26], [P(N, 0, 9), 2.6, 15], [P(N, 44, 25.5), L1 + 2.7, 14], [P(STANDS.S, 0, 13), 2.8, 26]]   // (five: every light costs every pixel)
-    .map(([[x, z], y, r]) => { const l = new THREE.PointLight(0xdfe8ff, 0, r, 1.6); l.position.set(x, y, z); l.castShadow = false; (W.addLight ? W.addLight(l, K.level) : K.level.add(l)); return l; });
+  { const [x, z] = P(N, -33.35, 12.5); K.xadd(lampGeo, emLamp, K.mat4(x, 2.55, z, Math.PI / 2), false); }   // a bulkhead lamp over the red key cabinet
+  const emLights = [[P(N, -24, 24), 4.6, 18], [P(N, 24, 24), 4.6, 18], [P(N, 0, 9), 2.6, 15], [P(N, 44, 25.5), L1 + 2.7, 14], [P(STANDS.S, 0, 13), 2.8, 18], [P(N, -38, 11.5), 2.8, 12]]   // (six: every light costs every pixel)
+    .map(([[x, z], y, r]) => { const l = new THREE.PointLight(0xdfe8ff, 0, r, 2); l.position.set(x, y, z); l.castShadow = false; (W.addLight ? W.addLight(l, K.level) : K.level.add(l)); return l; });
 
   // ================================================================ "houses" for the concourses (camera + indoors)
   for (const c of concHouses) {
@@ -1064,18 +1153,19 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
     let warm = STADIUM.switchT != null ? Math.min(1, STADIUM.switchT / 60) : 1; warm = warm * warm * (3 - 2 * warm);
     if (STADIUM.switchT != null && STADIUM.switchT < 60) warm = Math.max(warm, 0.06 * Math.min(1, STADIUM.switchT / 1.5));   // (the strike: a dim glow at once)
     const on = STADIUM.lights ? warm : 0, night = W.night != null ? W.night : 1 - (W.daylight ?? 1);
-    for (const l of floods) { l.intensity = on * 3.2 * (tier() ? 1.6 : 1) * (0.35 + 0.65 * night); l.color.setRGB(1, 0.78 + 0.22 * warm, 0.55 + 0.45 * warm); }
+    for (const l of floods) { l.intensity = on * 3.2 * (tier() ? 1.6 : 1) * (0.35 + 0.65 * night); l.color.setRGB(1, 0.78 + 0.22 * warm, 0.55 + 0.45 * warm); if (l.castShadow) l.shadow.autoUpdate = l.intensity > 0.05; }
     lens.emissiveIntensity = 0.15 + on * 7;
     // the fill: floodlit stands and pitch (fades with distance from the centre so the car park stays dark)
     const dc = focus ? Math.hypot(focus.x, focus.z) : 0;
     fill.intensity = on * night * 0.32 * Math.max(0.15, 1 - Math.max(0, dc - 70) / 50);
+    if (STADIUM.lever) { const want = STADIUM.switchedOn ? 0.5 : 2.4; STADIUM.lever.rotation.x += (want - STADIUM.lever.rotation.x) * Math.min(1, dt * 6); }
     if (switchLamp) switchLamp.emissive.setHex(STADIUM.switchedOn ? 0x20ff40 : STADIUM.hasKey ? 0xffa010 : 0xff2010);
     if (STADIUM.power !== lastPower) { lastPower = STADIUM.power; GLOW.forEach((m, i) => { m.emissiveIntensity = STADIUM.power ? GLOW0[i] : 0; }); }
     // the emergency lamps: off with the mains on; after the blackout they glow (a slow flicker as the batteries come in)
-    { const em = STADIUM.power ? 0 : Math.min(1, (emT += dt) / 2.5) * (0.92 + 0.08 * Math.sin(tAcc * 7.3)); if (STADIUM.power) emT = 0; emLamp.emissiveIntensity = 0.15 + em * 2.4; for (const l of emLights) l.intensity = em * 5.5; }
+    { const em = STADIUM.power ? 0 : Math.min(1, (emT += dt) / 2.5) * (0.92 + 0.08 * Math.sin(tAcc * 7.3)); if (STADIUM.power) emT = 0; emLamp.emissiveIntensity = 0.2 + em * 4; for (const l of emLights) { if (STADIUM.power) { l.intensity = 10; l.color.setHex(0xfff0dc); } else { l.intensity = em * 14; l.color.setHex(0xdfe8ff); } } }   // (mains on: they're the concourse's ordinary lights)
     // the big screen on its backup battery after the blackout: a flickering red EVACUATE
     if (!STADIUM.power) screenM.emissiveIntensity = STADIUM.broken ? 0.35 + 0.25 * Math.random() : 0;
-    if (MAT.sdTower) MAT.sdTower.emissiveIntensity = night * (STADIUM.power ? 0.9 : 0.5);
+    for (let k = 0; k < 4; k++) { const tm = MAT['sdTower' + k]; if (tm) tm.emissiveIntensity = night * (STADIUM.power ? 1.1 : 0.7); }   // (the city still has power)
     // the big screen: the score and the minute during the match; static and EVACUATE after
     screenT -= dt;
     if (screenT <= 0) {   // (redrawn only when something on it changes — each redraw re-uploads a 1024 × 384 texture; the static after the blackout every 1.5 s)

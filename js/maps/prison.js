@@ -109,11 +109,22 @@ export function buildMap(K) {
   };
   W.lockGates = () => { for (const g of W.gates) { g.open = false; g.place(); } };
   W.openGate = g => { g.open = true; g.place(); };
-  W.gateNear = (x, z, r = 1.6) => W.gates.find(g => Math.hypot(g.reader.x - x, g.reader.z - z) < r || Math.hypot(g.x - x, g.z - z) < r) || null;
+  const gNear = (g, x, z, r) => Math.hypot(g.reader.x - x, g.reader.z - z) < r || Math.hypot(g.x - x, g.z - z) < r;
+  W.gateNear = (x, z, r = 1.6) => W.gates.find(g => !g.open && gNear(g, x, z, r)) || W.gates.find(g => gNear(g, x, z, r)) || null;   // (a gate with several locks: the next one still shut)
+  // one barred gate with several card readers: each lock is its own entry in W.gates (main.js opens them one at a
+  // time, each with its own card); the bars only slide back once every lock is open
+  const multiGate = (g0, more) => {
+    const locks = [g0];
+    for (const [needs, name] of more) { const L = { name, needs, x: g0.x, z: g0.z, yaw: g0.yaw, w: g0.w, box: g0.box, group: g0.group, open: true, reader: g0.reader }; locks.push(L); W.gates.push(L); }
+    const place = () => { const op = locks.every(l => l.open); g0.group.rotation.y = g0.yaw + (op ? Math.PI / 2 * 0.95 : 0); g0.box.off = op; };
+    for (const l of locks) l.place = place;
+    place();
+    return locks;
+  };
 
   // ================================================================ ground
   K.groundKind('grass');
-  K.region(-100, -100, 100, 100, 'dirt', 'gravel', 0.7);
+  K.region(-100, -100, 100, 100, 'dirt', 'gravel', 0.45);
   // the patrol road inside the wall, the walks between buildings
   for (const [x0, z0, x1, z1] of [[-99.6, -99.6, 99.6, -93], [-99.6, 93, 99.6, 99.6], [-99.6, -93, -93, 93], [93, -93, 99.6, 93]]) K.slab(x0, z0, x1, z1, 'drive', 'concrete');
   for (const [x0, z0, x1, z1] of [[-2.5, 62, 2.5, 74], [-2.5, -38, 2.5, 4], [-56, 13, -40, 17], [40, 13, 56, 17], [-90, -66, 90, -60], [-2.5, -60, 2.5, -50], [-56, -60, -50, 40], [50, -60, 56, 40], [-56, 40, -40.2, 46], [40.2, 40, 56, 46], [24, 62.2, 30, 74], [-30, 62.2, -24, 74]]) K.slab(x0, z0, x1, z1, 'drive', 'concrete');
@@ -152,6 +163,8 @@ export function buildMap(K) {
   so(39.5, 99.9, 48.5, 100.1, 6, 'metal', 0, { window: true });
   sign(K, 34, 3.2, 100.42, 0, 'sWarn', 3.2, 1.2);
   sign(K, 0, 3.6, 100.42, 0, 'sGate', 9, 2.2);
+  // a barred gate inside the staff door: in lockdown only the warden's gold card opens it (no walking out the front)
+  gate(0, 99.25, 0, 1.5, 2.4, 'keycardGold', 'staff door gate');
 
   // ================================================================ guard towers
   const tower = (tx, tz, yaw, num) => {
@@ -171,7 +184,7 @@ export function buildMap(K) {
     { const [px, pz] = P(1.6, -1.6); K.xadd(G.pipe, MAT.darkMetal, K.mat4(px, Y + 2.5, pz, 0, 0.06, 0.5, 0.06)); K.xadd(G.disc, MAT.pFlood, K.mat4(px, Y + 3.15, pz, yaw + 0.6, 0.4, 0.32, 0.32)); }
     // its lamp at night: the searchlight thrown down into the compound in front of the tower, a lamp in the cab
     { const [lx, lz] = P(1.6, -1.6), [tx2, tz2] = P(0, 15); towerLamps.push(K.lamp(lx, Y + 3.15, lz, { pow: 3.2, dist: 38, angle: 0.55, tx: tx2, tz: tz2, col: 0xe0e8ff, halo: 1.8, reach: 10 })); decal(K, tx2, 0.06, tz2, 15, 15, 0, 'pPoolW');
-      K.box(tx, Y + 2.24, tz, 0.5, Y + 2.3, 0.5, yaw, f => f === 'bot' ? 'pSodium' : 'darkMetal'); }
+      K.box(tx, Y + 2.14, tz, 0.16, Y + 2.3, 0.16, yaw, f => f === 'bot' ? 'pSodium' : 'darkMetal'); K.box(tx, Y + 2.1, tz, 0.12, Y + 2.14, 0.12, yaw, 'frosted'); }   // the cab's caged ceiling lamp
     // inside: a console, a stool, the gun locker (searchable)
     { const [px, pz] = P(0, -2.1); K.box(px, Y, pz, 1.6, Y + 0.95, 0.35, yaw, 'darkMetal'); K.box(px, Y + 0.95, pz, 1.6, Y + 1.0, 0.36, yaw, 'black'); K.solid(px, pz, 1.6, 0.35, yaw, Y + 1.0, 'metal', Y); }
     { const [px, pz] = P(-2.1, 0.6); K.box(px, Y, pz, 0.35, Y + 1.8, 0.5, yaw, 'pCopper'); K.solid(px, pz, 0.35, 0.5, yaw, Y + 1.8, 'metal', Y);
@@ -257,12 +270,19 @@ export function buildMap(K) {
     loot('police', cx + yr * 2.3, cz, 1.0, 'Officers\' station drawer', yr * Math.PI / 2, H, { fixed: [['flashlight', 1], ['battery', 2]] });
     // the dayroom: bolted-down tables, a TV on the end wall, payphones, the count board
     for (const lx of [-4.2, 4.2]) for (const lz of [-19, -13, -7, 7, 13, 19]) messTable(K, cx + lx, cz + lz, Math.PI / 2);
+    // painted floor lines: the yellow "out of bounds" line in front of the cells, a box round the bubble
+    for (const r of [-1, 1]) bx(cx + r * 9.45 - 0.05, 0.02, cz - 34, cx + r * 9.45 + 0.05, 0.034, cz + 34, 'yellowPaint');
+    for (const [a, b, c2, d2] of [[-3.1, -3.1, 3.1, -3.0], [-3.1, 3.0, 3.1, 3.1], [-3.1, -3.1, -3.0, 3.1], [3.0, -3.1, 3.1, 3.1]]) bx(cx + a, 0.02, cz + b, cx + c2, 0.034, cz + d2, 'yellowPaint');
+    // the end wall: a notice board, a fire extinguisher in its red box, a wall clock
+    bx(cx + 4.2, 1.3, cz - 39.84, cx + 6.2, 2.4, cz - 39.8, 'cabinet'); for (let i = 0; i < 5; i++) bx(cx + 4.35 + i * 0.37, 1.55 + (i % 2) * 0.35, cz - 39.8, cx + 4.6 + i * 0.37, 1.85 + (i % 2) * 0.35, cz - 39.79, 'white');
+    bx(cx - 6.4, 1.0, cz - 39.85, cx - 5.9, 1.7, cz - 39.7, 'redPaint'); K.xadd(G.pipe, MAT.redPaint, K.mat4(cx - 6.15, 1.05, cz - 39.6, 0, 0.08, 0.5, 0.08));
+    K.xadd(G.disc, MAT.white, K.mat4(cx - 3.2, 3.0, cz - 39.82, Math.PI / 2, 0.03, 0.2, 0.2)); bx(cx - 3.21, 2.95, cz - 39.79, cx - 3.19, 3.12, cz - 39.78, 'black');
     K.box(cx, 4.2, cz - 39.8, 1.0, 4.9, 0.1, 0, f => f === 'pz' ? 'pScreen' : 'black');
     sign(K, cx, 2.6, cz - 39.83, 0, 'sCount', 2.6, 1.0);
     for (let i = 0; i < 3; i++) { const px = cx - 6 + i * 1.1; bx(px - 0.25, 1.1, cz + 39.65, px + 0.25, 1.75, cz + 39.85, 'pSteel'); bx(px - 0.06, 1.25, cz + 39.55, px + 0.06, 1.5, cz + 39.65, 'black'); }
     loot('bin', cx + 5.5, cz + 39.2, 0.5, 'Trash can', Math.PI, H);
     loot('shelf', cx - 13.4, cz + 38, 1.2, 'Mop closet shelf', Math.PI / 2, H);
-    lt(cx, 6.8, cz, 0xe8f0ff, 10, 26);
+    lt(cx, 6.8, cz, 0xe8f0ff, 10, 26); lt(cx, 6.6, cz - 26, 0xe8f0ff, 7, 22); lt(cx, 6.6, cz + 26, 0xe8f0ff, 7, 22);
     return H;
   };
   const HA = cellBlock(BLD.blockA, 'A', 1);
@@ -273,7 +293,7 @@ export function buildMap(K) {
   {
     const { x0, z0, x1, z1 } = YARD;
     for (const [a, b, c, d] of [[x0, z0, -2, z0], [2, z0, x1, z0], [x0, z1, -2, z1], [2, z1, x1, z1], [x0, z0, x0, 13], [x0, 17, x0, z1], [x1, z0, x1, 13], [x1, 17, x1, z1]]) fence(a, b, c, d);
-    K.region(x0, z0, x1, z1, 'dirt', 'gravel', 0.95);
+    K.region(x0, z0, x1, z1, 'dirt', 'gravel', 0.7);
     // basketball court
     K.slab(-33, 11, -3, 29, 'pCourt', 'concrete');
     const line = (a, b, c, d) => bx(a, 0.02, b, c, 0.035, d, 'white');
@@ -307,9 +327,19 @@ export function buildMap(K) {
     // the handball wall
     bs(14, 0, 42, 26, 4.6, 42.5, 'concrete', 'concrete');
     for (let i = 0; i < 6; i++) bx(14.5 + i * 2, 1.2, 41.98, 15 + i * 2, 1.25, 42, 'white');
+    K.xadd(G.plane, MAT.pGraffiti, K.mat4(20, 2.6, 41.975, Math.PI, 10.5, 3.4, 1), false);   // years of tags on the yard side
     K.slab(14, 36, 26, 42, 'drive', 'concrete');
     // concrete picnic tables
-    for (const [tx, tz] of [[6, 50], [14, 52], [22, 50], [-6, 52], [-14, 50]]) { bs(tx - 1.1, 0, tz - 0.4, tx + 1.1, 0.78, tz + 0.4, 'concrete', 'concrete', { vault: true }); for (const e of [-0.85, 0.85]) bs(tx - 1.1, 0, tz + e - 0.15, tx + 1.1, 0.45, tz + e + 0.15, 'concrete', 'concrete', { vault: true }); }
+    // (precast: a slab top with a chamfered edge on two pedestals, benches the same; each set down a little askew)
+    for (const [tx, tz] of [[6, 50], [14, 52], [22, 50], [-6, 52], [-14, 50]]) {
+      const ty = (R() - 0.5) * 0.5, P = frame(tx, tz, ty);
+      K.box(tx, 0.7, tz, 1.1, 0.78, 0.4, ty, 'concrete'); K.box(tx, 0.66, tz, 1.04, 0.7, 0.35, ty, 'concrete');
+      for (const lx of [-0.7, 0.7]) { const [px, pz] = P(lx, 0); K.box(px, 0, pz, 0.1, 0.66, 0.22, ty, 'concrete'); K.box(px, 0, pz, 0.16, 0.06, 0.3, ty, 'concrete'); }
+      K.solid(tx, tz, 1.1, 0.4, ty, 0.78, 'concrete', 0, { vault: true });
+      for (const e of [-0.85, 0.85]) { const [px, pz] = P(0, e); K.box(px, 0.39, pz, 1.1, 0.45, 0.15, ty, 'concrete'); K.box(px, 0.36, pz, 1.05, 0.39, 0.11, ty, 'concrete');
+        for (const lx of [-0.75, 0.75]) { const [qx, qz] = P(lx, e); K.box(qx, 0, qz, 0.08, 0.36, 0.1, ty, 'concrete'); }
+        K.solid(px, pz, 1.1, 0.15, ty, 0.45, 'concrete', 0, { vault: true }); }
+    }
     // a basketball left on the court, the weights' chalk bucket
     K.xadd(G.ball, MAT.orange, K.mat4(-21, 0.12, 23, 0, 0.12, 0.12, 0.12));
     loot('bin', 3, 8, 0.5, 'Yard trash barrel', 0); bs(2.65, 0, 7.65, 3.35, 0.95, 8.35, 'darkMetal', 'metal', { vault: true });
@@ -323,7 +353,7 @@ export function buildMap(K) {
   {
     const { x, z, w, d } = BLD.seg;
     const H = K.room(x, z, w, d, 0, { h: 3.4, t: 0.3, mat: 'pCinderOut', inMat: 'pCinderG', floor: 'pFloor', name: 'Segregation Unit', home: false, doors: [{ side: 'n', at: 0, w: 1.1, col: 0x6a1a14, hp: 800 }], windows: [{ side: 'n', at: -7, w: 1.4, sill: 1.6, top: 2.4 }, { side: 'n', at: 7, w: 1.4, sill: 1.6, top: 2.4 }] });
-    sign(K, x, 2.5, z + d / 2 + 0.17, 0, 'sSeg', 3.6, 1.3);
+    sign(K, x, 2.2, z + d / 2 + 0.2, 0, 'sSeg', 3.0, 1.1);   // (between the door head, 2.12, and the roof, 3.4)
     // six cells along the north side: solid steel doors with a food slot and a slit window
     const fz = z - 1.5;
     const ops = []; for (let i = 0; i < 6; i++) ops.push({ at: -10.8 + 1.8 + i * 3.6 - 0.6, w: 0.85, door: true, col: 0x55606a, hp: 900, dir: -1, interior: true });
@@ -342,6 +372,7 @@ export function buildMap(K) {
     loot('cabinet', x + 9, z + 3.2, 0.75, 'Segregation log desk', 0, H);
     bs(x - 11.6, 0, z + 2, x - 9, 2.4, z + 4.7, 'pTile', 'concrete');
     for (let i = 0; i < 6; i++) strip(K, x - 10 + i * 4, 3.38, z + 1.5, 0);
+    lt(x, 3.1, z + 3, 0xd8f0e0, 3.5, 14);
   }
 
   // ================================================================ THE NORTH ROW
@@ -351,7 +382,7 @@ export function buildMap(K) {
     const H = K.room(x, z, w, d, 0, { h: 4.6, t: 0.3, mat: 'pCinderOut', inMat: 'pCinder', floor: 'pFloor', name: 'Laundry', home: false,
       doors: [{ side: 'n', at: 0, w: 1.4, col: 0x4a5560 }, { side: 'w', at: 2, w: 2.6, door: false, top: 2.5 }],
       windows: [-10, -4, 4, 10].map(a => ({ side: 'n', at: a, w: 1.6, sill: 2.4, top: 3.6 })).concat([-8, 0, 8].map(a => ({ side: 's', at: a, w: 1.6, sill: 2.4, top: 3.6 }))) });
-    sign(K, x + 4, 3.0, z + d / 2 + 0.17, 0, 'sLau', 3.0, 1.1);
+    sign(K, x + 4, 3.0, z + d / 2 + 0.2, 0, 'sLau', 3.0, 1.1);
     // the pump room partition (x = −74): a steel door — the sewer grate and the pumps are behind it
     K.wall(x - 7, z + d / 2 - 0.15, x - 7, z - d / 2 + 0.15, { h: 4.6, t: 0.25, mat: 'pCinder', inMat: 'pCinderG', capMat: 'pCinder', openings: [{ at: -2.5, w: 1.0, door: true, col: 0x3a4048, hp: 900 }] });
     // washers along the south wall, dryers along the north, folding tables in the middle, carts
@@ -371,7 +402,7 @@ export function buildMap(K) {
     bx(x - 14.6, 0.02, z - 3.3, x - 12.2, 0.045, z - 0.7, 'pTread');
     sign(K, x - 14.7, 1.6, z - 4.8, Math.PI / 2, 'sOut', 1.4, 0.55);
     loot('garage', x - 9, z + 9, 1.0, 'Maintenance cabinet', Math.PI, H); bs(x - 10, 0, z + 9.3, x - 8, 2.0, z + 11.6, 'darkMetal', 'metal');
-    lt(x - 11, 4.2, z - 2, 0xffd8a0, 4, 12);
+    lt(x - 11, 4.2, z - 2, 0xffd8a0, 4, 12); lt(x + 4, 4.3, z, 0xe8f0ff, 6, 18);
   }
   // ---- THE STORM SEWER: a box culvert from the pump room, under the wall, out to the river ----
   {
@@ -412,7 +443,7 @@ export function buildMap(K) {
     const H = K.room(x, z, w, d, 0, { h: 4.4, t: 0.3, mat: 'pCinderOut', inMat: 'pCinder', floor: 'pFloorR', name: 'Dining Hall', home: false,
       doors: [{ side: 'n', at: -9, w: 1.4, col: 0x4a5560 }, { side: 'n', at: 9, w: 1.4, col: 0x4a5560 }, { side: 's', at: -15, w: 1.1, col: 0x4a5560 }],
       windows: [-15, -5, 5, 15].map(a => ({ side: 'n', at: a, w: 2.2, sill: 2.2, top: 3.6 })) });
-    sign(K, x, 3.1, z + d / 2 + 0.17, 0, 'sCaf', 3.0, 1.1);
+    sign(K, x, 3.1, z + d / 2 + 0.2, 0, 'sCaf', 3.0, 1.1);
     // the serving line: a wall with a long hatch over a steel counter with a sneeze guard
     const kz = z - 4;
     K.wall(x - w / 2 + 0.15, kz, x + w / 2 - 0.15, kz, { h: 4.4, t: 0.25, mat: 'pTile', inMat: 'pCinder', capMat: 'pCinder', openings: [{ at: -2, w: 14, sill: 1.0, top: 2.2 }, { at: 15, w: 1.0, door: true, col: 0xc8ccd0, dir: -1 }] });
@@ -420,9 +451,17 @@ export function buildMap(K) {
     bx(x - 9, 1.3, kz + 0.75, x + 5, 1.33, kz + 0.95, 'glass');
     for (let i = 0; i < 7; i++) bx(x - 8.6 + i * 2, 0.95, kz + 0.25, x - 7.2 + i * 2, 1.02, kz + 0.75, 'chrome');
     for (const px of [x - 9, x + 5]) bx(px - 0.03, 0.95, kz + 0.85, px + 0.03, 1.33, kz + 0.9, 'chrome');
+    // the tray stand at the head of the line: compartment trays stacked high, a rack of cups
+    bs(x - 10.5, 0, kz + 0.3, x - 9.3, 0.9, kz + 0.95, 'pSteel', 'metal', { vault: true });
+    for (let k = 0; k < 9; k++) bx(x - 10.4, 0.9 + k * 0.03, kz + 0.38, x - 9.85, 0.925 + k * 0.03, kz + 0.88, k % 2 ? 'pCopper' : 'pSteel');
+    for (let k = 0; k < 6; k++) K.xadd(G.pipe, MAT.pRail, K.mat4(x - 9.65, 0.9, kz + 0.42 + k * 0.08, 0, 0.035, 0.09, 0.035));
     // the hall: four rows of mess tables
     for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) messTable(K, x - 15 + i * 6, z + 0.5 + j * 2.9, 0);
     for (let i = 0; i < 5; i++) strip(K, x - 16 + i * 8, 4.38, z + 3, 0, 1.6);
+    // a galvanised supply duct down the hall on hangers, a diffuser every few metres
+    bx(x - w / 2 + 0.6, 3.7, z + 8.2, x + w / 2 - 0.6, 4.1, z + 8.8, 'pSteel');
+    for (let i = 0; i < 9; i++) { const hx = x - 17 + i * 4.25; bx(hx - 0.02, 4.1, z + 8.18, hx + 0.02, 4.4, z + 8.22, 'darkMetal'); bx(hx - 0.02, 4.1, z + 8.78, hx + 0.02, 4.4, z + 8.82, 'darkMetal'); bx(hx - 0.04, 3.68, z + 8.15, hx + 0.04, 3.72, z + 8.85, 'darkMetal'); }
+    for (let i = 0; i < 6; i++) { const hx = x - 15 + i * 6; bx(hx - 0.3, 3.6, z + 8.2, hx + 0.3, 3.7, z + 8.8, 'white'); for (let k = 0; k < 4; k++) bx(hx - 0.26, 3.59, z + 8.27 + k * 0.15, hx + 0.26, 3.6, z + 8.31 + k * 0.15, 'black'); }
     sign(K, x - 12, 2.4, kz + 0.17, 0, 'sMenu', 1.6, 0.7); note('menu', x - 12, kz + 0.4, 1.1);
     // the kitchen (north of the line): stoves, steam kettles, prep tables, the walk-in, dry stores
     const kz0 = z - d / 2 + 0.15;
@@ -444,6 +483,7 @@ export function buildMap(K) {
     loot('bin', x + 11.1, rz + 1.0, 1.2, 'Kitchen dumpster', Math.PI);
     bs(x + 12.4, 0, rz - 1.0, x + 14.0, 3.0, rz + 0.6, 'plank', 'wood'); K.deck(x + 13.2, rz - 0.2, 0.8, 0.8, 0, 3.0, { draw: false, climb: true });
     K.deck(x, z, w / 2, d / 2, 0, 4.62, { draw: false, climb: true });
+    lt(x, 4.0, z + 5, 0xe8f0ff, 7, 22); lt(x - 8, 4.0, z - 8, 0xfff0d8, 4, 14);   // the hall, the kitchen
   }
   // ---- INFIRMARY (patient zero) ----
   {
@@ -451,7 +491,7 @@ export function buildMap(K) {
     const H = K.room(x, z, w, d, 0, { h: 3.6, t: 0.3, mat: 'pCinderOut', inMat: 'pCinderB', floor: 'pFloorW', ceilMat: 'ceilTile', name: 'Infirmary', home: false,
       doors: [{ side: 'n', at: 0, w: 1.6, glassDoor: true }, { side: 'w', at: 6, w: 1.0, col: 0x4a5560 }],
       windows: [-12, -6, 6, 12].map(a => ({ side: 'n', at: a, w: 1.6, sill: 1.0, top: 2.3, glassMat: 'frosted' })) });
-    sign(K, x, 2.6, z + d / 2 + 0.17, 0, 'sInf', 3.2, 1.2);
+    sign(K, x, 2.25, z + d / 2 + 0.2, 0, 'sInf', 3.1, 1.15);   // (under the 3.6 m roof line)
     // a corridor wall across the middle (z −79): the ward north of it, offices and the pharmacy south
     K.wall(x - w / 2 + 0.15, z - 1, x + w / 2 - 0.15, z - 1, { h: 3.6, t: 0.2, mat: 'pCinderB', inMat: 'pCinderB', capMat: 'pCinderB', openings: [{ at: -8, w: 1.6, top: 2.3 }, { at: 0, w: 1.0, door: true, col: 0xd8dcd8 }, { at: 9, w: 1.0, door: true, col: 0xd8dcd8 }, { at: 2.6, w: 2.0, sill: 1.0, top: 2.2, glass: true }] });
     // the ward: eight beds along the north wall with curtain rails between them
@@ -481,7 +521,7 @@ export function buildMap(K) {
     bs(x - 1.2, 0, z + 5, x + 1.2, 0.85, z + 5.8, 'pSteel', 'metal', { vault: true }); bx(x - 1.15, 0.85, z + 5.05, x + 1.15, 0.95, z + 5.75, 'pMat');
     loot('medicine', x + 3.5, z + 10.8, 1.0, 'Exam room cupboard', Math.PI, H);
     for (let i = 0; i < 4; i++) strip(K, x - 12 + i * 8, 3.58, z - 6, 0, 1.4);
-    lt(x - 6, 3.3, z - 7, 0xd8f0ff, 5, 14);
+    lt(x - 6, 3.3, z - 7, 0xd8f0ff, 5, 14); lt(x + 8, 3.3, z - 7, 0xd8f0ff, 4, 14); lt(x + 9, 3.3, z + 6, 0xd8f0ff, 3, 10);   // the ward (both ends), Dr. Hale's office
   }
   // ---- VOCATIONAL SHOP ----
   {
@@ -489,7 +529,7 @@ export function buildMap(K) {
     const H = K.room(x, z, w, d, 0, { h: 5.4, t: 0.3, mat: 'pCinderOut', inMat: 'pCinder', floor: 'pFloor', name: 'Vocational Shop', home: false,
       doors: [{ side: 'n', at: -6, w: 4.2, door: false, top: 4.0 }, { side: 'n', at: 6, w: 1.0, col: 0x4a5560 }],
       windows: [-10, 0, 10].map(a => ({ side: 's', at: a, w: 2.2, sill: 2.6, top: 4.2 })) });
-    sign(K, x - 6, 3.0, z + d / 2 + 0.17, 0, 'sWork', 3.2, 1.2);
+    sign(K, x - 6, 3.0, z + d / 2 + 0.2, 0, 'sWork', 3.2, 1.2);
     // the roll-up door, rolled up
     bx(x + 3.8, 4.0, z + d / 2 - 0.35, x + 8.2, 4.6, z + d / 2 - 0.15, 'corr' in MAT ? 'corr' : 'pBars');
     for (const [wx2, wz2] of [[x - 8, z - 4], [x - 2, z - 4], [x + 4, z - 4], [x - 8, z + 2], [x - 2, z + 2], [x + 4, z + 2]]) workbench(K, wx2, wz2, 0);
@@ -503,12 +543,13 @@ export function buildMap(K) {
     // the tool crib: a caged office (green card spare, the inventory)
     const cz2 = z - d / 2 + 3;
     fence(x + 6, z - d / 2 + 0.2, x + 6, cz2 + 2.5, 3.0, false); fence(x + 6, cz2 + 2.5, x + 14.7, cz2 + 2.5, 3.0, false);
-    gate(x + 9, cz2 + 2.5, 0, 1.4, 2.4, 'keycardGreen', 'tool crib');
+    gate(x + 9, cz2 + 2.5, 0, 1.4, 2.4, 'keycardBlue', 'tool crib');   // (Control's blue card: the spare green card is inside)
     desk(K, x + 12, cz2 + 0.2, 0);
     loot('garage', x + 12, cz2 + 0.6, 0.75, 'Tool crib desk', Math.PI, H, { fixed: fixed(['keycardGreen', 1], ['crowbar', 1]) });
     loot('shed', x + 7.5, cz2 - 1.5, 1.0, 'Tool crib shelves', 0, H, { fixed: [['axe', 1]] });
     bs(x + 6.3, 0, cz2 - 2.6, x + 9, 2.2, cz2 - 2.1, 'pegboard', 'wood');
     for (let i = 0; i < 4; i++) strip(K, x - 10 + i * 6.5, 5.38, z, 0, 1.6);
+    lt(x - 2, 5.0, z, 0xe8f0ff, 7, 22);
   }
 
   // ================================================================ ADMINISTRATION (two floors)
@@ -522,7 +563,7 @@ export function buildMap(K) {
     wins.push(win('s', -4, true), win('s', 4, true));
     HAd = K.room(x, z, w, d, 0, { h: 7.6, t: 0.3, mat: 'brick', inMat: 'paint3', floor: 'floorTile', name: 'Administration', home: false,
       doors: [{ side: 'n', at: 0, w: 1.6, glassDoor: true }, { side: 's', at: 0, w: 1.1, col: 0x4a5560, hp: 900 }], windows: wins });
-    sign(K, x, 2.7, z + d / 2 + 0.17, 0, 'sAdmin', 4.2, 1.2);   // on the public (south) face, over the glass doors
+    sign(K, x, 2.7, z + d / 2 + 0.2, 0, 'sAdmin', 4.2, 1.2);   // on the public (south) face, over the glass doors
     // the upper floor: a slab with the stairwell cut out, walkable
     const ix0 = x - w / 2 + 0.15, ix1 = x + w / 2 - 0.15, iz0 = z - d / 2 + 0.15, iz1 = z + d / 2 - 0.15;
     const hole = { x0: x + 4.05, x1: x + 5.55, z0: z - 2.6, z1: z + 3.8 };
@@ -531,6 +572,10 @@ export function buildMap(K) {
       K.deck((a + c2) / 2, (b + dd) / 2, (c2 - a) / 2, (dd - b) / 2, 0, UY, { draw: false });
     }
     flight(x + 4.8, z + 0.6, 0, 1.4, 6.4, 0, UY, 'concrete', { open: false });
+    // the stair is barred in lockdown: one gate, three card readers (red, blue, green) — the warden's office is up there
+    { const sg = gate(x + 4.8, z - 1.5, 0, 1.5, 2.6, 'keycardRed', 'stair gate: RED lock');
+      multiGate(sg, [['keycardBlue', 'stair gate: BLUE lock'], ['keycardGreen', 'stair gate: GREEN lock']]);
+      ['redPaint', 'bluePaint', 'greenPaint'].forEach((m, i) => K.box(sg.reader.x, 0.98 - i * 0.1, sg.reader.z, 0.05, 1.05 - i * 0.1, 0.035, 0, m)); }
     railing(hole.x0, hole.z0, hole.x0, hole.z1, UY, false); railing(hole.x1, hole.z0, hole.x1, hole.z1, UY, false); railing(hole.x0, hole.z0, hole.x1, hole.z0, UY, false);
     // ground floor partitions: the visiting room (west), Control (east)
     K.wall(x - 6, iz0, x - 6, iz1, { h: UY - 0.25, t: 0.2, mat: 'paint3', inMat: 'paint1', capMat: 'paint3', openings: [{ at: 0, w: 1.0, door: true, col: 0x6a4a32 }] });
@@ -543,7 +588,7 @@ export function buildMap(K) {
     bs(x - 4.8, 0, z + 5.0, x - 2.2, 1.0, z + 5.7, 'appliance', 'metal', { vault: true }); bx(x - 4.6, 1.0, z + 5.1, x - 2.4, 1.05, z + 5.6, 'rubber');
     bs(x - 5.5, 0, z + 2.5, x - 1.5, 1.1, z + 3.2, 'cabinet', 'wood', { vault: true }); bx(x - 5.55, 1.1, z + 2.45, x - 1.45, 1.16, z + 3.25, 'counter');
     loot('register', x - 3.5, z + 2.9, 1.05, 'Front desk drawer', 0, HAd);
-    sign(K, x, 2.6, z - d / 2 + 0.17, 0, 'sHost', 3.0, 1.0);
+    sign(K, x, 2.3, z - d / 2 + 0.2, 0, 'sHost', 3.0, 1.0);   // (clear of the upper floor slab, 3.55)
     for (const bz of [z - 2, z]) { bs(x - 5, 0, bz - 0.25, x - 3, 0.45, bz + 0.25, 'pWoodDesk', 'wood', { vault: true }); }
     // ---- visiting room: a glass partition with booths (stools, phones) and a few contact tables ----
     const vx = x - 14;
@@ -567,7 +612,7 @@ export function buildMap(K) {
     lockers(K, x + 9, z + d / 2 - 0.6, Math.PI, 5); loot('closet', x + 9, z + d / 2 - 1.0, 1.0, 'Staff lockers', Math.PI, HAd);
     bs(x + 15, 0, z + d / 2 - 0.9, x + 17, 2.0, z + d / 2 - 0.2, 'pCopper', 'metal');
     loot('police', x + 16, z + d / 2 - 1.2, 1.0, 'Control gun locker', Math.PI, HAd, { fixed: [['shotgun', 1], ['shells', 6]] });
-    lt(x + 16, 3.4, z, 0xe8f0ff, 5, 14);
+    lt(x + 16, 3.4, z, 0xe8f0ff, 5, 14); lt(x - 2, 3.4, z + 2, 0xfff0e0, 4, 14);   // Control, the lobby
     // ---- upstairs: the warden's office (east), records (west) ----
     const ox = x + 14, oz = z;
     bx(ox - 3, UY, oz - 2, ox + 3, UY + 0.01, oz + 3, 'rug0');
@@ -579,15 +624,24 @@ export function buildMap(K) {
     loot('nightstand', ox, oz + 1.6, 0.75, 'The warden\'s desk', Math.PI, HAd, { floorY: UY, fixed: fixed(['keycardGold', 1], ['pistol', 1], ['ammo9', 12]) });
     note('pruitt', ox - 0.4, oz + 1.7, UY + 0.84);
     bs(ox + 6.6, UY, oz + 7.2, ox + 7.6, UY + 1.2, oz + 8.2, 'darkMetal', 'metal');   // the safe
+    bx(ox + 6.56, UY + 0.1, oz + 7.28, ox + 6.6, UY + 1.1, oz + 8.12, 'pIron');                  // its door (hinges on the south side)
+    for (const hy of [0.25, 0.95]) bx(ox + 6.54, UY + hy, oz + 8.12, ox + 6.6, UY + hy + 0.12, oz + 8.17, 'chrome');
+    K.xadd(G.disc, MAT.chrome, K.mat4(ox + 6.53, UY + 0.78, oz + 7.62, 0, 0.03, 0.085, 0.085)); K.xadd(G.disc, MAT.black, K.mat4(ox + 6.515, UY + 0.78, oz + 7.62, 0, 0.012, 0.05, 0.05));   // the combination dial
+    bx(ox + 6.48, UY + 0.5, oz + 7.5, ox + 6.56, UY + 0.53, oz + 7.78, 'chrome');               // the handle
+    bx(ox + 6.6, UY + 1.2, oz + 7.2, ox + 7.6, UY + 1.23, oz + 8.2, 'black');
     loot('police', ox + 6.2, oz + 7.7, 0.6, 'The warden\'s safe', -Math.PI / 2, HAd, { floorY: UY, fixed: fixed(['sewerKey', 1], ['medkit', 1], ['ammo9', 10]) });
-    note('wardenLog', ox + 0.6, oz + 1.8, UY + 0.98);
+    loot('shelf', ox + 0.62, oz + 1.78, 0.95, 'The warden\'s radio', Math.PI, HAd, { floorY: UY, radio: true });
+    note('wardenLog', ox - 1.15, oz + 1.45, UY + 0.84);   // (beside the memo, not on the radio set)
     for (const bz of [oz - 8.6, oz - 6.0]) { bs(ox - 6, UY, bz - 0.25, ox + 6, UY + 2.4, bz + 0.25, 'darkWood', 'wood'); for (let s2 = 0; s2 < 5; s2++) for (let b = 0; b < 14; b++) bx(ox - 5.8 + b * 0.82, UY + 0.1 + s2 * 0.46, bz - 0.22, ox - 5.2 + b * 0.82, UY + 0.42 + s2 * 0.46, bz + 0.22, 'book' + (b + s2) % 6); }
     bs(ox + 4, UY, oz - 3, ox + 6.5, UY + 0.45, oz - 1.8, 'fabric4', 'cloth', { vault: true }); bx(ox + 4, UY + 0.45, oz - 3, ox + 6.5, UY + 0.95, oz - 2.75, 'fabric4');
-    K.xadd(G.pipe, MAT.chrome, K.mat4(ox - 3.6, UY, oz + 3.6, 0, 0.02, 2.3, 0.02)); bx(ox - 3.58, UY + 1.4, oz + 3.6, ox - 2.6, UY + 2.2, oz + 3.62, 'bluePaint');   // the flag
+    // the flag: a brass-topped pole on a weighted base in the corner, the cloth hanging limp in folds
+    K.xadd(G.pipe, MAT.chrome, K.mat4(ox - 3.6, UY, oz + 3.6, 0, 0.02, 2.3, 0.02)); K.xadd(G.pipe, MAT.darkMetal, K.mat4(ox - 3.6, UY, oz + 3.6, 0, 0.2, 0.06, 0.2)); K.xadd(G.ball, MAT.yellowPaint, K.mat4(ox - 3.6, UY + 2.34, oz + 3.6, 0, 0.05, 0.05, 0.05));
+    for (let k = 0; k < 5; k++) { const fx = ox - 3.56 + k * 0.065, fz = oz + 3.6 + (k % 2 ? 0.035 : -0.035); bx(fx, UY + 1.0 + k * 0.04, fz - 0.006, fx + 0.07, UY + 2.2, fz + 0.006, k === 0 ? 'bluePaint' : k % 2 ? 'white' : 'redPaint'); }
     // records: filing cabinets (searchable), a conference table
     for (let i = 0; i < 6; i++) { const fz = z - 8.8 + i * 1.0; bs(x - 21.8, UY, fz - 0.4, x - 21.2, UY + 1.35, fz + 0.4, 'shelfMetal', 'metal'); if (i % 2 === 0) loot('cabinet', x - 21, fz, 0.9, 'Filing cabinet', Math.PI / 2, HAd, { floorY: UY }); }
     bs(x - 16, UY, z - 1, x - 10, UY + 0.76, z + 1.4, 'darkWood', 'wood', { vault: true });
     for (let i = 0; i < 4; i++) { strip(K, x - 16 + i * 10, UY - 0.26, z - 4, 0, 1.4); strip(K, x - 16 + i * 10, 7.58, z + 4, 0, 1.4); }
+    lt(ox, 7.2, oz, 0xfff0d8, 4, 13);   // the warden's office
   }
 
   // ================================================================ OUTSIDE: gatehouse, car park, helipad, river, woods
@@ -643,6 +697,36 @@ export function buildMap(K) {
     for (const y of [5, 11]) for (const [a, b] of [[[-3, -3], [3, -3]], [[3, -3], [3, 3]], [[3, 3], [-3, 3]], [[-3, 3], [-3, -3]]]) K.wbeam([tx + a[0], y, tz + a[1]], [tx + b[0], y, tz + b[1]], 0.12, 0.12, MAT.pRail);
     K.xadd(G.pipe, MAT.white, K.mat4(tx, 18, tz, 0, 5, 6, 5)); K.xadd(G.cone, MAT.white, K.mat4(tx, 24, tz, 0, 5.3, 2.2, 5.3)); K.xadd(G.pipe, MAT.pRail, K.mat4(tx, 17.6, tz, 0, 5.3, 0.4, 5.3));
     K.chainFence(tx - 8, tz - 8, tx + 8, tz - 8); K.chainFence(tx + 8, tz - 8, tx + 8, tz + 8); K.chainFence(tx + 8, tz + 8, tx - 8, tz + 8);
+  }
+
+  // ================================================================ building dressing: downspouts, CCTV, rooftop units
+  {
+    const dress = (B, h, hvac = 2) => {
+      const { x, z, w, d } = B;
+      for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {   // a downspout down each corner, a hopper at the top, a shoe at the foot
+        const px = x + sx * (w / 2 + 0.23), pz = z + sz * (d / 2 - 0.6);
+        K.xadd(G.pipe, MAT.darkMetal, K.mat4(px, 0.12, pz, 0, 0.065, h + 0.1, 0.065)); K.box(px, h - 0.05, pz, 0.12, h + 0.22, 0.12, 0, 'darkMetal'); K.box(px + sx * 0.05, 0, pz, 0.12, 0.12, 0.1, 0, 'darkMetal');
+        for (let k = 1; k < 4; k++) K.box(px - sx * 0.04, k * h / 4, pz, 0.1, k * h / 4 + 0.04, 0.03, 0, 'darkMetal');   // wall straps
+      }
+      for (const [sx, sz] of [[-1, -1], [1, 1]]) {   // CCTV domes-in-a-box on opposite corners, looking along the walls
+        const px = x + sx * (w / 2 + 0.15), pz = z + sz * (d / 2 + 0.15), yy = h - 0.9, yw = Math.atan2(sx, sz);
+        K.box(px + sx * 0.12, yy + 0.08, pz + sz * 0.12, 0.03, yy + 0.4, 0.03, 0, 'darkMetal');
+        const P = frame(px + sx * 0.18, pz + sz * 0.18, yw);
+        const cb = (lz, y0, hx, y1, hz, m) => { const [qx, qz] = P(0, lz); K.box(qx, y0, qz, hx, y1, hz, yw, m); };
+        cb(0, yy - 0.06, 0.08, yy + 0.1, 0.18, 'white'); cb(0.17, yy - 0.04, 0.055, yy + 0.08, 0.02, 'black'); cb(-0.02, yy + 0.1, 0.1, yy + 0.12, 0.21, 'appliance');
+      }
+      for (let i = 0; i < hvac; i++) {   // packaged rooftop units: a cabinet, a fan, a grille, a duct into the roof
+        const ux = x + (i - (hvac - 1) / 2) * Math.min(w * 0.3, 8), uz = z + (i % 2 ? -1 : 1) * d * 0.18, y0 = h + 0.22;
+        K.box(ux, y0, uz, 0.95, y0 + 0.12, 0.75, 0, 'darkMetal'); K.box(ux, y0 + 0.12, uz, 0.9, y0 + 1.15, 0.7, 0, 'appliance');
+        for (let k = 0; k < 6; k++) K.box(ux - 0.9, y0 + 0.25 + k * 0.14, uz, 0.012, y0 + 0.3 + k * 0.14, 0.6, 0, 'darkMetal');   // louvres
+        K.xadd(G.pipe, MAT.darkMetal, K.mat4(ux + 0.35, y0 + 1.15, uz, 0, 0.34, 0.08, 0.34)); K.xadd(G.pipe, MAT.black, K.mat4(ux + 0.35, y0 + 1.2, uz, 0, 0.29, 0.04, 0.29));
+        K.box(ux - 0.4, y0 + 1.15, uz, 0.3, y0 + 1.2, 0.3, 0, 'darkMetal');
+        K.box(ux + 1.25, y0, uz, 0.3, y0 + 0.6, 0.25, 0, 'pSteel');
+        K.solid(ux, uz, 0.95, 0.75, 0, y0 + 1.25, 'metal', y0);
+      }
+    };
+    dress(BLD.blockA, 7.6, 3); dress(BLD.blockB, 7.6, 3); dress(BLD.laundry, 4.6); dress(BLD.dining, 4.4); dress(BLD.infirmary, 3.6);
+    dress(BLD.shop, 5.4); dress(BLD.seg, 3.4, 1); dress(BLD.admin, 7.6);
   }
 
   // ================================================================ NIGHT LIGHTING
@@ -713,7 +797,7 @@ export function buildMap(K) {
       MAT.pFlood.emissiveIntensity = night ? 3.2 * f : 0.05;
       MAT.pSodium.emissiveIntensity = night ? 2.4 * f : 0.05;
       MAT.pSodiumF.emissiveIntensity = night ? 2.4 * fb : 0.05;
-      for (const [k, op, ff] of [['pPoolW', 0.26, f], ['pPoolS', 0.3, f], ['pPoolH', 0.34, f], ['pPoolHF', 0.34, fb]]) { const m = MAT[k], v = night ? op * ff * (1 + (W.rain || 0) * 0.5) : 0; m.opacity = v; m.visible = v > 0.005; }
+      for (const [k, op, ff] of [['pPoolW', 0.15, f], ['pPoolS', 0.3, f], ['pPoolH', 0.34, f], ['pPoolHF', 0.34, fb]]) { const m = MAT[k], v = night ? op * ff * (1 + (W.rain || 0) * 0.5) : 0; m.opacity = v; m.visible = v > 0.005; }
       MAT.pLight.emissiveIntensity = 1.1 * f; MAT.pLightF.emissiveIntensity = 1.1 * (out ? fb : 1);
       for (const L of myLamps) L.power = L.bad ? fb : f;
       for (const l of plights) l.intensity = l.userData.base * f;

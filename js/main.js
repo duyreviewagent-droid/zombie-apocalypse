@@ -27,6 +27,7 @@ import { icon, ITEM_ICON } from './icons.js';
 import * as PEOPLE from './people.js';
 import { cleanFemale, styleFemale } from './hair.js';
 import * as DRIVE from './drive.js';
+import * as TRAFFIC from './traffic.js';   // [traffic] the town's cars and bikes on the calm morning (traffic.js)
 import * as LANTERN from './lantern.js';
 import * as TX from './tex.js';
 import { buildCar, makeDrivable } from './vehicles.js';
@@ -67,6 +68,8 @@ function switchMap(id, toWho) { id = validMap(id); if (id === MAP_ID) return; sa
 // ---------------------------------------------------------------- renderer
 const canvas = $('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: MANUAL });
+renderer.info.autoReset = false;   // (reset once a frame in render(): the counts cover every pass)
+renderer.debug.checkShaderErrors = DBG;   // (checking every shader's compile log stalls the first frames)
 if (MOB) renderer.shadowMap.autoUpdate = true;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -94,8 +97,8 @@ const FilmShader = {
       col = mix(col, col * vec3(0.94, 1.02, 0.98), 0.6 * (1.0 - life));            // cold, a little green
       col *= mix(vec3(1.0), vec3(1.05, 1.01, 0.93), life * 0.6);                   // ...the warm light of the Saturday before
       col = mix(col, col * vec3(0.8, 0.9, 1.15), night * 0.5);                    // blue at night
-      col = (col - 0.5) * 1.08 + 0.5;                                             // a touch of contrast
-      col *= mix(1.0, mix(0.38, 0.72, life), smoothstep(0.06, 0.62, r2 * 1.55)); // heavy vignette
+      col = mix(col, (col - 0.18) * 1.08 + 0.18, smoothstep(0.02, 0.25, col));   // a touch of contrast (pivot at mid-grey; the shadows keep their toe)
+      col *= mix(1.0, mix(mix(0.38, 0.72, life), mix(0.55, 0.85, life), night), smoothstep(0.06, 0.62, r2 * 1.55)); // heavy vignette (lighter at night: the dark is dark enough)
       col = mix(col, vec3(0.42, 0.02, 0.0), smoothstep(0.08, 0.5, r2) * hurt * 0.85);
       col = mix(col, col * vec3(0.8, 1.15, 0.7), sick * (0.25 + 0.15 * sin(time * 2.0)) * smoothstep(0.05, 0.5, r2 + 0.1));
       col += vec3(1.0, 0.95, 0.85) * flash;
@@ -104,22 +107,48 @@ const FilmShader = {
       gl_FragColor = vec4(max(col, 0.0), 1.0);
     }`,
 };
+// a light FXAA (edge-aware blend along the strongest luma gradient) for when there's no MSAA: Medium / High and tablets
+const FXAAShader = {
+  uniforms: { tDiffuse: { value: null }, texel: { value: new THREE.Vector2(1, 1) } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 texel; varying vec2 vUv;
+    float L(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
+    void main(){
+      vec3 cM = texture2D(tDiffuse, vUv).rgb;
+      float lM = L(cM), lNW = L(texture2D(tDiffuse, vUv + vec2(-1.0,-1.0) * texel).rgb), lNE = L(texture2D(tDiffuse, vUv + vec2(1.0,-1.0) * texel).rgb),
+            lSW = L(texture2D(tDiffuse, vUv + vec2(-1.0,1.0) * texel).rgb), lSE = L(texture2D(tDiffuse, vUv + vec2(1.0,1.0) * texel).rgb);
+      float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE))), lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+      if (lMax - lMin < max(0.0312, lMax * 0.125)) { gl_FragColor = vec4(cM, 1.0); return; }
+      vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), ((lNW + lSW) - (lNE + lSE)));
+      float red = max((lNW + lNE + lSW + lSE) * 0.03125, 1.0 / 128.0), rcp = 1.0 / (min(abs(dir.x), abs(dir.y)) + red);
+      dir = clamp(dir * rcp, -8.0, 8.0) * texel;
+      vec3 a = 0.5 * (texture2D(tDiffuse, vUv - dir * (1.0/6.0)).rgb + texture2D(tDiffuse, vUv + dir * (1.0/6.0)).rgb);
+      vec3 b = a * 0.5 + 0.25 * (texture2D(tDiffuse, vUv - dir * 0.5).rgb + texture2D(tDiffuse, vUv + dir * 0.5).rgb);
+      float lb = L(b); gl_FragColor = vec4((lb < lMin || lb > lMax) ? a : b, 1.0);
+    }`,
+};
+let fxaa = null, aoPass = null;
 function buildComposer() {
   if (MOB) return buildComposerMobile();
-  const pr = Math.min(devicePixelRatio, save.quality >= 2 ? 2 : save.quality >= 1 ? 1.25 : 1);
+  if (composer) { try { composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); for (const p of composer.passes) p.dispose && p.dispose(); } catch { } }   // (a quality change: let the old one go)
+  const q = save.quality, pr = Math.min(devicePixelRatio, q >= 3 ? 2 : q >= 1 ? 1.25 : 1);
   renderer.setPixelRatio(pr);
-  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: save.quality >= 1 && pr < 1.5 && !Q.has('nomsaa') ? 4 : 0 });
+  // MSAA only on Ultra (it's the most expensive thing per pixel); Medium / High get FXAA instead
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: q >= 3 && pr < 1.5 && !Q.has('nomsaa') ? 4 : 0 });
   composer = new EffectComposer(renderer, rt);
   composer.addPass(new RenderPass(scene, camera));
-  if (save.quality >= 3 && !Q.has('noao')) {
+  aoPass = null;
+  if (q >= 2 && !Q.has('noao')) {   // ambient occlusion: full resolution on Ultra, half (8 samples) on High
     const ao = new GTAOPass(scene, camera, innerWidth, innerHeight);
-    ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.5, thickness: 1.2, scale: 1.1, samples: save.quality >= 3 ? 16 : 8 });
-    ao.blendIntensity = 0.9; composer.addPass(ao);
+    if (q < 3) { const ss = ao.setSize.bind(ao); ao.setSize = (w, h) => ss(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(h / 2))); ao.setSize(innerWidth, innerHeight); }
+    ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.5, thickness: 1.2, scale: 1.1, samples: q >= 3 ? 16 : 8 });
+    ao.blendIntensity = 0.9; composer.addPass(ao); aoPass = ao;
   }
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.4, 0.55, 0.88));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.4, 0.55, 0.88); composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
+  fxaa = q >= 1 && q < 3 ? new ShaderPass(FXAAShader) : null; if (fxaa) composer.addPass(fxaa);
   film = new ShaderPass(FilmShader); composer.addPass(film);
-  renderer.shadowMap.type = save.quality >= 1 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  renderer.shadowMap.type = q >= 1 ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
   resize();
 }
 // phones / tablets: no MSAA, no AO, bloom only on tablets (and off at Low), plain PCF shadows, a lower render resolution
@@ -134,6 +163,7 @@ function buildComposerMobile() {
   bloomPass = null;
   if (MOB.bloom && q >= 1) { bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.5, 0.9); composer.addPass(bloomPass); }
   composer.addPass(new OutputPass());
+  fxaa = DEV.tablet && q >= 1 ? new ShaderPass(FXAAShader) : null; if (fxaa) composer.addPass(fxaa);   // tablets: a cheap edge smooth (no MSAA here)
   film = new ShaderPass(FilmShader); composer.addPass(film);
   renderer.shadowMap.type = THREE.PCFShadowMap;
   resize();
@@ -141,7 +171,7 @@ function buildComposerMobile() {
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
-  if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); film.uniforms.res.value.set(w, h); }
+  if (composer) { const pr = renderer.getPixelRatio(); composer.setPixelRatio(pr); composer.setSize(w, h); film.uniforms.res.value.set(w, h); if (fxaa) fxaa.uniforms.texel.value.set(1 / (w * pr), 1 / (h * pr)); }
   const ov = $('overlay'), od = ODPR(); ov.width = w * od; ov.height = h * od; ov.style.width = w + 'px'; ov.style.height = h + 'px';
 }
 addEventListener('resize', resize);
@@ -198,6 +228,8 @@ HELI.init({
   onDepart: ps => heliDepart(ps),
   onMissed: final => heliMissed(final),
   onGone: () => {},
+  ending: MAPLE() || !E ? null : E.kind === 'boat' && !E.vehicle ? { ...E, vehicle: 'boat' } : E,   // the map's way out: the desert Cessna, the prison/jungle boats, the stadium's ready check and window
+  onNotReady: () => { if (E && E.notReady) think(E.notReady, 5); },
 });
 }
 
@@ -231,7 +263,7 @@ const loadGLB = (name, n = 4) => new Promise((res, rej) => loader.load(`models/$
 }, err => n > 1 ? setTimeout(() => loadGLB(name, n - 1).then(res, rej), 900) : rej(err)));
 const tick = () => new Promise(r => setTimeout(r, 0));
 const ZOMBIES = Q.has('zn') ? +Q.get('zn') : MOB ? Math.round(34 * MOB.poolScale) : 34;
-const TIPS = ['Only the head kills for sure.', 'Gunshots bring the whole street.', 'Close a door behind you. They\'ll have to beat it down.', 'At night they can barely see you — unless your flashlight is on.', 'Rain covers the sound of your footsteps.', 'Grabbed? Mash Space before it bites.', 'A thrown bottle draws them away.', 'Bandage a cut before you bleed out.', 'The big ones don\'t stagger. Don\'t trade blows.', 'Crouch to move quietly.'];
+let TIPS = ['Only the head kills for sure.', 'Gunshots bring the whole street.', 'Close a door behind you. They\'ll have to beat it down.', 'At night they can barely see you — unless your flashlight is on.', 'Rain covers the sound of your footsteps.', 'Grabbed? Mash Space before it bites.', 'A thrown bottle draws them away.', 'Bandage a cut before you bleed out.', 'The big ones don\'t stagger. Don\'t trade blows.', 'Crouch to move quietly.'];
 let tipI = 0; const tipTimer = setInterval(() => { const e = $('loadtip'); if (!e) return; e.style.opacity = 0; setTimeout(() => { e.textContent = TIPS[tipI++ % TIPS.length]; e.style.opacity = 1; }, 600); }, 3200);
 async function load() {
   const g = {};
@@ -248,7 +280,7 @@ async function load() {
     $('loadbar').style.width = (55 + Object.keys(KINDS).length * 8) + '%';
   }
   SWINGS = analyseSwings(KINDS.human); Z.swings = SWINGS;
-  $('loadtext').textContent = 'building ' + MAPS[MAP_ID].name; await tick();
+  $('loadtext').textContent = 'building ' + MAPS[MAP_ID].name; await tick(); await tick();
   world.KINDS = KINDS;   // [stadium] the map builders can pose the real character models (the stadium's fans and players)
   MAPINFO = await world.buildAsync(MAP_ID); C.mapInfo = MAPINFO;
   if (world.mapId !== MAP_ID) MAP_ID = world.mapId || 'maple';
@@ -256,12 +288,16 @@ async function load() {
   // failure for that URL: try again once, on a fresh URL, rather than dying on "Could not load")
   STORY = await loadStory(MAP_ID).catch(async e => { console.warn('story import retry:', e && e.message); await tick(); const m = await import(`./maps/${MAP_ID}.story.js?r=${Date.now()}`); return normalizeStory(m.default || m, MAP_ID, null, m); });
   C.story = STORY;
+  if (STORY && Array.isArray(STORY.loadTips) && STORY.loadTips.length) TIPS = STORY.loadTips;   // the map's own loading tips, if it has them
+  await tick();   // (let the bar and the tips repaint between the big pieces)
   if (!MAPLE()) placeMapNotes();
   if (world.lockGates) world.lockGates();
   SHOP.init({ scene, world, camera, G, keys, KINDS, PEOPLE, SND, P: () => P, MAP_ID: () => MAP_ID, toast, think, addItem, startSearch, showScreen, closeBag, equipGun, startThrow, later, fillTank });   // [zLux] the store, its keeper, the HUD wallet
   initHeli();
   DRIVE.initDrive({ scene, world, SND, fx, camera, damage, noise, Z, C, getP: () => P, hasKeys: () => (G.inv && G.inv.keys || 0) > 0, PEOPLE });
+  TRAFFIC.initTraffic({ scene, world, SND, fx, camera, damage, noise, Z, C, G, getP: () => P, PEOPLE, KINDS, onStep, MP });   // [traffic]
   LANTERN.initLanterns({ scene, world, noise, SND, getP: () => P });
+  await tick();
   world.occupants = () => [...Z.list.filter(u => u.active).map(u => u.s.pos), ...(C.npcs || []).map(u => u.s.pos), ...(P ? [P.s.pos] : [])];
   Soldier.groundY = world.groundY; world.nBase = world.containers.length;
   for (const c of world.containers) { if (c.fixed) c.fixed0 = c.fixed.map(a => [...a]); if (c.kind === 'corpse') c.mapBody = true; }   // the map's own loot and bodies: a new run puts them back
@@ -280,23 +316,42 @@ async function load() {
     makeZombie(KINDS[bodies[i % 4]], scene, Math.floor(i / 3) % 4, onStep);
     if (i % 6 === 5) { $('loadbar').style.width = (80 + i / ZOMBIES * 15) + '%'; await tick(); }
   }
-  $('loadtext').textContent = 'waking the neighbours'; await tick();
+  $('loadtext').textContent = 'waking the dead'; await tick();
   await PEOPLE.makePeople({ scene, world, KINDS, SWINGS, onStep, damage, noise, SND, fx, P: () => P, G, camera, onTurned, onSurvivorDown, onBrotherHere: u => theySay('bro', 'here'), onBrotherDown: u => { if (G.state === 'play') think('BEN! No... no no no.', 3.5); }, onHumanHurt, onBrotherLeaves: () => later(() => think('Ben, wait — I didn\'t... Ben!', 3), 1.2), onPlayerCut: () => { if (G.bleed <= 0) toast('You\'re bleeding — bandage it (Q)', 'bad'); G.bleed = Math.max(G.bleed, 1); } }, 21, tick);
   PEOPLE.wire();
   // warm up every shader so nothing stutters the first time it appears
   $('loadtext').textContent = 'warming up'; await tick();
   if (MOB) capTextures(scene);   // smaller textures, lower anisotropy, before anything's uploaded
-  if (!MOB) {   // phones/tablets: compiling everything at once makes iOS drop the graphics chip — shaders compile as things appear instead
-  PEOPLE.PPL.list.forEach((u, i) => { u.s.place(-40 + (i % 6), 24 + Math.floor(i / 6), 0); u.s.setVisible(true); });
-  Z.pool.slice(0, 8).forEach((u, i) => { wake(u, -44 + Math.cos(i) * 4, 22 + Math.sin(i) * 4); });
-  for (const t of Object.values(P.arms.throwMeshes)) t.visible = true;
-  for (const id of SLOTS) P.arms.give(id); for (const id in P.arms.guns) P.arms.guns[id].visible = true;
-  for (const id in MEL.meshes) MEL.meshes[id].visible = true;
-  fx.lights.forEach(L => L.l.intensity = 1); torch.intensity = 1;
-  s.place(-44, 20, 0); updateCamera(0.016);
-  try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); else renderer.compile(scene, camera); } catch (e) { console.log('compile', e); }
-  composer.render();
+  // (compiled against the composer's own render target: drawing into it, three.js leaves tone mapping to the output
+  // pass, so a compile against the screen would make programs the game never uses)
+  const warm = async (obj, tgt = null) => { const rt0 = renderer.getRenderTarget(); renderer.setRenderTarget(composer.readBuffer);
+    try { if (renderer.compileAsync) await renderer.compileAsync(obj, camera, tgt); else renderer.compile(obj, camera, tgt); } catch (e) { console.log('compile', e); } finally { renderer.setRenderTarget(rt0); } };
+  const hour0 = world.time ?? null;
+  if (!MOB) {
+    PEOPLE.PPL.list.forEach((u, i) => { u.s.place(-40 + (i % 6), 24 + Math.floor(i / 6), 0); u.s.setVisible(true); });
+    Z.pool.slice(0, 8).forEach((u, i) => { wake(u, -44 + Math.cos(i) * 4, 22 + Math.sin(i) * 4); });
+    for (const t of Object.values(P.arms.throwMeshes)) t.visible = true;
+    for (const id of SLOTS) P.arms.give(id); for (const id in P.arms.guns) P.arms.guns[id].visible = true;
+    for (const id in MEL.meshes) MEL.meshes[id].visible = true;
+    fx.lights.forEach(L => L.l.intensity = 1); torch.intensity = 1;
+    s.place(-44, 20, 0); updateCamera(0.016);
+    await warm(scene);
+    composer.render();
+  } else {
+    // phones / tablets: compiling everything at once makes iOS drop the graphics chip — a little at a time instead
+    // (the map in small chunks, then one of the dead per body, then a frame at night with the lights on)
+    const kids = scene.children.slice();
+    for (let i = 0; i < kids.length; i += 6) { $('loadbar').style.width = (96 + 3 * i / kids.length) + '%'; for (const o of kids.slice(i, i + 6)) await warm(o, scene); await tick(); }
+    const seen = new Set(), few = Z.pool.filter(u => { const k = u.s.kind; if (seen.has(k)) return false; seen.add(k); return true; });
+    few.forEach((u, i) => wake(u, -44 + Math.cos(i) * 3, 22 + Math.sin(i) * 3));
+    fx.lights.forEach(L => L.l.intensity = 1); torch.intensity = 1;
+    s.place(-44, 20, 0); updateCamera(0.016); await tick();
+    for (const u of few) { await warm(u.s.pivot || u.s.root, scene); await tick(); }
+    if (world.setTime) world.setTime(23);
+    try { composer.render(); } catch (e) { console.log('warm frame', e); }
+    await tick();
   }
+  if (world.setTime && hour0 != null) world.setTime(hour0);
   fx.lights.forEach(L => L.l.intensity = 0); torch.intensity = 0; torch.shadow.autoUpdate = false;
   for (const t of Object.values(P.arms.throwMeshes)) t.visible = false;
   Z.pool.forEach(u => sleep(u));
@@ -542,11 +597,21 @@ function startThrow(id) {
 }
 
 // ---------------------------------------------------------------- messages
-let capT = 0;
-function think(text, dur = 4) { text = touchWords(text); const c = $('caption'); c.textContent = text; c.classList.add('show'); capT = dur; }
-function toast(text, cls = '', ic = null) { text = touchWords(text); const t = document.createElement('div'); t.className = 'toast ' + cls; t.innerHTML = (ic ? icon(ic) : cls === 'bad' ? icon('blood') : cls === 'good' ? icon('check') : '') + `<span>${String(text).replace(/</g, '&lt;')}</span>`; $('toasts').appendChild(t); setTimeout(() => t.classList.add('out'), 3200); setTimeout(() => t.remove(), 4000); while ($('toasts').children.length > 7) $('toasts').firstChild.remove(); }
+let capT = 0, capPrio = false; const capQ = [];
+// a caption stays up long enough to read (1.2 s + ~2.6 words a second); broadcast lines (prio) queue instead of being stepped on
+function think(text, dur = 4, prio = false) {
+  text = touchWords(text); if (!text) { if (!capPrio) { capT = 0.01; } return; }
+  const words = String(text).split(/\s+/).length; dur = Math.max(dur, 1.2 + words / 2.6);
+  if (capT > 0 && capPrio) { if (capQ.length < 4 || prio) capQ.push([text, dur, prio]); if (capQ.length > 6) capQ.splice(capQ.findIndex(q => !q[2]) >>> 0, 1); return; }
+  const c = $('caption'); c.textContent = text; c.classList.add('show'); capT = dur; capPrio = prio;
+}
+function capTick(dt) { if (capT > 0) { capT -= dt; if (capT <= 0) { capPrio = false; const q = capQ.shift(); if (q) { const c = $('caption'); c.textContent = q[0]; capT = q[1]; capPrio = q[2]; } else $('caption').classList.remove('show'); } } }
+function capClear() { capQ.length = 0; capT = 0; capPrio = false; $('caption').classList.remove('show'); }
+// ALL-CAPS names (the people list) read as Names; anything already mixed-case is left alone
+const nm = s => !s ? s : s === s.toUpperCase() ? s.toLowerCase().replace(/(^|[\s'\-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()) : s;
+function toast(text, cls = '', ic = null) { text = touchWords(text); const t = document.createElement('div'); t.className = 'toast ' + cls; t.innerHTML = (ic ? icon(ic) : cls === 'bad' ? icon('blood') : cls === 'good' ? icon('check') : '') + `<span>${String(text).replace(/</g, '&lt;')}</span>`; $('toasts').appendChild(t); setTimeout(() => t.classList.add('out'), 3200); setTimeout(() => t.remove(), 4000); while ($('toasts').children.length > (TOUCH ? 3 : 7)) $('toasts').firstChild.remove(); }
 let bigT = 0;
-function bigText(t, s = '', dur = 3) { $('big').innerHTML = `<div class="t">${t}</div><div class="s">${s}</div>`; $('big').style.opacity = 1; bigT = dur; }
+function bigText(t, s = '', dur = 3) { $('big').innerHTML = `<div class="t">${t}</div><div class="s">${s}</div>`; $('big').style.opacity = 1; bigT = dur; document.body.classList.add('bigOn'); }
 
 // ---------------------------------------------------------------- combat events
 let hitT = 0, hitKill = false, hitHead = false;
@@ -593,7 +658,7 @@ C.events.zombieChew = u => SND.feed ? SND.feed(u.s.pos) : SND.zombie('bite', u.s
 // a neighbour gets back up as one of them
 function onTurned(z, n) {
   if (n.role === 'bro') { later(() => think('Ben... I\'m so sorry.', 4), 0.6); return; }
-  if (G.state === 'play' && P.alive && z.s.pos.distanceTo(P.s.pos) < 20 && world.los(V(P.s.pos.x, 1.5, P.s.pos.z), V(z.s.pos.x, 0.8, z.s.pos.z))) later(() => think(n.name && n.role === 'surv' ? `${n.name[0] + n.name.slice(1).toLowerCase()}... no. Not you too.` : pick(['They\'re... getting up. Oh God, they\'re getting up.', 'It\'s moving again.', 'Don\'t get up. Please don\'t get up.']), 3.5), 0.6);
+  if (G.state === 'play' && P.alive && z.s.pos.distanceTo(P.s.pos) < 20 && world.los(V(P.s.pos.x, 1.5, P.s.pos.z), V(z.s.pos.x, 0.8, z.s.pos.z))) later(() => think(n.name && n.role === 'surv' ? `${nm(n.name)}... no. Not you too.` : pick(['They\'re... getting up. Oh God, they\'re getting up.', 'It\'s moving again.', 'Don\'t get up. Please don\'t get up.']), 3.5), 0.6);
 }
 // you hurt a person (people.js tells us; they and everyone who saw it react there)
 function onHumanHurt(n, killed) {
@@ -605,7 +670,7 @@ function onHumanHurt(n, killed) {
   else if (first && !G.saidHurt && n.role !== 'bro') { G.saidHurt = true; later(() => think('They\'re a person. They\'re still a person...', 3), 1.4); }
 }
 function onSurvivorDown(n) {
-  if (G.state === 'play' && P.alive && n.s.pos.distanceTo(P.s.pos) < 30) think(`${n.name[0] + n.name.slice(1).toLowerCase()}! NO!`, 2.5);
+  if (G.state === 'play' && P.alive && n.s.pos.distanceTo(P.s.pos) < 30) think(`${nm(n.name)}! NO!`, 2.5);
 }
 C.events.zombieAlert = u => SND.zombie('groan', u.s.pos, zp(u));
 C.events.zombieGroan = (u, chasing) => SND.zombie(chasing ? (Math.random() < 0.5 ? 'growl' : 'groan') : Math.random() < 0.5 ? 'moan' : 'groan', u.s.pos, zp(u));
@@ -895,6 +960,7 @@ function context() {
   // containers in front of you
   { const Ln = LANTERN.nearest(px, pz, 1.3); if (Ln) return { label: 'Pick up the lantern', sub: `${Math.round(Ln.charge)}% battery`, go: () => { LANTERN.pickUp(Ln); G.inv.lantern = (G.inv.lantern || 0) + 1; SND.mech && SND.mech('switch'); } }; }
   { const dv = DRIVE.canUse(px, pz, P); if (dv) return dv.locked ? { label: dv.label, sub: dv.sub, go: () => { dv.go(); think('Locked. No keys in this one.', 2.5); } } : { ...dv, go: () => { const was = DRIVE.active(); dv.go(); const v = DRIVE.current(); if (!was && DRIVE.active() && v) STATS.event('drive', { kind: v.kind }); } }; }
+  if (HELI.canBoard(S.pos) && !HELI.passengers().includes('player')) { const nd = (END() && END().needs || []).find(id => !((G.inv[id] || 0) > 0)); if (nd) { const nmI = (ITEMS[nd] && ITEMS[nd].name || nd).replace(/^(the|a|an) /i, ''); return { label: (END().prompt) || 'Climb into the ' + rideName(), sub: 'I need the ' + nmI, go: () => think(`I can't go yet. I need the ${nmI}.`, 3) }; } }
   if (HELI.canBoard(S.pos) && !HELI.passengers().includes('player')) return { label: MAPLE() ? 'Climb into the helicopter' : (END() && END().prompt) || 'Climb into the ' + rideName(), sub: `${Math.ceil(HELI.timeLeft())} s left`, go: boardHeli };
   { const A = ambulanceBack(); if (A) return { label: 'Get in the ambulance', sub: `${Math.ceil(A.openT)} s · ${Math.round(PH.chance * 100)}% chance they can help`, go: () => boardAmbulance(A) }; }
   { const n = PEOPLE.talkable(px, pz); if (n) { const d = Math.hypot(n.s.pos.x - px, n.s.pos.z - pz); const a = Math.abs(wrapPi(Math.atan2(n.s.pos.x - px, n.s.pos.z - pz) - S.yaw)); if (a < 1.4) { bd = d + a * 0.4 - 0.4; best = { n }; } } }
@@ -919,7 +985,7 @@ function context() {
     if (score < bd) { bd = score; best = { D }; }
   }
   if (!best) return null;
-  if (best.n) { const n = best.n; return { label: 'Talk to ' + (n.name ? n.name[0] + n.name.slice(1).toLowerCase() : 'your neighbour'), sub: n.role === 'surv' ? 'another survivor' : G.phase === 'calm' ? 'a neighbour' : '', go: () => talkTo(n) }; }
+  if (best.n) { const n = best.n; return { label: 'Talk to ' + (n.name ? nm(n.name) : PEOPLE.firstOf ? PEOPLE.firstOf(n) : n.role === 'surv' ? 'the survivor' : 'your neighbour'), sub: n.role === 'surv' ? 'another survivor' : G.phase === 'calm' ? 'a neighbour' : '', go: () => talkTo(n) }; }
   if (best.D) { const D = best.D; const open = D.want > 0.5; return { label: open ? 'Close the door' : 'Open the door', go: () => useDoor(D, !open) }; }
   const c = best.c;
   if (c.radio && !MAPLE() && G.phase === 'outbreak' && !G.radioDone) return { label: 'Listen to ' + (/^[A-Z][a-z]/.test(c.label) ? c.label.charAt(0).toLowerCase() + c.label.slice(1) : c.label), sub: 'it\'s crackling', go: () => { c.searched = true; playMapRadio(); } };
@@ -934,7 +1000,7 @@ function context() {
     if (!fueled && G.inv.gascan > 0) return { label: 'Fill the tank', sub: 'Dale\'s pickup · the gas can', go: fillTank };
     return { label: 'Dale\'s pickup truck', sub: fueled ? (G.inv.keys > 0 ? 'gas in the tank, keys in your pocket' : 'gas in the tank — Dale had the keys') : !G.inv.keys ? 'the tank is empty, and it\'s locked' : 'the tank is empty — you need gas', go: () => think(fueled ? (G.inv.keys > 0 ? 'It\'s got gas, and I\'ve got the keys.' : 'Locked. Dale had the keys on him... he was wearing his orange work vest.') : 'Bone dry. There\'s a gas can in the Hendersons\' shed, Dale said.', 4) };
   }
-  if (c.searched) return { label: c.label, sub: c.takenBy ? 'someone got here first' : 'already searched', go: () => think(c.takenBy ? `Cleaned out. ${c.takenBy[0] + c.takenBy.slice(1).toLowerCase()} got here first.` : pick(['Nothing left here.', 'I already went through this.', 'Empty.']), 2.5) };
+  if (c.searched) return { label: c.label, sub: c.takenBy ? 'someone got here first' : 'already searched', go: () => think(c.takenBy ? `Cleaned out. ${nm(c.takenBy)} got here first.` : pick(['Nothing left here.', 'I already went through this.', 'Empty.']), 2.5) };
   return { label: 'Search ' + (/^[A-Z][a-z]/.test(c.label) ? c.label.charAt(0).toLowerCase() + c.label.slice(1) : c.label), go: () => startSearch(c) };
 }
 const rEye = V(), rTo = V();
@@ -1046,15 +1112,16 @@ function startMapNews() {
   if (G.search) cancelSearch();
   SND.setPeace(0); if (nw.kind === 'pa') SND.eas(6); else { SND.phoneBuzz(); SND.radioStatic(3, null); }
   const lines = [...(nw.anchor || []).map(([t, l]) => [t, (/^[A-Z ]+:/.test(l) || /^\*/.test(l) ? '' : src + ': ') + l]), ...(nw.reporter || [])];
-  for (const [t, line] of lines) later(() => { if (G.phase === 'news') think(line, 4.8); }, t);
+  for (const [t, line] of lines) later(() => { if (G.phase === 'news') think(line, 4.8, true); }, t);
   later(() => endMapNews(false), (lines.length ? Math.max(...lines.map(l => l[0])) : 0) + 5);
 }
 function endMapNews(skipped, quiet = false) {
   const N = G.news; if (!N || N.ended) return;
   N.ended = true;
   G.phase = 'outbreak'; G.obT = G.t; G.survT = 0; if (!(G.stage > 0)) G.stage = 0;
+  if (skipped) capClear();
   SND.musicPlaying(true); if (quiet) return; SND.sting('spotted');
-  later(() => bigText('CHAPTER 1', `${CHS()[0].title} · ${DIFF.name}`, 4), 0.6); later(checkpoint, 5);
+  later(() => { if (Math.floor(G.stage) === 0 && P && P.alive) bigText('CHAPTER 1', `${CHS()[0].title} · ${DIFF.name}`, 4); }, 0.6); later(checkpoint, 5);
   later(() => think((STORY && STORY.outbreakLine) || 'It\'s happening. Here. I have to move — now.', 4.5), 3.2);
 }
 // the map's radio (a container with radio: true): its story.radio lines, as captions over real radio static
@@ -1063,7 +1130,7 @@ function playMapRadio() {
   G.radioDone = true;
   const RL = (STORY && STORY.radio) || [];
   SND.radioStatic(Math.max(6, (RL.length ? RL[RL.length - 1][0] : 0) + 2), null); noise(P.s.pos, 8);
-  for (const [t, line] of RL) later(() => think(line, 4.2), t);
+  for (const [t, line] of RL) later(() => think(line, 4.2, true), t);
 }
 // does this chapter's "done" hold yet? (time:<h> · item(s):<id>[+<id>] · note:<id> · radio · reach:<spot> · board)
 function doneKey(k) {
@@ -1110,11 +1177,11 @@ function storyTick() {
   if (G.phase !== 'outbreak' || G.state !== 'play' && G.state !== 'bag') return;
   const st = Math.floor(G.stage);
   if (st === 1 && G.stage === 1) { const sp = supplies(); if (sp.ok) setStage(2, 1.2); else if (G.day > 1 || G.hour >= 20) { setStage(2, 0.3); later(() => think('Dark already, and I\'m not ready. It\'ll have to do.', 4), 4.5); } }
-  if (st === 2 && !G.heliSeen && HELI.state() !== 'waiting' && HELI.state() !== 'over') { G.heliSeen = true; setStage(3, 0.2); }
+  if (st === 2 && !G.heliSeen && HELI.state() !== 'waiting' && HELI.state() !== 'over') { G.heliSeen = true; setStage(CHS().length - 1, 0.2); }
 }
 // ---------------------------------------------------------------- the helicopter: what happens around it
 function heliInbound() {
-  G.heliSeen = true; if (Math.floor(G.stage) < 3 && G.phase === 'outbreak') setStage(3, 0.2);
+  G.heliSeen = true; { const last = CHS().length - 1; if (Math.floor(G.stage) < last && G.phase === 'outbreak') setStage(last, 0.2); }
   const rd = rideName(), cue = MAPLE() ? 'Rotors. A helicopter, coming in low over the town. The crossroads — GO!' : rd === 'plane' ? `An engine, low over the rooftops. The plane — ${lzName()}. GO!` : rd === 'boat' ? `A boat engine, out on the water. ${lzName()[0].toUpperCase() + lzName().slice(1)} — GO!` : `Rotors. A helicopter, coming in low. ${lzName()[0].toUpperCase() + lzName().slice(1)} — GO!`;
   if (G.state === 'play' || G.state === 'bag' || G.state === 'phone') { think(P.alive ? cue : '', 4.5); SND.sting('spotted'); }
 }
@@ -1139,7 +1206,7 @@ function heliCount(s) {
 function heliPeople(dt) {
   if (HELI.state() !== 'landed') return;
   G.heliCallT = (G.heliCallT || 0) - dt; if (G.heliCallT > 0) return; G.heliCallT = 1.5;
-  PEOPLE.heliCall(LZ, HELI.doorPos(), 75, u => { const seat = HELI.board(u); if (seat >= 0) { G.saved = (G.saved || 0) + 1; STATS.event('saved', { n: 1 }); if (G.boarded || P.alive) toast(`${u.name ? u.name[0] + u.name.slice(1).toLowerCase() : 'A survivor'} made it into the helicopter`, 'good', 'heart'); } return seat; });
+  PEOPLE.heliCall(LZ, HELI.doorPos(), 75, u => { const seat = HELI.board(u); if (seat >= 0) { G.saved = (G.saved || 0) + 1; STATS.event('saved', { n: 1 }); if (G.boarded || P.alive) toast(`${u.name ? nm(u.name) : 'A survivor'} made it into the ${rideName()}`, 'good', 'heart'); } return seat; });
   // you're aboard: it goes as soon as the ones on their way are in (they get a few seconds)
   if (G.boarded && HELI.timeLeft() > 0) { G.boardWait = (G.boardWait ?? 9) - 1.5; if (G.boardWait <= 0 || !PEOPLE.heliRunners()) HELI.leaveNow(); }
 }
@@ -1182,7 +1249,7 @@ function playBroadcast() {
   G.stage = 0.5;
   SND.radioStatic(24, null);
   noise(P.s.pos, 8);
-  for (const [t, line] of RADIO) later(() => think(line, 4.2), t);
+  for (const [t, line] of RADIO) later(() => think(line, 4.2, true), t);
   later(() => { think('Two in the morning. Main and Maple. One minute... I have to be there.', 5); G.stage = 0; setStage(1, 0.2); }, 24);
 }
 let noteDone = null;
@@ -1525,6 +1592,8 @@ function tipShow(id) {
   $('tutDots').innerHTML = ''; $('tutSkip').textContent = 'Got it'; $('tutNext').style.display = 'none';
   el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); TUT.tipT = 8;
 }
+// no tips over the big moments: the ride coming in / on the ground, a chapter card, a zombie on you (except the tip for that)
+function tipBusy(id) { const hs = HELI.state(); return hs === 'inbound' || hs === 'descend' || hs === 'landed' || bigT > 0 || (!!G.grabbedBy && id !== 'grab'); }
 function tipHide(now = false) { if (TUT.tipT <= 0 && !now) return; TUT.tipT = 0; if (!TUT.on) $('tut').classList.remove('show', 'tip'); TUT.gap = 0.8; }
 $('tutSkip').onclick = () => { if (TUT.on) { tutStop('skip'); toast('Tutorial skipped — replay it any time from the pause menu', 'grey'); } else tipHide(true); };
 $('tutNext').onclick = () => { if (TUT.on && TUT.wait <= 0) { TUT.i++; tutShow(); } };
@@ -1541,7 +1610,7 @@ function tutTick(dt) {
     if (world.night > 0.6 && G.phase !== 'calm') tip('night');
   }
   if (TUT.tipT > 0) { TUT.tipT -= dt; if (TUT.tipT <= 0) tipHide(true); }
-  else if (!TUT.on && TUT.tq.length) { TUT.gap -= dt; if (TUT.gap <= 0) tipShow(TUT.tq.shift()); }
+  else if (!TUT.on && TUT.tq.length) { TUT.gap -= dt; if (TUT.gap <= 0 && !tipBusy(TUT.tq[0])) tipShow(TUT.tq.shift()); }
   if (!TUT.on) return;
   if (TUT.calm && G.phase !== 'calm') { const far = TUT.i >= 6; tutStop(far ? 'skip' : 'quiet'); toast(far ? 'Tutorial over: tips will pop up when you need them' : 'Tutorial paused: replay it from the pause menu', 'grey'); return; }   // the outbreak started under it
   if (TUT.wait > 0) { TUT.wait -= dt; if (TUT.wait <= 0) { TUT.i++; tutShow(); } return; }
@@ -1602,7 +1671,7 @@ function showWho(go) {
   $('whoRandom').onclick = () => { roll(); G.whoPickCard(Math.floor(Math.random() * G.whoN)); }; $('whoBack').onclick = () => showDiffs();
   // the run's options (remembered for next time)
   $('oCkpt').checked = save.ckpt !== false; $('oHC').checked = !!save.hc; $('oBub').checked = save.bubbles !== false; $('oShake').checked = !!save.shake; $('oView').value = save.view || 'third';
-  $('oMusic').value = save.music ?? 0.7; $('oSfx').value = save.sfx ?? 1; $('oTut').checked = save.tutorial ?? !save.tutorialDone;
+  $('oMusic').value = save.music ?? 0.7; $('oSfx').value = save.sfx ?? 1; $('oTut').checked = save.tutorial ?? !save.tutorialDone; sliderFill();
   const apply = () => { save.tutorial = $('oTut').checked; save.ckpt = $('oCkpt').checked; save.hc = $('oHC').checked; save.bubbles = $('oBub').checked; save.shake = $('oShake').checked; save.view = $('oView').value; save.music = +$('oMusic').value; save.sfx = +$('oSfx').value; document.body.classList.toggle('hc', !!save.hc); SND.setMusic(save.music); SND.setSfx(save.sfx); writeSave(); syncSettings(); };
   for (const id of ['oTut', 'oCkpt', 'oHC', 'oBub', 'oShake', 'oView', 'oMusic', 'oSfx']) { $(id).oninput = apply; $(id).onchange = apply; }
   $('whoStart').onclick = () => { apply(); G.who = G.whoPick; G.ckpt = null; if (RUN_ON) showSlots('new', go); else { G.slot = null; go(); } };
@@ -1724,7 +1793,7 @@ const SCRIPT = {
     here: { say: ['im here. whats the plan'], opts: [] },
   },
 };
-function openPhone() { if (G.state !== 'play') return; G.state = 'phone'; keys.clear(); G.mouse.left = G.mouse.right = false; PH.app = PH.app === 'call' && !PH.call ? 'home' : PH.app; renderPhone(); $('phone').classList.add('show'); SND.phoneTap && SND.phoneTap(); P.s.playUp('Interact', { rate: 0.7, fade: 0.2, fadeAt: 1.2 }); }
+function openPhone() { if (G.state !== 'play') return; if (G.role === 'inmate') { if (!(G.t < (G.noPhoneT || 0))) { G.noPhoneT = G.t + 4; think('No phone. They took it off me at intake.', 2.5); } return; } G.state = 'phone'; keys.clear(); G.mouse.left = G.mouse.right = false; PH.app = PH.app === 'call' && !PH.call ? 'home' : PH.app; renderPhone(); $('phone').classList.add('show'); SND.phoneTap && SND.phoneTap(); P.s.playUp('Interact', { rate: 0.7, fade: 0.2, fadeAt: 1.2 }); }
 function closePhone() { if (G.state === 'phone') G.state = 'play'; $('phone').classList.remove('show'); if (PH.call && PH.call.who !== '911') PH.call = null; }
 function phTime() { const hh = Math.floor(G.hour), mm = Math.floor((G.hour - hh) * 60); return `${((hh + 11) % 12) + 1}:${String(mm).padStart(2, '0')}`; }
 function addMsg(who, from, text) { PH.msgs[who].push({ from, text }); if (from === 'them' && !(G.state === 'phone' && PH.app === 'chat' && PH.thread === who)) { PH.unread[who]++; toast(`${CONTACTS[who].name}: ${text}`, 'grey', 'note'); SND.phoneBuzz(); } if (G.state === 'phone') renderPhone(); }
@@ -1745,7 +1814,7 @@ function renderPhone() {
   const app = (id, ic, nm, badge = 0) => `<button class="papp" data-app="${id}"><i>${ic}</i><span>${nm}</span>${badge ? `<b>${badge}</b>` : ''}</button>`;
   let h = bar;
   if (PH.app === 'home') h += `<div class="phome"><div class="pclock">${phTime()}</div><div class="pdate">Saturday, November 8</div><div class="pgrid">${app('msgs', '💬', 'Messages', PH.unread.mom + PH.unread.bro)}${app('call', '📞', 'Phone')}${app('weather', '⛅', 'Weather')}${app('settings', '⚙️', 'Settings')}${app('store', '🛍️', 'App Store')}${app('camera', '📷', 'Camera')}</div><div class="phint">T or Esc to put it away</div></div>`;
-  else if (PH.app === 'msgs') h += `<div class="phead"><button class="pback">‹</button>Messages</div>` + Object.keys(CONTACTS).map(k => { const m = PH.msgs[k][PH.msgs[k].length - 1]; return `<button class="prow" data-thread="${k}"><i>${CONTACTS[k].av}</i><span><b>${CONTACTS[k].name}</b><small>${m ? m.text.slice(0, 34) : CONTACTS[k].sub}</small></span>${PH.unread[k] ? `<em>${PH.unread[k]}</em>` : ''}</button>`; }).join('');
+  else if (PH.app === 'msgs') h += `<div class="phead"><button class="pback">‹</button>Messages</div>` + Object.keys(CONTACTS).map(k => { const m = PH.msgs[k][PH.msgs[k].length - 1]; return `<button class="prow" data-thread="${k}"><i>${CONTACTS[k].av}</i><span><b>${CONTACTS[k].name}</b><small>${m ? m.text.replace(/</g, '&lt;') : CONTACTS[k].sub}</small></span>${PH.unread[k] ? `<em>${PH.unread[k]}</em>` : ''}</button>`; }).join('');
   else if (PH.app === 'chat') {
     const k = PH.thread, S = SCRIPT[k][PH.step[k]];
     h += `<div class="phead"><button class="pback">‹</button>${CONTACTS[k].av} ${CONTACTS[k].name}<small>${CONTACTS[k].sub}</small></div><div class="pchat" id="pchat">${PH.msgs[k].map(m => `<div class="pm ${m.from}">${m.text.replace(/</g, '&lt;')}</div>`).join('')}${PH.typing && PH.typing[k] ? '<div class="pm them typing">• • •</div>' : ''}</div>`;
@@ -1805,6 +1874,9 @@ function nearStreet() { const p = P.s.pos; return Math.abs(p.z) < Math.abs(p.x) 
 function broCome() { const r = PEOPLE.brotherComes ? PEOPLE.brotherComes(P) : 'none'; if (r === 'dead') later(() => think('Ben isn\'t answering anymore...', 3), 2); else if (r === 'gone') later(() => think('No reply from Ben.', 3), 2); }
 // texts that arrive by themselves as the day goes on
 function phoneTick(dt) {
+  // the clock on the open phone keeps time (just the text — no full redraw)
+  if (G.state === 'phone') { const pt = phTime(); if (PH.clk !== pt) { PH.clk = pt; const el = $('phoneScreen'); if (el) { const c = el.querySelector('.pclock'), b = el.querySelector('.pbar span'); if (c) c.textContent = pt; if (b) b.textContent = pt; } } }
+  if (!MAPLE() && !(STORY && STORY.phone)) { updateAmbulances(dt); return; }   // Mom and Ben's texts are Maple Hollow's story
   if (!PH.started) { PH.started = true; addMsg('mom', 'them', SCRIPT.mom.calm0.say[0]); addMsg('mom', 'them', SCRIPT.mom.calm0.say[1]); addMsg('bro', 'them', SCRIPT.bro.calm0.say[0]); addMsg('bro', 'them', SCRIPT.bro.calm0.say[1]); PH.step.mom = 'calm0'; PH.step.bro = 'calm0'; }
   if (G.phase === 'outbreak' && !PH.obSent) { PH.obSent = true; later(() => theySay('bro', 'ob0'), 25); later(() => theySay('mom', 'ob0'), 60); }
   if (G.phase === 'outbreak' && PH.obSent && G.t - (PH.lateT ?? G.t) > HOUR * 3 && ['ob3', 'late1'].includes(PH.step.mom)) { PH.lateT = G.t; theySay('mom', 'late'); }
@@ -1964,7 +2036,7 @@ function talkTo(n) {
   n.s.lookAt = V(P.s.pos.x, 1.6, P.s.pos.z); n.lookT = 5;
   P.s.playUp('Interact', { rate: 1.2, fade: 0.15, fadeAt: 0.8 });
   if (r === 'dale' && G.phase === 'calm' && G.prologue < 1) { G.prologue = 1; later(() => { if (G.phase === 'calm') think('Burgers. Now I\'m hungry. I\'ll head home and put the TV on till lunch.', 4); }, 5.5); }
-  if (r === 'surv' && !n.gave && Math.random() < 0.6) { n.gave = true; const id = pick(['bandage', 'water', 'bar', 'beans']); addItem(id, 1); later(() => { toast(`${n.name[0] + n.name.slice(1).toLowerCase()} gave you: ${ITEMS[id].name}`, 'good', ITEM_ICON[id]); SND.pickup('item'); }, 1.2); later(() => n.say('Here. Take it. I\'ll find more.', 2.5), 5.2); }
+  if (r === 'surv' && !n.gave && Math.random() < 0.6) { n.gave = true; const id = pick(['bandage', 'water', 'bar', 'beans']); addItem(id, 1); later(() => { toast(`${nm(n.name)} gave you: ${ITEMS[id].name}`, 'good', ITEM_ICON[id]); SND.pickup('item'); }, 1.2); later(() => n.say('Here. Take it. I\'ll find more.', 2.5), 5.2); }
 }
 // kill the time till lunch in front of the TV: the clock jumps to noon
 function watchTV() {
@@ -2091,21 +2163,30 @@ function outbreakStep(dt) {
 function drawBubbles() {
   if (save.bubbles === false) return;
   if (G.state === 'news' && G.news && G.news.tv) return;   // in your living room: the TV has the captions, not the walls
-  const dpr = ODPR(), W = ov.width, H = ov.height;
-  for (const u of PEOPLE.bubbles()) {
-    const d = u.s.pos.distanceTo(camera.position); if (d > (G.state === 'news' ? 40 : 22)) continue;
-    const p = V(u.s.pos.x, 2.05, u.s.pos.z).project(camera); if (p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1) continue;
+  const dpr = ODPR(), W = ov.width, H = ov.height, m = 6 * dpr, placed = [];
+  const list = PEOPLE.bubbles().map(u => [u, u.s.pos.distanceTo(camera.position)]).sort((a, b) => a[1] - b[1]);   // nearest first: they get the spot over their head
+  for (const [u, d] of list) {
+    if (d > (G.state === 'news' ? 40 : 22)) continue;
+    const p = V(u.s.pos.x, 2.05, u.s.pos.z).project(camera); if (p.z > 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1.1) continue;
     if (G.state !== 'news' && !world.los(camera.position, V(u.s.pos.x, 1.7, u.s.pos.z))) continue;
     const x = (p.x * 0.5 + 0.5) * W, y = (-p.y * 0.5 + 0.5) * H, a = Math.min(1, u.bubble.t * 2) * clamp(1.4 - d / 22, 0.45, 1);
+    const maxL = Math.min(260 * dpr, W - 2 * m - 18 * dpr);
     octx.font = `${14 * dpr}px 'Special Elite', 'Courier New', monospace`;
     const words = u.bubble.text.split(' '), lines = []; let ln = '';
-    for (const w of words) { const tt = ln ? ln + ' ' + w : w; if (octx.measureText(tt).width > 260 * dpr && ln) { lines.push(ln); ln = w; } else ln = tt; }
+    for (const w of words) { const tt = ln ? ln + ' ' + w : w; if (octx.measureText(tt).width > maxL && ln) { lines.push(ln); ln = w; } else ln = tt; }
     if (ln) lines.push(ln);
     const lw = Math.max(...lines.map(l => octx.measureText(l).width)), pad = 9 * dpr, lh = 18 * dpr, nm = u.name ? u.name : '';
-    const bw = lw + pad * 2, bh = lines.length * lh + pad * 2 + (nm ? 14 * dpr : 0), bx = x - bw / 2, by = y - bh - 12 * dpr;
+    let nmW = 0; if (nm) { octx.font = `600 ${10 * dpr}px Oswald, Helvetica`; nmW = octx.measureText(nm).width; octx.font = `${14 * dpr}px 'Special Elite', 'Courier New', monospace`; }
+    const bw = Math.max(lw, nmW) + pad * 2, bh = lines.length * lh + pad * 2 + (nm ? 14 * dpr : 0);
+    const bx = clamp(x - bw / 2, m, Math.max(m, W - bw - m)); let by = y - bh - 12 * dpr;
+    // two people talking at once: the further one's bubble steps up out of the way (a thin line back to them)
+    for (let k = 0; k < 6; k++) { const o = placed.find(r => bx < r.x + r.w && bx + bw > r.x && by < r.y + r.h && by + bh > r.y); if (!o) break; by = o.y - bh - 6 * dpr; }
+    by = Math.max(m, by); placed.push({ x: bx, y: by, w: bw, h: bh });
+    const lifted = by + bh < y - 14 * dpr, tx = clamp(x, bx + 10 * dpr, bx + bw - 10 * dpr), tb = by + bh;
     octx.globalAlpha = a;
     octx.fillStyle = 'rgba(14,12,10,0.82)'; octx.strokeStyle = u.role === 'surv' ? 'rgba(220,180,90,0.8)' : 'rgba(232,228,218,0.35)'; octx.lineWidth = 1 * dpr;
-    octx.beginPath(); octx.moveTo(bx, by); octx.lineTo(bx + bw, by); octx.lineTo(bx + bw, by + bh); octx.lineTo(x + 7 * dpr, by + bh); octx.lineTo(x, by + bh + 8 * dpr); octx.lineTo(x - 7 * dpr, by + bh); octx.lineTo(bx, by + bh); octx.closePath(); octx.fill(); octx.stroke();
+    if (lifted) { octx.beginPath(); octx.moveTo(tx, tb); octx.lineTo(x, y - 4 * dpr); octx.stroke(); }
+    octx.beginPath(); octx.moveTo(bx, by); octx.lineTo(bx + bw, by); octx.lineTo(bx + bw, tb); octx.lineTo(tx + 7 * dpr, tb); octx.lineTo(tx, tb + 8 * dpr); octx.lineTo(tx - 7 * dpr, tb); octx.lineTo(bx, tb); octx.closePath(); octx.fill(); octx.stroke();
     octx.textAlign = 'left'; let ty = by + pad + 13 * dpr;
     if (nm) { octx.font = `600 ${10 * dpr}px Oswald, Helvetica`; octx.fillStyle = u.role === 'surv' ? '#e0b860' : '#a8a296'; octx.fillText(nm, bx + pad, ty - 2 * dpr); ty += 14 * dpr; octx.font = `${14 * dpr}px 'Special Elite', 'Courier New', monospace`; }
     octx.fillStyle = '#ece6da'; for (const l of lines) { octx.fillText(l, bx + pad, ty); ty += lh; }
@@ -2152,6 +2233,13 @@ function tvSetup() {
   return TVS;
 }
 function wrapText(g, text, x, y, maxW, lh) { let ln = '', yy = y; for (const w of text.split(' ')) { const t2 = ln ? ln + ' ' + w : w; if (g.measureText(t2).width > maxW && ln) { g.fillText(ln, x, yy); ln = w; yy += lh; } else ln = t2; } if (ln) g.fillText(ln, x, yy); }
+// shrink the font until the line fits (returns the size it settled on); fitWrap does the same for a wrapped block in a box
+function fitText(g, s, maxW, px, weight = '', fam = 'Helvetica') { for (; ; px -= 2) { g.font = `${weight ? weight + ' ' : ''}${px}px ${fam}`; if (px <= 12 || g.measureText(s).width <= maxW) return px; } }
+function fitWrap(g, s, x, y, maxW, maxH, px, weight = '', fam = 'Helvetica') {
+  for (; ; px -= 2) { g.font = `${weight ? weight + ' ' : ''}${px}px ${fam}`; const lh = Math.round(px * 1.35); let n = 1, ln = ''; for (const w of s.split(' ')) { const t2 = ln ? ln + ' ' + w : w; if (g.measureText(t2).width > maxW && ln) { n++; ln = w; } else ln = t2; } if (px <= 14 || n * lh <= maxH) return wrapText(g, s, x, y, maxW, lh); }
+}
+// the TV's words as plain text: <br> is a gap between sentences, not nothing
+const tvPlain = () => { const h = $('tvText').innerHTML; if (tvPlain.h === h) return tvPlain.v; const t = document.createElement('textarea'); t.innerHTML = h.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ''); tvPlain.h = h; return (tvPlain.v = t.value.replace(/\s+/g, ' ').trim()); };
 function tvDraw() {
   const T = TVS, g = T.ctx, W2 = 1024, H2 = 576;
   const mode = $('tvLost').classList.contains('on') ? 'lost' : $('tvLive').classList.contains('on') ? 'live' : $('tvStudio').classList.contains('eas') ? 'eas' : 'studio';
@@ -2159,16 +2247,17 @@ function tvDraw() {
   if (mode === 'lost') { const id = g.createImageData(W2 / 4, H2 / 4); for (let i = 0; i < id.data.length; i += 4) { const v = Math.random() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; } g.putImageData(id, 0, 0); g.drawImage(T.cv, 0, 0, W2 / 4, H2 / 4, 0, 0, W2, H2); g.fillStyle = '#000'; g.fillRect(W2 / 2 - 230, H2 / 2 - 50, 460, 100); g.fillStyle = '#eee'; g.font = 'bold 64px Helvetica'; g.textAlign = 'center'; g.fillText('SIGNAL LOST', W2 / 2, H2 / 2 + 22); T.light.intensity = 0.6 + Math.random() * 0.6; return mode; }
   if (mode !== 'live') {
     const gr = g.createLinearGradient(0, 0, W2, H2); gr.addColorStop(0, mode === 'eas' ? '#111' : '#1d3f7a'); gr.addColorStop(1, mode === 'eas' ? '#050505' : '#060d1c'); g.fillStyle = gr; g.fillRect(0, 0, W2, H2);
-    g.fillStyle = mode === 'eas' ? '#e6c21a' : '#c8161a'; g.fillRect(60, 80, mode === 'eas' ? 640 : 560, 96);
-    g.fillStyle = mode === 'eas' ? '#111' : '#fff'; g.font = 'bold 66px Helvetica'; g.textAlign = 'left'; g.fillText($('tvHead').textContent, 84, 152);
-    g.fillStyle = '#eef2fa'; g.font = (mode === 'eas' ? '' : 'bold ') + '34px ' + (mode === 'eas' ? 'Courier New' : 'Helvetica'); wrapText(g, $('tvText').innerText.replace(/\n/g, ' '), 64, 260, 900, 46);
+    const head = $('tvHead').textContent; g.textAlign = 'left'; const hp = fitText(g, head, W2 - 120 - 48, 66, 'bold', 'Helvetica'), hw = Math.min(W2 - 120, g.measureText(head).width + 48);
+    g.fillStyle = mode === 'eas' ? '#e6c21a' : '#c8161a'; g.fillRect(60, 80, hw, 96);
+    g.fillStyle = mode === 'eas' ? '#111' : '#fff'; g.fillText(head, 84, 128 + hp * 0.36);
+    g.fillStyle = '#eef2fa'; fitWrap(g, tvPlain(), 64, 260, 900, mode === 'eas' ? H2 - 290 : 468 - 250, 34, mode === 'eas' ? '' : 'bold', mode === 'eas' ? 'Courier New' : 'Helvetica');
   } else {
     g.fillStyle = '#d4161a'; g.fillRect(820, 36, 92, 40); g.fillStyle = '#fff'; g.font = 'bold 30px Helvetica'; g.textAlign = 'left'; g.fillText('LIVE', 832, 67); g.fillText($('tvClock').textContent, 920, 67);
     const cap = $('tvCap').textContent; if (cap) { g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(80, 360, 864, 80); g.fillStyle = '#fff'; g.font = '26px Helvetica'; g.textAlign = 'center'; wrapText(g, cap, W2 / 2, 392, 820, 32); }
   }
   // the station's bug and lower third, always on
   g.textAlign = 'left'; g.fillStyle = '#c8161a'; g.beginPath(); g.arc(70, 60, 26, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 30px Helvetica'; g.fillText('7', 61, 71); g.font = 'bold 22px Helvetica'; g.fillText('WMHX NEWS', 106, 68);
-  if (mode !== 'eas') { g.fillStyle = '#c8161a'; g.fillRect(40, 468, 170, 62); g.fillStyle = '#f2f0ea'; g.fillRect(210, 468, 774, 62); g.fillStyle = '#fff'; g.font = 'bold 32px Helvetica'; g.fillText('BREAKING', 56, 510); g.fillStyle = '#8a1810'; g.font = 'bold 14px Helvetica'; g.fillText('MAPLE HOLLOW · QUICK STOP MARKET, MAIN ST', 226, 488); g.fillStyle = '#121212'; g.font = 'bold 26px Helvetica'; g.fillText('MAN FALLS ILL AFTER EATING CONTAMINATED BURGER', 226, 520); }
+  if (mode !== 'eas') { g.fillStyle = '#c8161a'; g.fillRect(40, 468, 200, 62); g.fillStyle = '#f2f0ea'; g.fillRect(240, 468, 744, 62); g.fillStyle = '#fff'; fitText(g, 'BREAKING', 200 - 28, 30, 'bold', 'Helvetica'); g.fillText('BREAKING', 54, 510); g.fillStyle = '#8a1810'; fitText(g, 'MAPLE HOLLOW · QUICK STOP MARKET, MAIN ST', 744 - 32, 14, 'bold', 'Helvetica'); g.fillText('MAPLE HOLLOW · QUICK STOP MARKET, MAIN ST', 256, 488); g.fillStyle = '#121212'; fitText(g, 'MAN FALLS ILL AFTER EATING CONTAMINATED BURGER', 744 - 32, 26, 'bold', 'Helvetica'); g.fillText('MAN FALLS ILL AFTER EATING CONTAMINATED BURGER', 256, 520); }
   T.light.intensity = mode === 'live' ? 1.2 : 1.6;
   return mode;
 }
@@ -2190,7 +2279,7 @@ function tvRoomCamera(dt) {
   // you, watching it
   camera.position.copy(T.view); camera.lookAt(T.center);
   if (camera.fov !== 42) { camera.fov = 42; camera.updateProjectionMatrix(); fovNow = 42; }
-  { const sub = $('tvSub'); if (sub) { const tx = mode === 'live' ? $('tvCap').textContent : mode === 'lost' ? '' : $('tvText').innerText.replace(/\n/g, ' '); if (sub.textContent !== tx) sub.textContent = tx; } }
+  { const sub = $('tvSub'); if (sub) { const tx = mode === 'live' ? $('tvCap').textContent : mode === 'lost' ? '' : tvPlain(); if (sub.textContent !== tx) sub.textContent = tx; } }
   PSCALE.value = innerHeight * renderer.getPixelRatio() / (2 * Math.tan(camera.fov * Math.PI / 360));
   world.update(dt, G.t, P.s.pos, G.home);
   SND.listener(T.view.x, T.view.y, T.view.z, Math.atan2(T.center.x - T.view.x, T.center.z - T.view.z) + Math.PI);
@@ -2468,7 +2557,7 @@ function endRun(how) {
   save.bestDays = Math.max(save.bestDays, G.day - 1 + (win ? 1 : 0));
   writeSave();
   G.state = 'result'; keys.clear(); G.mouse.left = G.mouse.right = false; G.boarded = false; G.heliCine = false;
-  HELI.setUIVisible(false); $('fade').classList.remove('on');
+  HELI.setUIVisible(false); $('fade').classList.remove('on'); capClear(); document.body.classList.remove('playing', 'paused', 'bagopen');
   const cause = { turned: 'The infection took you. You got back up.', starved: 'You starved.', thirst: 'You died of thirst.', bled: 'You bled out.', burned: 'You burned.', fall: 'The fall killed you.', crash: 'You crashed.', killed: 'Somebody you hurt hurt you back. Worse.', eaten: 'They got you.' }[G.deathCause] || '';
   const sv = G.saved || 0, hurt = G.stats.humansHurt || 0, killedH = G.stats.humansKilled || 0;
   const E = END(), outro = E && STORY.outro && STORY.outro[E.kind];
@@ -2485,7 +2574,7 @@ function endRun(how) {
     ${STATS.resultsHTML(sres)}
     ${hurt ? `<div class="sub rsaved">${icon('person')} <b>${hurt}</b> ${hurt === 1 ? 'person' : 'people'} you hurt${killedH ? ` · <b>${killedH}</b> killed` : ''}</div>` : ''}
     <div class="sub">best ${save.bestDays} day${save.bestDays === 1 ? '' : 's'} · ${save.kills} kills all time · ${save.escapes} escape${save.escapes === 1 ? '' : 's'}</div>
-    <div class="btns">${!win && G.ckpt ? `<button class="m go" id="rCkpt">Retry from checkpoint · Chapter ${Math.min(G.ckpt.G.stage, CHS().length - 1) + 1}</button>` : ''}<button class="m" id="rAgain">Try again</button><button class="m" id="rMenu">Title</button></div>`;
+    <div class="btns">${!win && G.ckpt ? `<button class="m go" id="rCkpt">Retry · Chapter ${Math.min(Math.floor(G.ckpt.G.stage) || 0, CHS().length - 1) + 1}</button>` : ''}<button class="m" id="rAgain">Try again</button><button class="m" id="rMenu">Title</button></div>`;
   STATS.animate($('resultPanel'));
   showScreen('result');
   $('rAgain').onclick = () => { showScreen(null); G.ckpt = null; newGame(); };
@@ -2528,7 +2617,10 @@ async function newGame(restore = null) {
   G.role = !MAPLE() && STORY && STORY.role ? STORY.role(who) : null;
   HANDS.flush(); PACK.swing = PACK.zip = 0; G.packAnim = null; clearLitter(); tutStop('quiet'); tipHide(true);
   setBody(who.body); G.pname = who.name.split(' ')[0];
-  LOOKS.applyLook(P.s, LOOKS.lookFor('who:' + who.name, who.body));   // [looks] you look like your card
+  { const L0 = LOOKS.lookFor('who:' + who.name, who.body), uni = G.role === 'inmate' || G.role === 'guard';   // [looks] you look like your card
+    LOOKS.applyLook(P.s, uni ? { ...L0, hat: G.role === 'guard' ? 'cap' : 'none', hatCol: 1 } : L0);   // the prison: an inmate goes bare-headed, a guard wears the navy cap
+    if (G.role === 'inmate') LOOKS.outfit(P.s, 0xe26e1e, 0xe26e1e);   // the orange jumpsuit (as people.js uniformOn() dyes it)
+    else if (G.role === 'guard') LOOKS.outfit(P.s, 0x22305a, 0x1b2440); }   // navy uniform shirt and trousers
   G.home = who.house;
   const H = G.home;
   // you wake up at home (Maple Hollow) — or wherever the map's story starts you
@@ -2558,13 +2650,17 @@ async function newGame(restore = null) {
   world.calm(); world.sunny = 1; world.setTime(G.hour);
   for (const A of AMBS) if (A.g) A.g.removeFromParent(); AMBS.length = 0; Object.assign(PH, { app: 'home', thread: null, call: null, msgs: { mom: [], bro: [] }, unread: { mom: 0, bro: 0 }, typing: null, step: { mom: 'calm0', bro: 'calm0' }, ambs: 0, chance: 0, started: false, obSent: false, lateT: null });
   if (MAPLE()) PEOPLE.castCalm();
+  TRAFFIC.start();   // [traffic]
   G.camYaw = P.s.yaw; G.camPitch = -0.15; camInit = false;
   G.state = 'play'; showScreen(null);
   document.body.classList.add('playing');
   C.mode = 'play'; SND.setMode('play'); SND.musicPlaying(false); SND.setPeace(1);
   save.runs++; writeSave();
   fadeHelp();
+  if (!MAPLE()) mapTips();
   if (restore) return applyRun(restore);
+  { const R = G.role && STORY && STORY.roles && STORY.roles[G.role];   // the role's kit (the prison: a guard's flashlight and bandage)
+    if (R) { for (const [id, n] of R.items || []) if (ITEMS[id]) addItem(id, n || 1, { defer: true }); if (R.weapon && ITEMS[R.weapon]) addItem(R.weapon, 1); } }
   writeSlot();   // the run exists from the start (no checkpoint yet)
   if ((save.tutorial ?? !save.tutorialDone) && !Q.has('notut')) later(() => { if (G.phase === 'calm' && G.state !== 'title') tutStart(); }, 7);
   if (D.noSprint) later(() => toast('ZombieX: you can\'t run', 'bad'), 1.5);
@@ -2599,11 +2695,34 @@ function setupStory(H, P0) {
   NOTES.dale1.text = NOTES.dale1.text.replace(/left it in the Hendersons' shed[^.]*\./, `left it in the Hendersons' shed — ${G.hend.name}.`);
   NOTES.dale2.text = NOTES.dale2.text.replace(/the gas is in the Hendersons' shed[^.]*\./, `the gas is in the Hendersons' shed, ${G.hend.name}.`);
 }
+// the map's own tips (story.tips) through the same tip card as Maple's: each once, at the moment it matters
+// (roofs at night, the heat when you're thirsty, the dark underground), the rest one at a time once the dead are out
+function mapTips() {
+  const T = (STORY && STORY.tips) || {}, ids = Object.keys(T).filter(k => T[k] && T[k].text);
+  if (!ids.length) return;
+  for (const k of ids) TUT_TIPS[MAP_ID + '.' + k] = { title: T[k].title || k.toUpperCase(), keys: T[k].keys || [], text: T[k].text };
+  const when = {
+    roofs: () => world.night > 0.6 && G.phase !== 'calm',
+    heat: () => G.water < 30,
+    cave: () => (P.s.gy || 0) < -1.5 || (world.night > 0.6 && !G.flashlight), sewer: () => (P.s.gy || 0) < -1.5,
+    sandstorm: () => false,   // (only when one comes: the map's own beats say so)
+  };
+  let gapT = 25;
+  const loop = () => {
+    if (G.state === 'play' && P && P.alive) {
+      for (const k of ids) if (when[k] && when[k]()) tip(MAP_ID + '.' + k);
+      if (G.phase === 'outbreak' && (gapT -= 1) <= 0) { const k = ids.find(k => !when[k] && !save.tips[MAP_ID + '.' + k]); if (k) { tip(MAP_ID + '.' + k); gapT = 75; } }
+    }
+    later(loop, 1);
+  };
+  later(loop, 1);
+}
 function fadeHelp() { $('help').classList.remove('fade'); clearTimeout(fadeHelp.t); fadeHelp.t = setTimeout(() => $('help').classList.add('fade'), 25000); }
 function toTitle() {
   MP.leaveGame();   // MP: leave the online room
   timers.length = 0; G.runId = (G.runId || 0) + 1;
   DRIVE.reset(); HELI.reset(); HELI.setUIVisible(false); G.boarded = false; G.heliCine = false; if (PACK && PACK.P) PACK.P.visible = true;
+  TRAFFIC.stop();   // [traffic]
   if (HANDS) { HANDS.flush(); PACK.swing = PACK.zip = 0; G.packAnim = null; clearLitter(); tutStop('quiet'); tipHide(true); }
   resetWorldState();
   showScreen('title'); G.state = 'title'; world.ruin(); world.sunny = 0; PEOPLE.PPL.list.forEach(u => { u.active = false; u.gone = true; u.s.setVisible(false); if (u.mel) u.mel.hideAll(); }); C.npcs = []; G.phase = 'title'; SND.setPeace(0); $('tv').classList.remove('show');
@@ -2636,9 +2755,10 @@ function openBag() {
   if (HANDS.busy()) HANDS.flush();
   G.packAnim = { dir: 1, t: 0, snd: {} }; rustle(0.25, 0.28, 1500);
 }
-function bagShown() { unlockMouse(); G.state = 'bag'; keys.clear(); G.mouse.left = G.mouse.right = false; renderBag(); showScreen('bag'); tut('bag'); }
+function bagShown() { unlockMouse(); document.body.classList.add('bagopen'); G.state = 'bag'; keys.clear(); G.mouse.left = G.mouse.right = false; renderBag(); showScreen('bag'); tut('bag'); }
 // ...and zip it up and sling it back on
 function closeBag() {
+  document.body.classList.remove('bagopen');
   if (G.state === 'bag') { G.state = 'play'; showScreen(null); lockMouse(); }
   if (G.packAnim || PACK.swing > 0) { G.packAnim ||= { t: 0, snd: {} }; G.packAnim.dir = -1; G.packAnim.t = 0; G.packAnim.snd = {}; }
 }
@@ -2975,12 +3095,13 @@ function drawOverlay(dt) {
 let hudT = 0;
 const bar = (id, v) => { $(id).firstElementChild.style.width = clamp(v, 0, 100) + '%'; };
 function hud(dt) {
-  if (capT > 0) { capT -= dt; if (capT <= 0) $('caption').classList.remove('show'); }
-  if (bigT > 0) { bigT -= dt; if (bigT <= 0) $('big').style.opacity = 0; }
+  capTick(dt);
+  if (bigT > 0) { bigT -= dt; if (bigT <= 0) { $('big').style.opacity = 0; document.body.classList.remove('bigOn'); } }
   $('scope').classList.toggle('on', !!G.scoped);
   if (G.scoped) { $('scope').style.setProperty('--x', '50%'); $('scope').style.setProperty('--y', '50%'); }
   if (G.grabbedBy) $('strB').style.width = (G.struggle * 100) + '%';
   document.body.classList.toggle('isdead', G.state === 'dead' || G.state === 'result');
+  if (G.state !== 'pause') document.body.classList.remove('paused');
   { const ui = (G.state === 'play' || G.state === 'dead' || (G.state === 'escaping' && G.boarded && !G.heliCine)) && G.phase !== 'title'; if (ui !== G.heliUI) { G.heliUI = ui; HELI.setUIVisible(ui); } }
   hudT -= dt; if (hudT > 0 || !P || G.state === 'title') return; hudT = 0.1;
   bar('hpB', P.hp); $('hpN').textContent = Math.ceil(P.hp); $('vHp').classList.toggle('low', P.hp < 30);
@@ -2989,7 +3110,7 @@ function hud(dt) {
   bar('wtB', G.water); $('wtN').textContent = Math.round(G.water); $('vWt').classList.toggle('low', G.water < 20);
   $('vIn').style.display = G.infection > 0 ? '' : 'none'; bar('inB', G.infection); $('inN').textContent = Math.round(G.infection);
   const st = [];
-  if (G.bleed > 0) st.push(`<span class="st">${icon('blood')}BLEEDING · Q</span>`);
+  if (G.bleed > 0) st.push(`<span class="st">${icon('blood')}BLEEDING · ${TOUCH ? 'TAP HEAL' : 'Q'}</span>`);
   if (G.infection > 0) st.push(`<span class="st y">${icon('bio')}INFECTED</span>`);
   if (G.winded) st.push(`<span class="st g">${icon('stamina')}WINDED</span>`);
   if (G.crouch) st.push('<span class="st g">CROUCHED</span>');
@@ -3005,30 +3126,35 @@ function hud(dt) {
   const calm = G.phase === 'calm' || G.phase === 'news';
   const hs = HELI.state(), nf = HELI.nextFlight(), nowH = (G.day - 1) * 24 + G.hour, hm = h => `${Math.floor(h)}h ${String(Math.floor((h % 1) * 60)).padStart(2, '0')}m`;
   const left = nf ? (nf.day - 1) * 24 + nf.hour - nowH : -1;
-  const goal = !MP ? (lastCh && hs === 'waiting' && G.missed ? `It left without you. The <b>last ${rideName()}</b> comes to <b>${lzH()}</b> at <b>${hhmm(nf ? nf.hour : endHour())}</b> tomorrow. Stay alive.` : lastCh && hs === 'landed' ? `It's waiting at <b>${lzH()}</b>. Get aboard — <b>E</b>.` : goalOf(CH)) : st2 === 3 && hs === 'waiting' ? 'It left without you. The <b>last helicopter</b> lands at <b>Main &amp; Maple</b>, <b>02:00</b> tomorrow night. Stay alive.' : st2 === 3 && hs === 'landed' ? 'It\'s on the ground at <b>Main &amp; Maple</b>. Get in — <b>E</b> at the open door.' : CH.goal;
-  let oh = calm && !MP ? `<div class="o">${icon('target')}<span>${G.phase === 'news' ? 'Listen...' : (STORY.calmGoal || `A normal day in <b>${mapName()}</b>. Look around — get to know the place.`)}</span></div>` : calm ? `<div class="o">${icon('target')}<span>${G.phase === 'news' ? 'What is happening at the <b>Quick Stop</b>?' : G.prologue ? 'Head home. Lunch is at noon — <b>put the TV on</b>.' : 'A quiet Saturday. Say hi to <b>Dale</b> — he\'s washing his pickup at <b>68 Main St</b>.'}</span></div>` : `<div class="o">${icon('target')}<span>${G.stage === 0.5 ? 'Listen...' : goal}</span></div>`;
+  const goal = !MP ? (lastCh && hs === 'waiting' && G.missed ? `It left without you. The <b>last ${rideName()}</b> comes to <b>${lzH()}</b> at <b>${hhmm(nf ? nf.hour : endHour())}</b> tomorrow. Stay alive.` : lastCh && hs === 'landed' ? `It's waiting at <b>${lzH()}</b>. Get aboard — <b>E</b>.` : goalOf(CH)) : st2 === 3 && hs === 'waiting' && G.missed ? 'It left without you. The <b>last helicopter</b> lands at <b>Main &amp; Maple</b>, <b>02:00</b> tomorrow night. Stay alive.' : st2 === 3 && hs === 'landed' ? 'It\'s on the ground at <b>Main &amp; Maple</b>. Get in — <b>E</b> at the open door.' : CH.goal;
+  let oh = calm && !MP ? `<div class="o">${icon('target')}<span>${G.phase === 'news' ? 'Listen...' : (STORY.calmGoal || `A normal day in <b>${mapName()}</b>. Look around — get to know the place.`)}</span></div>` : calm ? `<div class="o">${icon('target')}<span>${G.phase === 'news' ? 'What is happening at the <b>Quick Stop</b>?' : G.prologue ? 'Head home. Lunch is at noon — <b>put the TV on</b>.' : 'A quiet Saturday. Say hi to <b>Dale</b> — he\'s washing his pickup at <b>68 Main St</b>.'}</span></div>` : `<div class="o">${icon('target')}<span>${G.stage === 0.5 ? 'Listen...' : !calm && hs === 'orbit' ? (MP ? 'It can\'t land — <b>clear the crossroads!</b>' : `It's circling — it can't land yet! ${(END() && END().notReadyGoal) || (END() && END().ready && CHL.length > 1 ? goalOf(CHL[CHL.length - 2]) : '')}`) : goal}</span></div>`;
   if (!calm && st2 === 1 && MP) { const sp = supplies(); oh += `<div class="o ${sp.weapon ? 'done' : ''}">${icon(sp.weapon ? 'check' : 'bat')}<span>A weapon</span></div><div class="o ${sp.food >= 2 ? 'done' : ''}">${icon(sp.food >= 2 ? 'check' : 'food')}<span>Food <small>${Math.min(sp.food, 2)}/2</small></span></div><div class="o ${sp.drink >= 2 ? 'done' : ''}">${icon(sp.drink >= 2 ? 'check' : 'water')}<span>Water <small>${Math.min(sp.drink, 2)}/2</small></span></div>`; }
   if (!calm && MP && st2 >= 1 && G.notes.includes('dale1') && !(world.truck && world.truck.fueled && G.inv.keys > 0)) oh += `<div class="o side ${world.truck && world.truck.fueled ? 'done' : ''}">${icon('gas')}<span>Dale's pickup: ${world.truck && world.truck.fueled ? 'fueled' : G.inv.gascan > 0 ? '<b>fill the tank</b>' : 'needs gas'} · ${G.inv.keys > 0 ? 'keys ✓' : 'needs keys'}</span></div>`;
   if (!calm && st2 >= 1) {
-    const RD = rideName().toUpperCase(), LZU = MP ? 'MAIN &amp; MAPLE' : lzH().toUpperCase();
-    if (hs === 'landed') oh += `<div class="dl hot">${icon('heli')}${RD} ${MP || RD === 'HELICOPTER' ? 'ON THE GROUND' : 'WAITING'} · ${Math.ceil(HELI.timeLeft())} s</div>`;
-    else if (hs === 'inbound' || hs === 'descend') oh += `<div class="dl hot">${icon('heli')}${RD} INBOUND · ${LZU}</div>`;
-    else if (hs === 'liftoff' || hs === 'outbound') oh += `<div class="dl">${icon('heli')}THE ${RD} IS LEAVING</div>`;
-    else if (left > 0) oh += `<div class="dl ${left < 1 ? 'hot' : ''}">${icon('heli')}${nf && G.missed ? 'LAST ' : ''}${RD} IN ${hm(left)} · ${hhmm(nf.hour)}</div>`;
+    const RIC = rideName() === 'helicopter' ? 'heli' : 'clock', RD = rideName().toUpperCase(), LZU = MP ? 'MAIN &amp; MAPLE' : lzH().toUpperCase();
+    if (hs === 'landed') oh += `<div class="dl hot">${icon(RIC)}${RD} ${MP || RD === 'HELICOPTER' ? 'ON THE GROUND' : 'WAITING'} · ${Math.ceil(HELI.timeLeft())} s</div>`;
+    else if (hs === 'inbound' || hs === 'descend') oh += `<div class="dl hot">${icon(RIC)}${RD} INBOUND · ${LZU}</div>`;
+    else if (hs === 'orbit') oh += `<div class="dl hot">${icon(RIC)}${RD} CIRCLING · CAN'T LAND</div>`;
+    else if (hs === 'liftoff' || hs === 'outbound') oh += `<div class="dl">${icon(RIC)}THE ${RD} IS LEAVING</div>`;
+    else if (left > 0) oh += `<div class="dl ${left < 1 ? 'hot' : ''}">${icon(RIC)}${nf && G.missed ? 'LAST ' : ''}${RD} IN ${hm(left)} · ${hhmm(nf.hour)}</div>`;
     else oh += `<div class="dl">${icon('clock')}NO MORE ${RD}S</div>`;
   }
-  $('objCh').textContent = calm && !MP ? 'PROLOGUE · ' + String(STORY.subtitle || mapName()).toUpperCase() : calm ? 'PROLOGUE · SATURDAY' : `CHAPTER ${st2 + 1} · ${CH.title}`;
+  $('objCh').textContent = calm && !MP ? 'PROLOGUE · ' + String(mapName()).toUpperCase() : calm ? 'PROLOGUE · SATURDAY' : `CHAPTER ${st2 + 1} · ${CH.title}`;
   if (TOUCH) oh = touchWords(oh);
-  if ($('objList')._h !== oh) { $('objList').innerHTML = oh; $('objList')._h = oh; }
+  if ($('objList')._h !== oh) { $('objList').innerHTML = oh; $('objList')._h = oh; document.documentElement.style.setProperty('--objB', Math.round($('obj').getBoundingClientRect().bottom) + 'px'); }
   // compass with where you're going on it
   let ch = '';
-  for (const [l, a] of [['N', Math.PI], ['E', Math.PI / 2], ['S', 0], ['W', -Math.PI / 2]]) { const rel = wrapPi(a - G.camYaw); if (Math.abs(rel) < 1.4) ch += `<span style="left:${180 - rel / 1.4 * 180}px">${l}</span>`; }
-  const tg = !MP ? (calm ? null : lastCh || (st2 === CHL.length - 2 && left < 1.5 && left > 0) || hs === 'landed' || hs === 'descend' ? [LZ, hs === 'landed' || hs === 'descend' ? rideName().toUpperCase() : lzName().toUpperCase()] : (() => { const o = objectiveSpot(st2); return o ? [o, (CH.title || '').toUpperCase()] : null; })())
+  const cw = $('compass').clientWidth || 360, hw = cw / 2;
+  for (const [l, a] of [['N', Math.PI], ['E', Math.PI / 2], ['S', 0], ['W', -Math.PI / 2]]) { const rel = wrapPi(a - G.camYaw); if (Math.abs(rel) < 1.4) ch += `<span style="left:${hw - rel / 1.4 * hw}px">${l}</span>`; }
+  const lzShort = () => lzName().replace(/^the /i, '').replace(/\s*\(.*\)\s*$/, '').toUpperCase();
+  const notReady = !MP && END() && typeof END().ready === 'function' && hs !== 'landed' && hs !== 'descend' && (() => { try { return !END().ready(); } catch (e) { return false; } })();   // e.g. the stadium: the floodlights first
+  const stT = notReady && lastCh && CHL.length > 1 ? CHL.length - 2 : st2;
+  const tg = !MP ? (calm ? null : !notReady && (lastCh || (st2 === CHL.length - 2 && left < 1.5 && left > 0)) || hs === 'landed' || hs === 'descend' ? [LZ, hs === 'landed' || hs === 'descend' ? rideName().toUpperCase() : lzShort()] : (() => { const o = objectiveSpot(stT); return o ? [o, ((CHL[stT] || CH).title || '').toUpperCase()] : lastCh ? [LZ, lzShort()] : null; })())
     : G.phase === 'calm' ? (G.prologue ? [G.tvSpot, 'HOME'] : [world.truck, 'DALE']) : G.phase === 'news' ? null
     : st2 >= 3 || (st2 === 2 && left < 1.5) ? [LZ, hs === 'landed' || hs === 'descend' ? 'HELICOPTER' : 'CROSSROADS']
     : st2 === 2 ? [LZ, 'MAIN & MAPLE']
     : st2 === 1 && G.inv.gascan > 0 && world.truck && !world.truck.fueled && G.notes.includes('dale1') ? [world.truck, 'TRUCK'] : null;
-  if (tg && tg[0]) { const a = Math.atan2(tg[0].x - P.s.pos.x, tg[0].z - P.s.pos.z), rel = wrapPi(a - G.camYaw), d = Math.hypot(tg[0].x - P.s.pos.x, tg[0].z - P.s.pos.z); if (Math.abs(rel) < 1.4) ch += `<span class="m" style="left:${180 - rel / 1.4 * 180}px">▼ ${tg[1]} ${d.toFixed(0)}m</span>`; }
+  if (tg && tg[0]) { const a = Math.atan2(tg[0].x - P.s.pos.x, tg[0].z - P.s.pos.z), rel = wrapPi(a - G.camYaw), d = Math.hypot(tg[0].x - P.s.pos.x, tg[0].z - P.s.pos.z); if (Math.abs(rel) < 1.4) ch += `<span class="m" style="left:${clamp(hw - rel / 1.4 * hw, Math.max(70, cw * 0.3), Math.min(cw - 70, cw * 0.7))}px;white-space:nowrap">▼ ${tg[1]} ${d.toFixed(0)}m</span>`; }
   $('compass').innerHTML = ch;
   // weapon
   const A = P.arms;
@@ -3083,19 +3209,19 @@ $('howBack').onclick = () => showScreen('title');
 function togglePause() {
   if (G.state === 'play' || (G.state === 'escaping' && G.boarded && !G.heliCine)) {
     unlockMouse();
-    G.prevState = G.state; G.state = 'pause'; keys.clear(); G.mouse.left = G.mouse.right = false; showScreen('pause'); SND.pause(true);
+    G.prevState = G.state; G.state = 'pause'; keys.clear(); G.mouse.left = G.mouse.right = false; showScreen('pause'); SND.pause(true); document.body.classList.add('paused');
     $('pauseSub').textContent = `${DIFF.name} · day ${G.day} · ${G.stats.kills} put down`;
     STATS.showInPause(document.querySelector('#pause .center-panel')); $('restart').style.display = MP.on() ? 'none' : ''; HELI.setMuted(true); HELI.setUIVisible(false);
-  } else if (G.state === 'pause') { G.state = G.prevState || 'play'; showScreen(null); SND.pause(false); HELI.setMuted(false); HELI.setUIVisible(true); lockMouse(); }
+  } else if (G.state === 'pause') { G.state = G.prevState || 'play'; showScreen(null); SND.pause(false); document.body.classList.remove('paused'); HELI.setMuted(false); HELI.setUIVisible(true); lockMouse(); }
 }
 $('resume').onclick = togglePause;
 $('restart').onclick = () => ask('Start over?', 'Your run in this slot will restart from the beginning. Your checkpoint will be lost.', 'Start over', () => { STATS.commitRun({ how: 'quit', hours: (G.day - 1) * 24 + G.hour - G.startHour }); SND.pause(false); showScreen(null); G.ckpt = null; newGame(); }, 'Keep playing');
 $('toMenu').onclick = () => quitAsk();
 function sliderFill() { for (const e of document.querySelectorAll('.center-panel input[type=range]')) e.style.setProperty('--fill', ((e.value - e.min) / (e.max - e.min) * 100) + '%'); }
 addEventListener('input', e => { if (e.target.type === 'range') sliderFill(); });
-function syncSettings() { $('vmusic').value = save.music; $('vsfx').value = save.sfx; $('vq').value = save.quality; $('vshake').checked = save.shake; $('vsens').value = save.sens; $('vview').value = save.view; $('vinv').checked = !!save.invert; sliderFill(); }
+function syncSettings() { $('vmusic').value = save.music; $('vsfx').value = save.sfx; $('vq').value = save.quality; $('vshake').checked = save.shake; $('vsens').value = save.sens; $('vview').value = save.view; $('vinv').checked = !!save.invert; sliderFill(); world.firstPerson = save.view === 'first'; }
 $('vsens').addEventListener('input', e => { save.sens = +e.target.value; writeSave(); });
-$('vview').addEventListener('change', e => { save.view = e.target.value; writeSave(); });
+$('vview').addEventListener('change', e => { save.view = e.target.value; world.firstPerson = save.view === 'first'; writeSave(); });
 $('vinv').addEventListener('change', e => { save.invert = e.target.checked; writeSave(); });
 $('vmusic').addEventListener('input', e => { save.music = +e.target.value; SND.setMusic(save.music); writeSave(); });
 $('vsfx').addEventListener('input', e => { save.sfx = +e.target.value; SND.setSfx(save.sfx); writeSave(); });
@@ -3150,6 +3276,7 @@ function step(dt) {
     if (G.state === 'play' && G.phase === 'news' && MAPLE()) newsStep(dt);   // it's happening right in front of you
     if (G.state === 'play' || G.state === 'bag') mapBeats();
     if (MP.isClient()) MP.NETMOD.peopleStep(dt); else PEOPLE.peopleStep(dt, focusPos());   // MP: a client shows the host's townspeople
+    if (!MP.on()) TRAFFIC.update(dt);   // [traffic] (single player only)
     if (G.state !== 'title' && G.state !== 'escaping' && G.state !== 'dead' && P.alive && G.t % 0.5 < dt + 1e-4) world.navFrom(P.s.pos.x, P.s.pos.z, 55);
     if (G.state === 'title' && world.NAV.gen === 0) { const T0 = MAPLE() ? { x: -46, z: 9 } : startSpot(); world.navFrom(T0.x, T0.z, 40); }
     if (MP.isClient()) clientZombies(dt); else zombiesStep(dt);   // MP: a client shows the host's dead
@@ -3186,13 +3313,19 @@ function step(dt) {
   film.uniforms.desat.value = G.state === 'dead' ? 0.7 : clamp(hpK - 0.5, 0, 0.5);
   film.uniforms.sick.value = (G.infection || 0) / 100;
   film.uniforms.night.value = world.night;
-  film.uniforms.life.value = G.state === 'title' ? 0 : world.sunny || 0;
+  film.uniforms.life.value = G.state === 'title' ? 0 : world.presetName === 'desert' ? Math.max(world.sunny || 0, (world.daylight ?? 0) * 0.7) : world.sunny || 0;   // (the desert by day: bleached by the sun, not grey-green)
   film.uniforms.time.value = G.t;
-  renderer.toneMappingExposure = lerp(1.0, 1.35, world.night);
+  G.insideK = lerp(G.insideK || 0, G.inside ? 1 : 0, Math.min(1, dt * 3));
+  renderer.toneMappingExposure = lerp(1.0, 1.35, world.night * (1 - G.insideK));   // eyes adjust to the night outside (not under a roof with the lights on)
   drawOverlay(dt); hud(dt);
   if (DBG) { let d = $('dbg'); if (!d) { d = document.createElement('div'); d.id = 'dbg'; d.style.cssText = 'position:fixed;top:120px;left:10px;color:#0f0;font:12px monospace;z-index:30;white-space:pre;text-shadow:0 0 3px #000'; document.body.appendChild(d); } d.textContent = `${SND.debugInfo()} | fps ${(1 / dtS).toFixed(0)} pr ${renderer.getPixelRatio().toFixed(2)} | ${G.state} | zombies ${Z.list.filter(u => u.alive).length}/${Z.list.length} chase ${G.chasing} | ${P.s.pos.x.toFixed(1)},${P.s.pos.z.toFixed(1)} | calls ${renderer.info.render.calls} tris ${renderer.info.render.triangles}`; }
 }
-function render() { if (window.__hitBoxes && C.t - (window.__hitT || 0) > 0.5) { window.__hitT = C.t; window.__hitBoxes(); } if (window.__hitDbg) window.__hitDbg(); composer.render(); }
+let frameN = 0, shadowEvery = 1;
+function render() {
+  renderer.info.reset(); frameN++;
+  if (bloomPass && !MOB) bloomPass.enabled = world.night > 0.3 || save.quality >= 3 || G.state === 'title';   // bloom where there's light to bloom: night, lamps, fire
+  if (!MOB) { renderer.shadowMap.autoUpdate = shadowEvery < 2; if (shadowEvery > 1) renderer.shadowMap.needsUpdate = frameN % shadowEvery === 0; }
+  if (window.__hitBoxes && C.t - (window.__hitT || 0) > 0.5) { window.__hitT = C.t; window.__hitBoxes(); } if (window.__hitDbg) window.__hitDbg(); composer.render(); }
 let perfT = 0, perfN = 0, perfSum = 0;
 let perfGood = 0, perfLvl = 0;
 const PR_CAP = Math.min(2, devicePixelRatio || 1);
@@ -3205,11 +3338,14 @@ function perf(dt) {
   if (perfT < 2.5) return;
   const avg = perfSum / perfN; perfT = perfSum = perfN = 0;
   const pr = renderer.getPixelRatio();
-  if (avg > 1 / 40) {
-    perfGood = 0;
-    if (pr > 1) { renderer.setPixelRatio(Math.max(1, pr - 0.25)); resize(); }
+  if (avg > 1 / 25 && pr > 1) { perfGood = 0; renderer.setPixelRatio(1); resize(); }   // really struggling: straight down to 1x
+  else if (avg > 1 / 40) {
+    perfGood = 0;   // cheapest losses first: MSAA, then AO, then the shadows every other frame, then resolution, then the shadow map size
+    if (composer.renderTarget1 && composer.renderTarget1.samples > 0) { composer.renderTarget1.samples = 0; if (composer.renderTarget2) composer.renderTarget2.samples = 0; }
+    else if (aoPass && aoPass.enabled) aoPass.enabled = false;
+    else if (shadowEvery < 2) shadowEvery = 2;
+    else if (pr > 1) { renderer.setPixelRatio(Math.max(1, pr - 0.25)); resize(); }
     else if (perfLvl === 0 && world.sun && world.sun.shadow.mapSize.x > 1024) { perfLvl = 1; const sh = world.sun.shadow; sh.mapSize.set(1024, 1024); if (sh.map) { sh.map.dispose(); sh.map = null; } }
-    else if (perfLvl <= 1 && composer.renderTarget1 && composer.renderTarget1.samples > 0) { perfLvl = 2; composer.renderTarget1.samples = 0; if (composer.renderTarget2) composer.renderTarget2.samples = 0; }
   } else if (avg < 1 / 58) {
     if (++perfGood >= 3 && pr < PR_CAP) { perfGood = 0; renderer.setPixelRatio(Math.min(PR_CAP, pr + 0.25)); resize(); }   // smooth again: sharpen back up
   } else perfGood = 0;
@@ -3219,7 +3355,11 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = clamp((now - last) / 1000, 0, 0.1); last = now;
   dtS = lerp(dtS, dt, 0.2);
-  if (G.state !== 'loading' && !MANUAL) { step(Math.min(dtS, 1 / 30)); render(); perf(dt); }
+  if (G.state !== 'loading' && !MANUAL) {   // the game runs on real time (a slow frame takes up to 3 steps of at most 1/30 s); dtS only smooths the camera
+    const n = Math.min(3, Math.ceil(dt / (1 / 30) - 1e-6) || 1), h = dt / n;
+    for (let i = 0; i < n; i++) step(h);
+    render(); perf(dt);
+  }
   if (G.state !== 'loading') MP.update(Math.min(dt, 0.1));   // MP: the room, chat, voice (every frame, every screen)
 }
 // ---- touch screens: the stick, look and buttons (touch.js); on desktop TC stays null

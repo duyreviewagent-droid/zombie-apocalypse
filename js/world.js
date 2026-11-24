@@ -10,7 +10,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import * as TX from './tex.js';
 import { C } from './state.js';
 import { buildCar, CAR_SIZE } from './vehicles.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { breakKit } from './breakgeo.js';
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
@@ -21,7 +21,8 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const skyVS = `varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`;
 const skyFS = `
   uniform vec3 sunDir, zen, hor, sunCol, moonDir; uniform float night, cloud, time; varying vec3 vDir;
-  float h(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+  // (Hoskins' hash12: no sin(), so no banding / stripes on GPUs with low-precision sin at large arguments)
+  float h(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
   float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
   #ifndef OCT
   #define OCT 5
@@ -61,7 +62,7 @@ const skyFS = `
     // clouds: a layer of drifting cumulus (a few puffs on a clear day, a solid deck in rain), lit on the sun's side,
     // grey underneath, the edges bright when the sun is behind them; they thin out into the haze at the horizon
     if (d.y > -0.02) {
-      vec2 q = d.xz / (max(d.y, 0.0) + 0.1) * 0.75 + vec2(time * 0.006, time * 0.0025);
+      vec2 q = d.xz / (max(d.y, 0.0) + 0.1) * 0.75 + mod(vec2(time * 0.006, time * 0.0025), 512.0);   // (the drift wraps: no precision loss after hours of play)
       #ifdef ENV
         vec2 wq = q * 0.55;   // (the reflections only need the rough look of the sky)
       #else
@@ -90,6 +91,7 @@ const skyFS = `
 // ---------------------------------------------------------------- static geometry builder
 // quads straight into per-material, per-chunk arrays; textures are mapped in world metres (no stretching)
 let CH = 55;   // (phones and tablets: bigger chunks, fewer draw calls — set in makeWorld)
+let WELD = false;   // phones / tablets: weld the merged quads' shared corners (a third fewer vertices to shade)
 class Builder {
   constructor() { this.g = new Map(); }
   arr(key, cx, cz) {
@@ -142,8 +144,9 @@ class Builder {
       g.setAttribute('position', new THREE.Float32BufferAttribute(A.p, 3));
       g.setAttribute('normal', new THREE.Float32BufferAttribute(A.n, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(A.uv, 2));
-      g.computeBoundingSphere();
-      const m = new THREE.Mesh(g, MAT[A.key] || MAT.concrete);
+      const gg = WELD ? mergeVertices(g) : g; if (gg !== g) g.dispose();
+      gg.computeBoundingSphere();
+      const m = new THREE.Mesh(gg, MAT[A.key] || MAT.concrete);
       const glass = A.key === 'glass' || A.key === 'glassLit' || A.key === 'shopGlass' || A.key === 'frosted';
       m.castShadow = !glass && !A.key.startsWith('road') && A.key !== 'walk' && A.key !== 'drive' && !A.key.startsWith('floor') && !A.key.startsWith('rug');
       m.receiveShadow = true;
@@ -162,22 +165,28 @@ export function makeWorld(scene, renderer) {
     bounds: { x0: -112, x1: 112, z0: -112, z1: 112 }, kind: 'town', time: 8, daylight: 1,
   };
   // phones (2) and tablets (1) get the light build: see 'light build' below. Desktop (0): nothing changes.
-  const LOW = TX.tier(); W.low = LOW;
-  CH = LOW > 1 ? 110 : LOW ? 80 : 55;
+  const LOW = TX.tier(); W.low = LOW; WELD = !!LOW;
+  CH = LOW > 1 ? 110 : LOW ? 80 : 110;   // (desktop: big chunks too — far fewer draw calls, the GPU easily draws the rest)
+  const ICELL = LOW ? 40 : 100;   // instanced props: bucket size (phones keep small ones, so far buckets can be culled)
   // ---- point lights. Desktop: each one is a real light in the scene, as always. Phones / tablets: every point light
   // costs every pixel of every lit surface, lit or not — so the world's point lights (rooms, attic, fires, the police
   // car, the store tubes, the maps' lamps) are 'virtual': the game sets them as usual, and each frame the few that
   // matter most where you are are copied onto a small fixed pool of real ones (fixed: no shader ever recompiles).
   const VL = [], VP = [];
-  function addLight(l, parent = null) { if (LOW) { VL.push(l); return l; } (parent || level).add(l); return l; }
-  if (LOW) for (let i = 0; i < (LOW > 1 ? 2 : 3); i++) { const l = new THREE.PointLight(0xffffff, 0, 10, 1.7); scene.add(l); VP.push(l); }
+  // (desktop pools them too, into a few more real lights: every point light in the scene costs every lit pixel, and a
+  // fixed count means adding / switching one never recompiles a shader mid-game)
+  const VPN = LOW > 1 ? 2 : LOW ? 3 : 6;
+  function addLight(l, parent = null) { if (l.isPointLight && !l.castShadow) { l.userData._vg = parent || level; VL.push(l); return l; } (parent || level).add(l); return l; }
+  for (let i = 0; i < VPN; i++) { const l = new THREE.PointLight(0xffffff, 0, 10, 1.7); scene.add(l); VP.push(l); }
   const vpick = [];
+  // a virtual light inside a hidden group (an outbreak piece not yet revealed, a sub-group switched off) is off
+  const vShown = (l) => { for (let o = l.userData._vg; o && o !== scene; o = o.parent) if (o.visible === false) return false; return true; };
   function poolLights(p) {
     vpick.length = 0;
     for (const l of VL) {
       if (!(l.intensity > 0) || l.visible === false) continue;
       const d = Math.hypot(l.position.x - p.x, l.position.y - p.y, l.position.z - p.z), reach = l.distance || 30;
-      if (d > reach + 25) continue;
+      if (d > reach + 25 || !vShown(l)) continue;
       l.userData._vs = d / Math.max(4, reach) - Math.min(1, l.intensity / 20) * 0.2;   // close, and within its reach, first
       vpick.push(l);
     }
@@ -189,9 +198,9 @@ export function makeWorld(scene, renderer) {
     }
   }
   W.vlights = VL;
-  // for the other modules: world.addLight(pointLight, parent = scene) — desktop: parent.add(l); phones / tablets: virtual
-  // (pooled as above). Only for POINT lights whose position is in world space (parent at the origin, unrotated).
-  W.addLight = (l, parent = scene) => { if (LOW && l.isPointLight) { VL.push(l); return l; } parent.add(l); return l; };
+  // for the other modules: world.addLight(pointLight, parent = scene) — the shared entry point for world-space POINT
+  // lights (parent at the origin, unrotated): virtual, pooled as above. Anything else (spots, shadow casters) is added.
+  W.addLight = (l, parent = scene) => addLight(l, parent);
   // ---- sky and light ----
   const sunDir = new THREE.Vector3(-0.55, 0.42, -0.72).normalize(), moonDir = new THREE.Vector3(0.4, 0.5, 0.6).normalize();
   const uni = { sunDir: { value: sunDir }, moonDir: { value: moonDir }, zen: { value: new THREE.Color(0x5b6a7a) }, hor: { value: new THREE.Color(0xb9b4a8) }, sunCol: { value: new THREE.Color(0xffd9a8) }, night: { value: 0 }, cloud: { value: 0.6 }, time: { value: 0 } };
@@ -330,7 +339,7 @@ export function makeWorld(scene, renderer) {
   MAT.awning = std({ map: ctex(64, 8, (g) => { g.fillStyle = '#a8201a'; g.fillRect(0, 0, 64, 8); g.fillStyle = '#f0ece2'; g.fillRect(32, 0, 32, 8); }, [16, 1]), roughness: 0.85, side: THREE.DoubleSide });
   MAT.ice = std({ map: TX.labelTexture(['ICE'], '#e8eef4', '#2050a0', 256, 128, 'bold 80px Helvetica'), roughness: 0.4 });
   MAT.pegboard = std({ map: ctex(256, 256, (g) => { g.fillStyle = '#c8b898'; g.fillRect(0, 0, 256, 256); g.fillStyle = '#5a4a38'; for (let y = 16; y < 256; y += 32) for (let x = 16; x < 256; x += 32) { g.beginPath(); g.arc(x, y, 5.6, 0, 7); g.fill(); } }, [12, 2]), roughness: 0.8 });
-  MAT.ceilTile = std({ map: ctex(256, 256, (g, w2, h2, R) => { g.fillStyle = '#ecebe5'; g.fillRect(0, 0, 256, 256); for (let k = 0; k < 4160; k++) { g.fillStyle = `rgba(90,90,80,${0.08 + R() * 0.12})`; g.fillRect(R() * 256, R() * 256, 1 + R() * 2, 1 + R() * 2); } g.fillStyle = '#a8a8a2'; g.fillRect(0, 0, 256, 6); g.fillRect(0, 0, 6, 256); }), roughness: 0.95 });
+  MAT.ceilTile = std({ map: ctex(256, 256, (g, w2, h2, R) => { g.fillStyle = '#ecebe5'; g.fillRect(0, 0, 256, 256); for (let k = 0; k < 4160; k++) { g.fillStyle = `rgba(90,90,80,${0.08 + R() * 0.12})`; g.fillRect(R() * 256, R() * 256, 1 + R() * 2, 1 + R() * 2); } g.fillStyle = '#a8a8a2'; g.fillRect(0, 0, 256, 6); g.fillRect(0, 0, 6, 256); }, [1, 1]), roughness: 0.95 });   // (repeating: it's tiled in world metres)
   // small paintings for the walls (a sky, hills, a field, sometimes a sun or a tree), and a kitchen clock face
   for (let i = 0; i < 4; i++) {
     const cv = document.createElement('canvas'); cv.width = 128; cv.height = 96; const g = cv.getContext('2d');
@@ -427,14 +436,15 @@ export function makeWorld(scene, renderer) {
   const maskG = maskC.getContext('2d');
   const maskTex = new THREE.CanvasTexture(maskC); maskTex.wrapS = maskTex.wrapT = THREE.ClampToEdgeWrapping; maskTex.flipY = false;
   const toMask = (x, z) => [(x + MASK_R) / (MASK_R * 2) * MASK_N, (z + MASK_R) / (MASK_R * 2) * MASK_N];
-  const gUni = { mask: { value: maskTex }, tGrass: { value: gt.grass }, tDirt: { value: gt.dirt }, tMud: { value: gt.litter } };
+  const rockTx = TX.rockTexture(); rockTx.wrapS = rockTx.wrapT = THREE.RepeatWrapping;
+  const gUni = { mask: { value: maskTex }, tGrass: { value: gt.grass }, tDirt: { value: gt.dirt }, tMud: { value: gt.litter }, tRock: { value: rockTx } };
   const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, map: gt.grass });
   groundMat.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, gUni);
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP;')
-      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; varying vec3 vWN;')
+      .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * objectNormal);');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      varying vec3 vWP; uniform sampler2D mask, tGrass, tDirt, tMud;
+      varying vec3 vWP; varying vec3 vWN; uniform sampler2D mask, tGrass, tDirt, tMud, tRock;
       float hh(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
       float vn2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(hh(i), hh(i+vec2(1,0)), f.x), mix(hh(i+vec2(0,1)), hh(i+vec2(1,1)), f.x), f.y); }`)
       .replace('#include <map_fragment>', `
@@ -449,19 +459,43 @@ export function makeWorld(scene, renderer) {
         vec3 c = mix(gr, di, smoothstep(0.25, 0.6, dirtK));
         c = mix(c, mu, m.g);
         c *= 1.0 - m.b * 0.75;
+        // steep banks (terrain): bare rock, mapped from all three sides so it never stretches down a slope
+        { float sl = 1.0 - smoothstep(0.6, 0.8, vWN.y);
+          if (sl > 0.002) { vec3 an = abs(vWN); an /= an.x + an.y + an.z;
+            vec3 rk = texture2D(tRock, vWP.zy / 3.4).rgb * an.x + texture2D(tRock, vWP.xz / 3.4).rgb * an.y + texture2D(tRock, vWP.xy / 3.4).rgb * an.z;
+            c = mix(c, rk * vec3(0.98, 0.93, 0.86) * mix(0.85, 1.05, big), sl); } }
         diffuseColor.rgb *= c;`);
   };
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400).rotateX(-Math.PI / 2), groundMat);
   ground.receiveShadow = true; scene.add(ground);
   ground.userData.y = -0.004;   // a hair under everything laid on it, so road and paving never fight it for depth
   W.ground = ground;
-  // a dark tree line all round the horizon
-  {
-    const g = new THREE.CylinderGeometry(420, 440, 40, 128, 4, true);
-    const p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i), y = p.getY(i), a = Math.atan2(z, x); const h = 22 + Math.sin(a * 37) * 4 + Math.sin(a * 91 + 1) * 3 + Math.random() * 3; p.setY(i, y > 0 ? h : -5); }
+  // the horizon: a near ring of wooded hills (~200 m out) and, behind it, a paler ring fading into the haze. Built
+  // from layered low-frequency noise with smooth shading (rolling ridges, not a saw-toothed wall); the fog on them
+  // is capped so the skyline always reads, even on a murky day
+  const hillRing = (r0, r1, hBase, hVar, seed, cap) => {
+    const g = new THREE.CylinderGeometry(r0, r1, 1, 160, 1, true), p = g.attributes.position;
+    const R = TX.rng(seed), ph = [R() * 6.28, R() * 6.28, R() * 6.28, R() * 6.28];
+    for (let i = 0; i < p.count; i++) {
+      const a = Math.atan2(p.getZ(i), p.getX(i));
+      const n = Math.sin(a * 3 + ph[0]) * 0.45 + Math.sin(a * 7 + ph[1]) * 0.3 + Math.sin(a * 13 + ph[2]) * 0.16 + Math.sin(a * 29 + ph[3]) * 0.09;
+      p.setY(i, p.getY(i) > 0 ? hBase + n * hVar : -8);
+    }
     g.computeVertexNormals();
-    const hills = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x2c3524, roughness: 1, side: THREE.BackSide, flatShading: true }));
+    const m = new THREE.MeshStandardMaterial({ color: 0x2c3524, roughness: 1, side: THREE.BackSide });
+    m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <fog_fragment>', `#ifdef USE_FOG
+        #ifdef FOG_EXP2
+          float fogFactor = 1.0 - exp(- fogDensity * fogDensity * vFogDepth * vFogDepth);
+        #else
+          float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
+        #endif
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, min(fogFactor, ${cap.toFixed(2)}));
+      #endif`); };
+    return new THREE.Mesh(g, m);
+  };
+  {
+    const hills = hillRing(190, 205, 11, 7, 77, 0.8), far = hillRing(232, 246, 17, 9, 78, 0.9);
+    hills.add(far); hills.userData.far = far;
     scene.add(hills); W.hills = hills;
   }
   // grass blades round the player (none on paving, in houses or on roads)
@@ -611,7 +645,7 @@ export function makeWorld(scene, renderer) {
   // cast no shadow — at this shadow resolution it would be smaller than a texel anyway
   function inst(geo, mat, m, shadow = true) {
     if (shadow) { if (!geo.boundingSphere) geo.computeBoundingSphere(); if (geo.boundingSphere.radius * m.getMaxScaleOnAxis() < 0.16) shadow = false; }
-    const e = m.elements, k = geo.uuid + (Array.isArray(mat) ? mat.map(x => x.uuid).join() : mat.uuid) + (shadow ? 's' : '') + '|' + Math.floor(e[12] / 40) + ',' + Math.floor(e[14] / 40);
+    const e = m.elements, k = geo.uuid + (Array.isArray(mat) ? mat.map(x => x.uuid).join() : mat.uuid) + (shadow ? 's' : '') + '|' + Math.floor(e[12] / ICELL) + ',' + Math.floor(e[14] / ICELL);
     if (!instLists.has(k)) instLists.set(k, { geo, mat, ms: [], shadow }); const L = instLists.get(k); L.ms.push(m);
     const i = L.ms.length - 1;
     if (BRK) { const part = { L, i, m0: m.clone(), side: !!BRK.side, hide: !!BRK.hideNext }; if (BRK.phase) { BRK.bparts.push(part); m.copy(ZM); } else BRK.parts.push(part); }
@@ -688,7 +722,8 @@ export function makeWorld(scene, renderer) {
     blob: new THREE.IcosahedronGeometry(1, 1),
     blob0: new THREE.IcosahedronGeometry(1, 0),
     // a lumpy clump of foliage: an inner dark core and shells of leaf texture, so it reads as leaves, not a ball
-    clump: (() => { const g = new THREE.IcosahedronGeometry(1, 2); const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i); const n = 1 + 0.22 * Math.sin(x * 5.1 + y * 3.3) * Math.cos(z * 4.7 - x * 2.1) + 0.1 * Math.sin(y * 11 + z * 9); p.setXYZ(i, x * n, y * n, z * n); } g.computeVertexNormals(); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 3, uv.getY(i) * 2); return g; })(),
+    clump: (() => { const g = new THREE.IcosahedronGeometry(1, LOW ? 1 : 2);   // (phones / tablets: a quarter of the triangles)
+      const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i); const n = 1 + 0.22 * Math.sin(x * 5.1 + y * 3.3) * Math.cos(z * 4.7 - x * 2.1) + 0.1 * Math.sin(y * 11 + z * 9); p.setXYZ(i, x * n, y * n, z * n); } g.computeVertexNormals(); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 3, uv.getY(i) * 2); return g; })(),
     clumpIn: new THREE.IcosahedronGeometry(0.72, 1),
     pineCone: (() => { const g = new THREE.ConeGeometry(1, 1, 14, 3, true); const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); if (y < 0.4) { p.setX(i, p.getX(i) * (1 + (Math.random() - 0.5) * 0.25)); p.setZ(i, p.getZ(i) * (1 + (Math.random() - 0.5) * 0.25)); p.setY(i, y + (Math.random() - 0.5) * 0.12); } } g.computeVertexNormals(); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 4, uv.getY(i) * 2); return g; })(),
     // a dark solid cone inside each layer of needles, so a pine still reads as a full tree far away (thin needles
@@ -765,6 +800,14 @@ export function makeWorld(scene, renderer) {
   const FURN = new Map();   // cached furniture part geometries (drawer fronts, trays, pulls, knobs)
   W.treeSpots = [];
   const FALLEN_AT = [];   // root plates of trees the outbreak blows down (a map registers them before planting): nothing stands there
+  // a printed label whose text always fits: shrinks the font until the widest line sits inside 90% of the canvas (and the lines don't overlap)
+  const FIT_CV = document.createElement('canvas').getContext('2d');
+  function fitLab(lines, bg, fg, w = 256, h = 128, font = 'bold 40px Helvetica') {
+    const m = /(\d+(?:\.\d+)?)px/.exec(font); if (!m) return TX.labelTexture(lines, bg, fg, w, h, font);
+    let px = +m[1]; FIT_CV.font = font; const wide = Math.max(...lines.map(l => FIT_CV.measureText(l).width));
+    px = Math.min(px, px * w * 0.9 / Math.max(1, wide), lines.length === 1 ? h * 0.8 : h / (lines.length + 0.5) * 0.95);
+    return TX.labelTexture(lines, bg, fg, w, h, font.replace(m[0], Math.floor(px) + 'px'));
+  }
   function tree(x, z, s = 1, kind = 0, rnd = Math.random) {
     if (FALLEN_AT.some(([fx, fz]) => Math.hypot(fx - x, fz - z) < 3)) return 0;
     W.treeSpots.push([x, z, s]);
@@ -925,12 +968,26 @@ export function makeWorld(scene, renderer) {
     return L;
   }
   // a wheelie bin; fixed: it stays put whatever hits it (the one by the porch is the first step up onto the roof)
+  // the moulded body of a wheelie bin: vertical ribs, a lip band at the top, scuffs and grime low down (tinted by its colour)
+  const BIN_TEX = { t: null }, BIN_MATS = new Map();
+  function binBody(colMat) {
+    if (BIN_MATS.has(colMat)) return BIN_MATS.get(colMat);
+    BIN_TEX.t ||= ctex(128, 128, (g, w, h, R) => {
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, 128, 128);
+      for (let x = 6; x < 128; x += 15) { g.fillStyle = 'rgba(0,0,0,0.2)'; g.fillRect(x, 14, 3, 104); g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(x + 3, 14, 1, 104); }
+      g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(0, 0, 128, 3); g.fillRect(0, 11, 128, 2);
+      g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 2; g.strokeRect(44, 40, 40, 26);
+      const gr = g.createLinearGradient(0, 96, 0, 128); gr.addColorStop(0, 'rgba(60,50,40,0)'); gr.addColorStop(1, 'rgba(60,50,40,0.4)'); g.fillStyle = gr; g.fillRect(0, 96, 128, 32);
+      for (let k = 0; k < 40; k++) { g.fillStyle = `rgba(${R() < 0.5 ? '0,0,0' : '255,255,255'},${0.05 + R() * 0.1})`; g.fillRect(R() * 128, R() * 128, 1 + R() * 8, 1); }
+    });
+    const m = colMat.clone(); m.map = BIN_TEX.t; m.needsUpdate = true; BIN_MATS.set(colMat, m); return m;
+  }
   function trashBin(x, z, yaw, colMat = MAT.greenPaint, fixed = false) {
     const c = Math.cos(yaw), sn = Math.sin(yaw), tilt = Math.random() < 0.35 ? 0.5 + Math.random() * 0.6 : 0.02;
     const metal = colMat === MAT.darkMetal, tint = colMat.color ? [colMat.color.r, colMat.color.g, colMat.color.b] : null;
     let lidP = null;
     const it = (fixed ? (f => (f(), null)) : f => breakable('bin', x, z, yaw, { mat: metal ? 'metal' : 'plastic', mode: 'tip', kick: true, hp: 2.5, py: 0, pr: 0.34, ang: Math.PI / 2 * 0.98, carMin: 1.5, carK: 0.05, dent: 0.12, h: 1.05, cy: 0.6, lie: { hx: 0.31, hz: 0.53, y1: 0.66 }, deb: [[metal ? 'metal' : 'plastic', 6]], tint }, f))(() => {
-      inst(GEO.bin, colMat, mat4(x, 0.04, z, yaw, 1, 0.96, 1));
+      inst(GEO.bin, binBody(colMat), mat4(x, 0.04, z, yaw, 1, 0.96, 1));
       lidP = new THREE.Group(); lidP.position.set(x - sn * 0.36, 1.03, z - c * 0.36); lidP.rotation.set(-tilt, yaw, 0, 'YXZ'); level.add(lidP);
       const lid = new THREE.Mesh(GEO.binLid, colMat); lid.castShadow = true; lidP.add(lid);
       brkObj(lidP);
@@ -948,7 +1005,16 @@ export function makeWorld(scene, renderer) {
     solid(x, z, 0.18, 0.18, 0, 0.85, 'metal');
   }
   // orange traffic cones (white reflective bands)
-  function cone(x, z, tip = false) { inst(GEO.cone, MAT.orange, mat4(x, tip ? 0.12 : 0, z, Math.random() * 6, 1, 1, 1, tip ? 1.45 : 0, 0)); if (!tip) inst(GEO.coneBand, MAT.white, mat4(x, 0.42, z)); }
+  // a traffic cone: a standing one is a light little thing you can kick over or vault (one holding up tape stays put)
+  function cone(x, z, tip = false, fixed = false) {
+    const ry = Math.random() * 6;
+    if (tip || fixed) { inst(GEO.cone, MAT.orange, mat4(x, tip ? 0.12 : 0, z, ry, 1, 1, 1, tip ? 1.45 : 0, 0)); if (!tip) inst(GEO.coneBand, MAT.white, mat4(x, 0.42, z)); if (fixed) solid(x, z, 0.2, 0.2, 0, 0.72, 'plastic', 0, { vault: true, navSkip: true }); return; }
+    const it = breakable('cone', x, z, ry, { mat: 'plastic', mode: 'tip', kick: true, hp: 1, py: 0, pr: 0.22, ang: Math.PI / 2 * 0.9, carMin: 0.8, carK: 0.01, dent: 0.02, h: 0.72, cy: 0.35, lie: true, deb: [['plastic', 3]], tint: [0.95, 0.4, 0.1] }, () => {
+      inst(GEO.cone, MAT.orange, mat4(x, 0, z, ry)); inst(GEO.coneBand, MAT.white, mat4(x, 0.42, z, ry));
+      solid(x, z, 0.2, 0.2, ry, 0.72, 'plastic', 0, { vault: true, navSkip: true });
+    });
+    it.bboxes.push(solid(x, z, 0.22, 0.36, ry, 0.3, 'plastic', 0, { vault: true, navSkip: true, brk: it, off: true, lieBox: true, home: { x, z, yaw: ry, hx: 0.22, hz: 0.36, y0: 0, y1: 0.3 } }));
+  }
   // the mailbox at the kerb: a wooden post, the box, its little red flag (a car snaps the post and it goes over)
   function mailbox(x, z, yaw) {
     const K = bkit();
@@ -1774,8 +1840,14 @@ export function makeWorld(scene, renderer) {
       // the porch lantern: a back plate, a glass box with a bulb that's lit at night in some houses
       { const lx2 = frontDoorX + 0.8 * flip;
         hbox(lx2 - 0.06, 1.78, 5.1, lx2 + 0.06, 2.08, 5.125, MAT.black); hbox(lx2 - 0.02, 1.9, 5.12, lx2 + 0.02, 1.94, 5.19, MAT.black);
-        hm(GEO.lantern, r() < 0.45 ? MAT.porchOn : MAT.porchOff, lx2, 1.82, 5.23); hm(GEO.lanternCap, MAT.black, lx2, 2.05, 5.23); }
-      const num = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.2), new THREE.MeshStandardMaterial({ map: TX.labelTexture([String(opts.number || (10 + Math.floor(r() * 90)))], '#1e1e1e', '#e8e2d0', 128, 64, 'bold 46px Georgia'), roughness: 0.6 }));
+        const lit = r() < 0.45;
+        hm(GEO.lantern, lit ? MAT.porchOn : MAT.porchOff, lx2, 1.82, 5.23); hm(GEO.lanternCap, MAT.black, lx2, 2.05, 5.23);
+        // a lit one really lights the porch at night: a warm pool on the slab, a soft glow, a spot when you're near
+        if (lit) { const v = new THREE.Vector3(lx2, 1.93, 5.3).applyMatrix4(HX), [qx, qz] = P(frontDoorX, 5.75);
+          const pool = new THREE.Mesh(GEO.litter, poolMat); pool.position.set(qx, 0.135, qz); pool.scale.set(2.6, 1, 2.6); pool.visible = false; pool.renderOrder = 1; level.add(pool);
+          const halo = new THREE.Sprite(haloMat); halo.position.copy(v); halo.scale.setScalar(0.45); halo.visible = false; halo.renderOrder = 6; level.add(halo); pool.userData.halo = halo;
+          lamp(v.x, v.y, v.z, { pow: 0.15, dist: 8, angle: 1.3, tx: qx, tz: qz, col: 0xffd8a0, reach: -12 }).pool = pool; } }
+      const num = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.2), new THREE.MeshStandardMaterial({ map: fitLab([String(opts.number || (10 + Math.floor(r() * 90)))], '#1e1e1e', '#e8e2d0', 128, 64, 'bold 46px Georgia'), roughness: 0.6 }));
       const [nx2, nz2] = P(frontDoorX - 0.85 * flip, 5.13); num.position.set(nx2, 2.05, nz2); num.rotation.y = yaw; level.add(num);
       // gutters front and back; a downspout at each corner: down the wall from an elbow, a kick-out, a splash block
       for (const sgn of [1, -1]) {
@@ -1992,8 +2064,12 @@ export function makeWorld(scene, renderer) {
         else if (kind === 'bottle') ref = inst(GEO.bottle, MAT['bottle' + Math.floor(r() * 2)], mat4(x, U.y0 + y, z, r() * 6));
         else if (kind === 'carton') ref = inst(GEO.carton, MAT.white, mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.3));
         else if (kind === 'cloth') ref = inst(GEO.folded, MAT['fabric' + Math.floor(r() * 5)], mat4(x, U.y0 + y, z, yaw + flip * U.th));
+        // a DVD case stood on its edge, an amber pill bottle, a printed pack of tablets (low things for low shelves)
+        else if (kind === 'dvd') ref = inst(GEO.item, MAT['book' + Math.floor(r() * 6)], mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.1, 0.14, 3.8, 0.96));
+        else if (kind === 'pills') { const K = prodKit(); ref = inst(K.pillG, K.pill, mat4(x, U.y0 + y, z, r() * 6)); }
+        else if (kind === 'meds') { const K = prodKit(); ref = inst(K.medG, K.med[Math.floor(r() * 4)], mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.2)); }
         else ref = inst(GEO.cereal, MAT['book' + Math.floor(r() * 6)], mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.2));
-        if (ref) (U.items ||= []).push(propItem(ref, kind === 'cereal' || kind === 'box' ? 'box' : kind));
+        if (ref) (U.items ||= []).push(propItem(ref, kind === 'cereal' || kind === 'box' || kind === 'dvd' || kind === 'meds' ? 'box' : kind === 'pills' ? 'bottle' : kind));
       }
     }
     const OC = (kind, U, label, y, parts) => { const st = U.stand(); const [fx, fz] = U.world(0, U.D / 2 + 0.3); return container(kind, fx, fz, y, label, yaw, H, { parts, stand: st, items: (U.items ||= []) }); };
@@ -2024,7 +2100,7 @@ export function makeWorld(scene, renderer) {
     }
     { // TV cabinet: two doors, DVDs and junk inside
       const U = unit(-0.6, 2.6, -Math.PI / 2, 1.8, 0.55, 0.44); hollow(U, 'darkWood', 'cabinet', [0.28], 'darkWood');
-      stock(U, 0.075, 6, 0.15, ['box']); stock(U, 0.3, 5, 0.15, ['box', 'jar']);
+      stock(U, 0.075, 14, 0.12, ['dvd']); stock(U, 0.3, 10, 0.12, ['dvd', 'dvd', 'dvd', 'jar']);   // DVDs (under 0.2 m: they fit under the shelf)
       solid(...P(-0.6, 2.6), 0.22, 0.9, yaw, 0.55, 'wood');
       OC('cabinet', U, 'TV cabinet', 0.4, [leaf(U, -0.9, 0.07, 0.52, 0.89, 1, MAT.darkWood), leaf(U, 0.9, 0.07, 0.52, 0.89, -1, MAT.darkWood)]);
     }
@@ -2077,6 +2153,12 @@ export function makeWorld(scene, renderer) {
       solid(...P(-5.6, -2.6), 0.3, 1.6, yaw, 0.9, 'wood');
       OC('pantry', U, 'Pantry', 0.9, [leaf(U, -1.6, 0.08, 0.84, 0.79, 1, MAT.cabinet), leaf(U, -0.8, 0.08, 0.84, 0.79, 1, MAT.cabinet), leaf(U, 0.79, 0.08, 0.84, 0.79, -1, MAT.cabinet), leaf(U, 1.6, 0.08, 0.84, 0.79, -1, MAT.cabinet)]);   // all four doors: the stock runs the whole width
       hm(RB(0.36, 0.28, 0.2, 0.02), MAT.appliance, -5.7, 1.04, -3.6, Math.PI / 2);   // a toaster
+      for (const ox of [-0.045, 0.045]) hm(GEO.ubox, MAT.black, -5.7 + ox, 1.181, -3.6, Math.PI / 2, 0.25, 0.004, 0.032, 0, 0, false);   // its two bread slots
+      hm(GEO.ubox, MAT.black, -5.7, 1.1, -3.6 + 0.185, Math.PI / 2, 0.03, 0.025, 0.05, 0, 0, false);   // the lever
+      // a microwave: a steel box, a dark glass door window, the keypad strip
+      hm(RB(0.5, 0.29, 0.36, 0.02), MAT.appliance, -5.64, 1.045, -1.55, Math.PI / 2);
+      hm(GEO.uplane, MAT.black, -5.458, 1.045, -1.6, Math.PI / 2, 0.32, 0.19, 1, 0, 0, false);
+      hm(GEO.uplane, MAT.darkMetal, -5.458, 1.045, -1.38, Math.PI / 2, 0.09, 0.21, 1, 0, 0, false);
       hm(GEO.ucyl, MAT.redPaint, -5.72, 1.0, -2.2, 0, 0.16, 0.2, 0.16);                // a kettle-ish canister
     }
     // wall cabinets either side of the window (doors that open, a shelf inside)
@@ -2137,7 +2219,7 @@ export function makeWorld(scene, renderer) {
     { // the closet: coats on a rail, boxes on the shelf
       const U = unit(5.65, 1.3, -Math.PI / 2, 1.6, 2.1, 0.6); hollow(U, 'cabinet', 'cabinet', [1.72], 'cabinet');
       U.box(0, 1.6, 0, 0.76, 1.62, 0.012, 'metal');   // the rail
-      for (let k = 0; k < 7; k++) { if (r() < 0.2) continue; const bx = -0.62 + k * 0.2; U.box(bx, 0.62 + r() * 0.2, 0, 0.03, 1.58, 0.24, 'fabric' + Math.floor(r() * 5)); }
+      for (let k = 0; k < 7; k++) { if (r() < 0.2) continue; const bx = -0.62 + k * 0.2; U.box(bx, 0.62 + r() * 0.2, 0, 0.03, 1.58, 0.24, 'fabric' + Math.floor(r() * 5)); U.box(bx, 1.575, 0, 0.012, 1.592, 0.215, 'darkWood'); U.box(bx, 1.592, 0, 0.005, 1.62, 0.005, 'metal'); }   // each coat on a wooden hanger hooked over the rail
       stock(U, 1.74, 4, 0.2, ['box', 'cloth', 'cloth']);
       solid(...P(5.65, 1.3), 0.3, 0.8, yaw, 2.1, 'wood');
       OC('closet', U, 'Closet', 1.1, [leaf(U, -0.8, 0.08, 2.06, 0.79, 1, MAT.cabinet, MAT.metal, Math.PI / 2), leaf(U, 0.8, 0.08, 2.06, 0.79, -1, MAT.cabinet, MAT.metal, Math.PI / 2)]);   // against a wall: 90° and no further
@@ -2177,7 +2259,7 @@ export function makeWorld(scene, renderer) {
     }
     { // the mirrored medicine cabinet over the sink (stand back from the vanity to open it)
       const U = unit(5.88, -0.55, -Math.PI / 2, 0.7, 0.62, 0.14, 1.2); hollow(U, 'white', 'porcelain', [0.3], 'white');
-      stock(U, 0.075, 5, 0.04, ['bottle', 'jar', 'box']); stock(U, 0.32, 5, 0.04, ['bottle', 'jar']);
+      stock(U, 0.075, 6, 0.04, ['pills', 'meds', 'pills']); stock(U, 0.32, 6, 0.04, ['pills', 'meds']);   // pill bottles and packs of tablets
       OC('medicine', { ...U, stand: () => U.stand(0.98) }, 'Medicine cabinet', 1.2, [leaf(U, -0.35, 0.0, 0.62, 0.7, 1, MAT.mirror, MAT.white)]);
     }
     hbox(2.6, 1.3, -3.42, 2.64, 1.32, -2.78, MAT.chrome, false); hbox(2.6, 0.92, -3.36, 2.67, 1.31, -2.84, MAT[fab2], false);   // a towel on a rail
@@ -2291,7 +2373,7 @@ export function makeWorld(scene, renderer) {
     const C = car(x, z, yaw, 6, 'sedan', { police: true, paint: MAT.carBlack, white: MAT.carWhite });
     const red = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0, roughness: 0.2 }), blue = new THREE.MeshStandardMaterial({ color: 0x000040, emissive: 0x1030ff, emissiveIntensity: 0, roughness: 0.2 });
     for (const [m, sx] of [[red, -0.33], [blue, 0.33]]) { const o = new THREE.Mesh(new RoundedBoxGeometry(0.58, 0.11, 0.26, 2, 0.04), m); o.position.set(sx, 1.58, -0.1); C.g.add(o); }
-    const lbl = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.22), new THREE.MeshStandardMaterial({ map: TX.labelTexture(['POLICE'], '#d8d8d4', '#111', 512, 100, 'bold 70px Helvetica'), roughness: 0.4, transparent: true }));
+    const lbl = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.22), new THREE.MeshStandardMaterial({ map: fitLab(['POLICE'], '#d8d8d4', '#111', 512, 100, 'bold 70px Helvetica'), roughness: 0.4, transparent: true }));
     for (const sx of [-1, 1]) { const l = lbl.clone(); l.position.set(sx * 0.935, 0.92, 0.1); l.rotation.y = sx * Math.PI / 2; C.g.add(l); }
     C.bar = { red, blue };
     W.police = C;
@@ -2300,7 +2382,7 @@ export function makeWorld(scene, renderer) {
   }
   function ambulance(x, z, yaw) {
     const C = car(x, z, yaw, 0, 'van', { ambulance: true, paint: MAT.carWhite, red: MAT.redPaint, noSearch: true });
-    const lbl = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.42), new THREE.MeshStandardMaterial({ map: TX.labelTexture(['AMBULANCE'], '#d8d8d4', '#b01810', 512, 128, 'bold 74px Helvetica'), roughness: 0.4 }));
+    const lbl = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.42), new THREE.MeshStandardMaterial({ map: fitLab(['AMBULANCE'], '#d8d8d4', '#b01810', 512, 128, 'bold 74px Helvetica'), roughness: 0.4 }));
     for (const sx of [-1, 1]) { const l = lbl.clone(); l.position.set(sx * 1.005, 1.75, -0.9); l.rotation.y = sx * Math.PI / 2; C.g.add(l); }
     const rl = new THREE.Mesh(new RoundedBoxGeometry(1.5, 0.12, 0.25, 2, 0.04), new THREE.MeshStandardMaterial({ color: 0x500000, emissive: 0x300000, roughness: 0.2 })); rl.position.set(0, 2.55, 0.9); C.g.add(rl);
     container('ambulance', x - Math.sin(yaw) * 3.1, z - Math.cos(yaw) * 3.1, 1.0, 'Ambulance (back doors)', yaw, null, { parts: C.parts, stand: { x: x - Math.sin(yaw) * 3.55, z: z - Math.cos(yaw) * 3.55, yaw } });
@@ -2380,7 +2462,7 @@ export function makeWorld(scene, renderer) {
       oct(128, '#f2f0ea'); oct(116, '#b81c1c'); g.fillStyle = '#f6f4ee'; g.font = 'bold 78px Helvetica'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('STOP', 128, 132);
     }), roughness: 0.5 });
     const octG = new THREE.CircleGeometry(0.38, 8, Math.PI / 8);
-    const blade = n => std({ map: TX.labelTexture([n], '#1d5e2e', '#f4f4ee', 512, 96, 'bold 60px Helvetica'), roughness: 0.5 });
+    const blade = n => std({ map: fitLab([n], '#1d5e2e', '#f4f4ee', 512, 96, 'bold 60px Helvetica'), roughness: 0.5 });
     const mainB = blade('MAIN ST'), mapleB = blade('MAPLE AVE');
     for (const [x, z, ry] of [[5.5, 5.5, 0], [-5.5, 5.5, -Math.PI / 2], [-5.5, -5.5, Math.PI], [5.5, -5.5, Math.PI / 2]]) {
       const tall = x > 0 && z > 0 ? 2.95 : 2.5;
@@ -2480,14 +2562,14 @@ export function makeWorld(scene, renderer) {
       const rnd = TX.rng(77);
       // 0: an asphalt patch — a darker, smoother rectangle, its sealed seam a slightly glossy black outline
       { g.save(); g.translate(0, 0); g.beginPath(); const pts = [[22, 30], [232, 20], [238, 226], [18, 236]]; pts.forEach(([x, y], i) => i ? g.lineTo(x + (rnd() - 0.5) * 6, y + (rnd() - 0.5) * 6) : g.moveTo(x, y)); g.closePath();
-        g.fillStyle = 'rgba(26,26,28,0.62)'; g.fill(); for (let k = 0; k < 900; k++) { g.fillStyle = `rgba(${70 + rnd() * 60 | 0},${70 + rnd() * 60 | 0},${70 + rnd() * 60 | 0},0.35)`; g.fillRect(22 + rnd() * 212, 24 + rnd() * 210, 1.5, 1.5); }
-        g.strokeStyle = 'rgba(8,8,8,0.85)'; g.lineWidth = 7; g.stroke(); g.restore(); }
+        g.fillStyle = 'rgba(26,26,28,0.3)'; g.fill(); for (let k = 0; k < 900; k++) { g.fillStyle = `rgba(${70 + rnd() * 60 | 0},${70 + rnd() * 60 | 0},${70 + rnd() * 60 | 0},0.2)`; g.fillRect(22 + rnd() * 212, 24 + rnd() * 210, 1.5, 1.5); }
+        g.strokeStyle = 'rgba(8,8,8,0.5)'; g.lineWidth = 6; g.stroke(); g.restore(); }
       // 1: crack sealant: black branching squiggles
       { g.save(); g.translate(256, 0); g.strokeStyle = 'rgba(10,10,10,0.9)'; g.lineCap = 'round';
         const crack = (x, y, a, len, w) => { g.lineWidth = w; g.beginPath(); g.moveTo(x, y); for (let i = 0; i < len; i++) { a += (rnd() - 0.5) * 0.7; x += Math.cos(a) * 6; y += Math.sin(a) * 6; g.lineTo(x, y); if (rnd() < 0.07 && w > 2) { g.stroke(); crack(x, y, a + (rnd() < 0.5 ? 1 : -1) * (0.6 + rnd() * 0.6), len * 0.4 | 0, w * 0.6); g.beginPath(); g.moveTo(x, y); } } g.stroke(); };
         crack(10, 120, 0.1, 40, 4.5); crack(128, 10, 1.5, 36, 3.5); g.restore(); }
       // 2: an oil stain: a dark soak, darker heart, a faint rainbow rim
-      { g.save(); g.translate(128, 384); for (let k = 0; k < 14; k++) { const r2 = 30 + rnd() * 80, x = (rnd() - 0.5) * 60, y = (rnd() - 0.5) * 50; const gr = g.createRadialGradient(x, y, 0, x, y, r2); gr.addColorStop(0, 'rgba(6,5,4,0.5)'); gr.addColorStop(0.7, 'rgba(10,8,6,0.25)'); gr.addColorStop(1, 'rgba(10,8,6,0)'); g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, r2, r2 * (0.6 + rnd() * 0.4), rnd() * 3, 0, 7); g.fill(); }
+      { g.save(); g.translate(128, 384); for (let k = 0; k < 14; k++) { const r2 = 30 + rnd() * 80, x = (rnd() - 0.5) * 60, y = (rnd() - 0.5) * 50; const gr = g.createRadialGradient(x, y, 0, x, y, r2); gr.addColorStop(0, 'rgba(6,5,4,0.32)'); gr.addColorStop(0.7, 'rgba(10,8,6,0.15)'); gr.addColorStop(1, 'rgba(10,8,6,0)'); g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, r2, r2 * (0.6 + rnd() * 0.4), rnd() * 3, 0, 7); g.fill(); }
         g.strokeStyle = 'rgba(90,70,120,0.12)'; g.lineWidth = 3; g.beginPath(); g.ellipse(0, 0, 92, 70, 0.3, 0, 7); g.stroke(); g.restore(); }
       // 3: skid marks: two long rubber streaks, wavering
       { g.save(); g.translate(256, 256); for (const x0 of [70, 180]) { for (let y = 0; y < 256; y += 2) { const w2 = 22 + Math.sin(y * 0.05 + x0) * 4, a = 0.32 * Math.sin(Math.PI * y / 256) + 0.06; g.fillStyle = `rgba(12,12,12,${a})`; g.fillRect(x0 - w2 / 2 + Math.sin(y * 0.02) * 6, y, w2, 2); } } g.restore(); }
@@ -2507,7 +2589,7 @@ export function makeWorld(scene, renderer) {
     DK.shelterGlass = new THREE.MeshStandardMaterial({ color: 0xb8c8cc, roughness: 0.08, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 1.4 });
     DK.adMat = std({ map: ctex(256, 384, (g) => { const gr = g.createLinearGradient(0, 0, 0, 384); gr.addColorStop(0, '#1d3c66'); gr.addColorStop(1, '#0c1a30'); g.fillStyle = gr; g.fillRect(0, 0, 256, 384); g.fillStyle = '#f4d23a'; g.font = 'bold 40px Helvetica'; g.textAlign = 'center'; g.fillText('MAPLE', 128, 70); g.fillText('COUNTY', 128, 112); g.fillStyle = '#ffffff'; g.font = 'bold 28px Helvetica'; g.fillText('FALL FAIR', 128, 160); g.font = '22px Helvetica'; g.fillText('Nov 15 – 16', 128, 196); g.fillStyle = '#c0392b'; g.beginPath(); g.arc(128, 286, 62, 0, 7); g.fill(); g.fillStyle = '#ffffff'; g.font = 'bold 26px Helvetica'; g.fillText('RIDES', 128, 280); g.fillText('& PIE', 128, 308); }), emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.4 });
     DK.adMat.emissiveMap = DK.adMat.map;
-    DK.busSign = std({ map: TX.labelTexture(['BUS', 'STOP', 'Route 9'], '#1d5e9e', '#ffffff', 256, 256, 'bold 64px Helvetica'), roughness: 0.5, side: THREE.DoubleSide });
+    DK.busSign = std({ map: fitLab(['BUS', 'STOP', 'Route 9'], '#1d5e9e', '#ffffff', 256, 256, 'bold 64px Helvetica'), roughness: 0.5, side: THREE.DoubleSide });
     return DK;
   }
   // is there room here (no box, no tree, no curb cut)? r: clearance in metres
@@ -2531,7 +2613,7 @@ export function makeWorld(scene, renderer) {
     const onRoad = (lane) => { const main = rnd() < 0.5, a = (rnd() < 0.5 ? -1 : 1) * (10 + rnd() * 98), c = lane(); return main ? [a, c, 0] : [c, a, Math.PI / 2]; };
     for (let i = 0; i < 22; i++) { const [x, z, ry] = onRoad(() => (rnd() - 0.5) * 6); X(D.wearGeo[0], D.wearMat, x, 0.0165, z, ry + (rnd() - 0.5) * 0.1, 1 + rnd() * 2.2, 1, 0.8 + rnd() * 1.6, 0, 0, false); }
     for (let i = 0; i < 46; i++) { const [x, z, ry] = onRoad(() => (rnd() - 0.5) * 7.2); const s = 1.6 + rnd() * 2.5; X(D.wearGeo[1], D.wearMat, x, 0.017, z, rnd() * 6.28, s, 1, s, 0, 0, false); }
-    for (let i = 0; i < 34; i++) { const [x, z, ry] = onRoad(() => (rnd() < 0.5 ? -1 : 1) * (rnd() < 0.6 ? 2.7 : 1.8 + rnd() * 0.4)); const s = 0.7 + rnd() * 1.1; X(D.wearGeo[2], D.wearMat, x, 0.0175, z, rnd() * 6.28, s, 1, s * (0.8 + rnd() * 0.4), 0, 0, false); }
+    for (let i = 0; i < 34; i++) { const [x, z, ry] = onRoad(() => (rnd() < 0.5 ? -1 : 1) * (2.55 + rnd() * 0.35)); /* oil only where cars park, by the kerb */ const s = 0.7 + rnd() * 1.1; X(D.wearGeo[2], D.wearMat, x, 0.0175, z, rnd() * 6.28, s, 1, s * (0.8 + rnd() * 0.4), 0, 0, false); }
     for (let i = 0; i < 7; i++) { const [x, z, ry] = onRoad(() => (rnd() - 0.5) * 4); X(D.wearGeo[3], D.wearMat, x, 0.018, z, ry + Math.PI / 2 + (rnd() - 0.5) * 0.5, 1.9, 1, 5 + rnd() * 6, 0, 0, false); }
     // ---- crosswalk signals at the four corners: a pole, two heads (one per crosswalk), a push button ----
     const heads = [];
@@ -2726,7 +2808,7 @@ export function makeWorld(scene, renderer) {
     const E = 106;
     chainFence(-E, -E, E, -E); chainFence(E, -E, E, E); chainFence(E, E, -E, E); chainFence(-E, E, -E, -E);
     for (const [x, z, yaw] of [[0, -E + 0.1, 0], [-E + 0.1, 0, Math.PI / 2], [E - 0.1, 0, -Math.PI / 2], [0, E - 0.1, Math.PI]]) {
-      const lm2 = new THREE.MeshStandardMaterial({ map: TX.labelTexture(['QUARANTINE ZONE', 'DO NOT CROSS'], '#d8c020', '#111', 512, 256, 'bold 54px Helvetica'), roughness: 0.6 });
+      const lm2 = new THREE.MeshStandardMaterial({ map: fitLab(['QUARANTINE ZONE', 'DO NOT CROSS'], '#d8c020', '#111', 512, 256, 'bold 54px Helvetica'), roughness: 0.6 });
       // a 2 cm aluminium panel up against the fabric, zip-tied at the corners
       const inx = -Math.sin(yaw) * 0.06, inz = -Math.cos(yaw) * 0.06, sx2 = x + inx, sz2 = z + inz;
       chaos(x, z, () => { mesh(new THREE.BoxGeometry(2.4, 1.2, 0.02), [MAT.metal, MAT.metal, MAT.metal, MAT.metal, lm2, lm2], sx2, 1.6, sz2, yaw, false); for (const [u, v] of [[-1.1, 0.55], [1.1, 0.55], [-1.1, -0.55], [1.1, -0.55]]) inst(GEO.ubox, MAT.black, mat4(x + inx * 0.5 + Math.cos(yaw) * u, 1.6 + v, z + inz * 0.5 - Math.sin(yaw) * u, yaw, 0.02, 0.05, 0.08), false); });
@@ -2783,7 +2865,7 @@ export function makeWorld(scene, renderer) {
     OKIT.boxWhite = std({ map: TX.carPaintTexture('#e6e4de', 62), roughness: 0.5, metalness: 0.2 });
     OKIT.darkGlass = std({ color: 0x1a2024, roughness: 0.08, metalness: 0.4 });
     OKIT.tyre = std({ color: 0x18181a, roughness: 0.85 });
-    OKIT.label = (lines, bg, fg, w = 512, h = 128, font = 'bold 64px Helvetica') => std({ map: TX.labelTexture(lines, bg, fg, w, h, font), roughness: 0.5 });
+    OKIT.label = (lines, bg, fg, w = 512, h = 128, font = 'bold 64px Helvetica') => std({ map: fitLab(lines, bg, fg, w, h, font), roughness: 0.5 });
     // spilled fuel: dark, with an oily rainbow sheen, soft ragged edges
     OKIT.fuel = new THREE.MeshStandardMaterial({ map: ctex(256, 256, (g) => { const gr = g.createRadialGradient(128, 128, 10, 128, 128, 128); gr.addColorStop(0, 'rgba(26,22,18,0.9)'); gr.addColorStop(0.75, 'rgba(26,22,18,0.75)'); gr.addColorStop(1, 'rgba(26,22,18,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256); for (let k = 0; k < 40; k++) { const h = Math.floor(rnd() * 360); g.strokeStyle = `hsla(${h},70%,55%,${0.08 + rnd() * 0.12})`; g.lineWidth = 2 + rnd() * 6; g.beginPath(); g.arc(128 + (rnd() - 0.5) * 60, 128 + (rnd() - 0.5) * 60, 20 + rnd() * 80, rnd() * 6, rnd() * 6 + 2); g.stroke(); } g.globalCompositeOperation = 'destination-out'; for (let k = 0; k < 30; k++) { const a = rnd() * 6.28, d = 100 + rnd() * 30; g.fillStyle = 'rgba(0,0,0,0.9)'; g.beginPath(); g.arc(128 + Math.cos(a) * d, 128 + Math.sin(a) * d, 10 + rnd() * 18, 0, 7); g.fill(); } }), transparent: true, depthWrite: false, roughness: 0.05, metalness: 0.3, envMapIntensity: 1.6, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
     // standing water on the road: a still sheet that mirrors the sky
@@ -2794,7 +2876,7 @@ export function makeWorld(scene, renderer) {
     OKIT.soot = new THREE.MeshStandardMaterial({ map: ctex(128, 128, (g) => { const gr = g.createRadialGradient(64, 90, 4, 64, 60, 70); gr.addColorStop(0, 'rgba(8,6,5,0.95)'); gr.addColorStop(0.6, 'rgba(12,10,8,0.6)'); gr.addColorStop(1, 'rgba(12,10,8,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); }), transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     OKIT.glow = new THREE.MeshStandardMaterial({ color: 0x2a0a00, emissive: 0xff6a18, emissiveIntensity: 2.2, roughness: 1, side: THREE.DoubleSide });
     OKIT.spark = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
-    OKIT.tape = std({ map: TX.labelTexture(['CAUTION  ·  CAUTION  ·  CAUTION'], '#e8c418', '#111', 512, 32, 'bold 22px Helvetica'), side: THREE.DoubleSide, roughness: 0.6 });
+    OKIT.tape = std({ map: fitLab(['CAUTION  ·  CAUTION  ·  CAUTION'], '#e8c418', '#111', 512, 32, 'bold 22px Helvetica'), side: THREE.DoubleSide, roughness: 0.6 });
     OKIT.redGlow = std({ color: 0x400000, emissive: 0xff2010, emissiveIntensity: 2.5, roughness: 0.5 });
     // a shopping cart: wire basket, frame, red handle, four casters (one merged shape, plus its wire mesh)
     const P3 = [], tube = (a, b, r = 0.012) => { const v = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), Lg = v.length(); const g = new THREE.CylinderGeometry(r, r, Lg, 6); g.translate(0, Lg / 2, 0); g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.normalize())); g.translate(a[0], a[1], a[2]); P3.push(g.toNonIndexed()); };
@@ -2832,7 +2914,7 @@ export function makeWorld(scene, renderer) {
     for (let k = 0; k < 14; k++) { const t = 0.62 + Math.random() * 0.45, [cx, cz] = at(t), off = (Math.random() - 0.5) * 3.6 * s, sc = (0.9 + Math.random() * 0.6) * s; inst(GEO.clump, MAT.leaves, mat4(cx + px * off, 0.55 + Math.random() * 1.3 * s, cz + pz * off, Math.random() * 6, sc * 1.2, sc * 0.75, sc * 1.2)); if (k % 2 === 0) inst(GEO.clumpIn, MAT.leafCore, mat4(cx + px * off, 0.7, cz + pz * off, 0, sc, sc * 0.6, sc), false); }
     // you climb over the trunk (it's low), go round the crown and the roots
     { const [cx, cz] = at(0.33); solid(cx, cz, 0.42 * s, len * 0.28, yaw, 0.85 * s, 'wood', 0, { vault: true }); }
-    { const [cx, cz] = at(0.82); solid(cx, cz, 1.9 * s, len * 0.2, yaw, 2.1 * s, 'leaves'); }
+    { const [cx, cz] = at(0.845); solid(cx, cz, 2.6 * s, len * 0.24, yaw, 2.1 * s, 'leaves'); }   // the whole crushed crown, not just its middle
     solid(x0 - fx * 0.25, z0 - fz * 0.25, 1.3 * s, 0.35 * s, yaw, 2.1 * s, 'dirt');
     W.treeSpots.push([...at(0.8), s]);
   }
@@ -3018,8 +3100,10 @@ export function makeWorld(scene, renderer) {
       for (const [x2, z2, ry, rx, rz, y] of [[11.0, -9.6, 0.4, 0, 0, 0], [11.9, -9.3, 0.5, 0, 0, 0], [12.6, -8.4, 2.4, 0, Math.PI / 2 * 0.95, 0.3], [11.4, -8.4, -0.9, 0, 0, 0], [11.6, -9.0, 1.2, -0.35, 0.25, 0.75], [10.4, -8.3, 2.0, 0, -Math.PI / 2 * 0.95, 0.3]]) {
         const m = new THREE.Mesh(K.cartFrame, MAT.chrome), b = new THREE.Mesh(K.cartBasket, MAT.chainlink), h = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.04), K.handle);
         h.position.set(0, 0.98, 0.5); b.add(h); m.add(b); m.position.set(x2, y, z2); m.rotation.set(rx, ry, rz, 'YXZ'); m.castShadow = true; level.add(m);
+        // one solid per cart (a cart on its side is a low wide one), so you can walk the gaps in the pile
+        const side = Math.abs(rz) > 1;
+        solid(x2, z2, side ? 0.5 : 0.3, 0.5, ry, side ? 0.65 : 1.05 + y, 'metal');
       }
-      solid(11.5, -8.9, 1.5, 1.0, 0, 1.2, 'metal');
     });
     // ---- 13. a sinkhole in Main St: the asphalt broken in round the edge, a pit with water in the bottom, cones and tape ----
     chaos(30, 1.2, () => {
@@ -3029,9 +3113,9 @@ export function makeWorld(scene, renderer) {
       for (let k = 0; k < 11; k++) { const a = k / 11 * 6.28 + Math.random() * 0.2; WX(GEO.ubox, MAT.road, C0[0] + Math.cos(a) * (R + 0.15), 0.04, C0[1] + Math.sin(a) * (R + 0.15), -a, 0.22, 0.09, 0.55 + Math.random() * 0.4, 0, 0.35 + Math.random() * 0.3); }
       for (let k = 0; k < 8; k++) { const a = Math.random() * 6.28, d = R + 0.5 + Math.random() * 0.8; WX(GEO.blob0, MAT.road, C0[0] + Math.cos(a) * d, 0.03, C0[1] + Math.sin(a) * d, Math.random() * 6, 0.12 + Math.random() * 0.12, 0.05, 0.12 + Math.random() * 0.15, 0, 0, false); }
       const cs = [];
-      for (let k = 0; k < 7; k++) { const a = k / 7 * 6.28 + 0.2, p2 = [C0[0] + Math.cos(a) * 2.5, C0[1] + Math.sin(a) * 2.5]; cone(p2[0], p2[1]); cs.push(p2); }
+      for (let k = 0; k < 7; k++) { const a = k / 7 * 6.28 + 0.2, p2 = [C0[0] + Math.cos(a) * 2.5, C0[1] + Math.sin(a) * 2.5]; cone(p2[0], p2[1], false, true); cs.push(p2); }
       for (let k = 0; k < cs.length; k++) { const a = cs[k], b = cs[(k + 1) % cs.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]); WX(new THREE.PlaneGeometry(1, 0.08), K.tape, (a[0] + b[0]) / 2, 0.62, (a[1] + b[1]) / 2, Math.atan2(-(b[1] - a[1]), b[0] - a[0]), L, 1, 1, 0, 0, false); }
-      solid(C0[0], C0[1], 2.35, 2.35, 0, 0.75, 'dirt');
+      for (const ry of [0, Math.PI / 4]) solid(C0[0], C0[1], 1.75, 1.75, ry, 0.75, 'dirt');   // two squares at 45 degrees: a round-ish pit, no invisible corners out past the cones
     });
     // ---- 14. a streetlight knocked flat across Maple Ave, its head smashed on the road ----
     chaos(-1.5, 22, () => {
@@ -3074,7 +3158,7 @@ export function makeWorld(scene, renderer) {
     PROD.lidG = new THREE.CylinderGeometry(0.047, 0.047, 0.022, 14).translate(0, 0.151, 0);
     // pharmacy: little printed packs and amber pill bottles
     PROD.medG = new THREE.BoxGeometry(0.14, 0.09, 0.05).translate(0, 0.045, 0);
-    PROD.med = [['ASPIRIN', '#f4f4f0', '#c01818'], ['BANDAGES', '#f4f4f0', '#1a5aa0'], ['COLD & FLU', '#2a5aa0', '#f4f4f0'], ['IBUPROFEN', '#f0a020', '#ffffff']].map(([n, bg, fg]) => { const lab = new THREE.MeshStandardMaterial({ map: TX.labelTexture([n], bg, fg, 256, 128, 'bold 40px Helvetica'), roughness: 0.6 }), side = new THREE.MeshStandardMaterial({ color: bg, roughness: 0.6 }); return [side, side, side, side, lab, lab]; });
+    PROD.med = [['ASPIRIN', '#f4f4f0', '#c01818'], ['BANDAGES', '#f4f4f0', '#1a5aa0'], ['COLD & FLU', '#2a5aa0', '#f4f4f0'], ['IBUPROFEN', '#f0a020', '#ffffff']].map(([n, bg, fg]) => { const lab = new THREE.MeshStandardMaterial({ map: fitLab([n], bg, fg, 256, 128, 'bold 40px Helvetica'), roughness: 0.6 }), side = new THREE.MeshStandardMaterial({ color: bg, roughness: 0.6 }); return [side, side, side, side, lab, lab]; });
     PROD.pillG = (() => { const g = new THREE.CylinderGeometry(0.028, 0.028, 0.085, 12).translate(0, 0.0425, 0); return g; })();
     PROD.pill = new THREE.MeshStandardMaterial({ color: 0xa8641c, roughness: 0.2, metalness: 0.05, transparent: true, opacity: 0.88 });
     // drinks: the bottle, a printed label wrapped round it and a coloured cap, one geometry (three groups) per brand
@@ -3147,7 +3231,7 @@ export function makeWorld(scene, renderer) {
       // a transom over the doors, and the pair of glass doors themselves (they swing out, like shop doors do)
       sbox(-0.8, 2.2, Dp / 2 - 0.05, 0.8, 2.26, Dp / 2 + 0.05, MAT.alu); sm(GEO.ubox, MAT.shopGlass, 0, 2.43, Dp / 2, 0, 1.6, 0.34, 0.01, 0, 0, false);
       for (const sx of [-1, 1]) sbox(sx * 0.8 - 0.03, 0, Dp / 2 - 0.05, sx * 0.8 + 0.03, 2.6, Dp / 2 + 0.05, MAT.alu);
-      const sticker = (txt, bg, fg, w2, h2) => new THREE.Mesh(new THREE.PlaneGeometry(w2, h2), new THREE.MeshStandardMaterial({ map: TX.labelTexture(txt, bg, fg, 256, Math.round(256 * h2 / w2), 'bold 44px Helvetica'), roughness: 0.6 }));
+      const sticker = (txt, bg, fg, w2, h2) => new THREE.Mesh(new THREE.PlaneGeometry(w2, h2), new THREE.MeshStandardMaterial({ map: fitLab(txt, bg, fg, 256, Math.round(256 * h2 / w2), 'bold 44px Helvetica'), roughness: 0.6 }));
       for (const sx of [-1, 1]) {
         const [hx3, hz3] = P(sx * 0.77, Dp / 2), D = door(hx3, hz3, sx < 0 ? yaw : yaw + Math.PI, sx < 0 ? -1 : 1, 0, null, { w: 0.77, glassDoor: true, hp: 60 });
         const out = sx < 0 ? 1 : -1;   // which side of this leaf is the street
@@ -3160,9 +3244,9 @@ export function makeWorld(scene, renderer) {
     const rg = new THREE.Group(); level.add(rg);
     { const roof = new THREE.Mesh(new THREE.BoxGeometry(Wd + 0.6, 0.3, Dp + 0.6), MAT.concrete); const [cx, cz] = P(0, 0); roof.position.set(cx, WH + 0.15, cz); roof.rotation.y = yaw; roof.castShadow = true; rg.add(roof); }
     { // the sign: lettering on the front face only, dark metal round the edges and back; lit at night
-      const lab = new THREE.MeshStandardMaterial({ map: TX.labelTexture(['QUICK STOP'], '#b8241c', '#ffffff', 1024, 128, 'bold 92px Helvetica'), roughness: 0.5, emissive: 0xffffff, emissiveMap: null, emissiveIntensity: 0.25 });
+      const lab = new THREE.MeshStandardMaterial({ map: fitLab(['QUICK STOP'], '#b8241c', '#ffffff', 1024, 128, 'bold 92px Helvetica'), roughness: 0.5, emissive: 0xffffff, emissiveMap: null, emissiveIntensity: 0.25 });
       lab.emissiveMap = lab.map; W.storeSign = lab;
-      const sign = new THREE.Mesh(new THREE.BoxGeometry(9, 1.2, 0.2), [MAT.darkMetal, MAT.darkMetal, MAT.darkMetal, MAT.darkMetal, lab, MAT.darkMetal]); const [cx, cz] = P(0, Dp / 2 + 0.2); sign.position.set(cx, WH + 0.5, cz); sign.rotation.y = yaw; sign.castShadow = true; rg.add(sign);
+      const sign = new THREE.Mesh(new THREE.BoxGeometry(9, 1.2, 0.2), [MAT.darkMetal, MAT.darkMetal, MAT.darkMetal, MAT.darkMetal, lab, MAT.darkMetal]); const [cx, cz] = P(0, Dp / 2 + 0.26); sign.position.set(cx, WH + 0.5, cz); /* in front of the parapet coping: no z-fight */ sign.rotation.y = yaw; sign.castShadow = true; rg.add(sign);
       // a parapet coping round the roof edge, a rooftop AC unit
       for (const [w2, d2, ox, oz] of [[Wd + 0.6, 0.3, 0, Dp / 2 + 0.15], [Wd + 0.6, 0.3, 0, -Dp / 2 - 0.15], [0.3, Dp + 0.6, Wd / 2 + 0.15, 0], [0.3, Dp + 0.6, -Wd / 2 - 0.15, 0]]) { const cp = new THREE.Mesh(new THREE.BoxGeometry(w2, 0.35, d2), MAT.concrete); const [px4, pz4] = P(ox, oz); cp.position.set(px4, WH + 0.45, pz4); cp.rotation.y = yaw; cp.castShadow = true; rg.add(cp); }
       const ac = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.9, 1.0), MAT.appliance); const [ax4, az4] = P(4, -2.5); ac.position.set(ax4, WH + 0.75, az4); ac.rotation.y = yaw; ac.castShadow = true; rg.add(ac);
@@ -3201,7 +3285,7 @@ export function makeWorld(scene, renderer) {
       for (let k = 1; k < 6; k++) { const [mx, mz] = P(-6 + k * 2, -Dp / 2 + 0.5); B.box(mx, 0.3, mz, 0.025, 2.0, 0.4, yaw, ALL('darkMetal'), TILE); }
       // the light strip inside, and the sign on top
       { const strip = new THREE.Mesh(new THREE.PlaneGeometry(11.8, 0.12).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xeaf4ff, emissiveIntensity: 2.2 })); const [lx2, lz2] = P(0, -Dp / 2 + 0.75); strip.position.set(lx2, 1.985, lz2); strip.rotation.y = yaw; level.add(strip);
-        const sg2 = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.36), new THREE.MeshStandardMaterial({ map: TX.labelTexture(['ICE COLD DRINKS'], '#1a3a7a', '#f4f8ff', 1024, 115, 'bold 80px Helvetica'), emissive: 0x203050, emissiveIntensity: 0.6, roughness: 0.4 })); const [sx3, sz3] = P(0, -Dp / 2 + 0.93); sg2.position.set(sx3, 2.23, sz3); sg2.rotation.y = yaw; level.add(sg2); }
+        const sg2 = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.36), new THREE.MeshStandardMaterial({ map: fitLab(['ICE COLD DRINKS'], '#1a3a7a', '#f4f8ff', 1024, 115, 'bold 80px Helvetica'), emissive: 0x203050, emissiveIntensity: 0.6, roughness: 0.4 })); const [sx3, sz3] = P(0, -Dp / 2 + 0.93); sg2.position.set(sx3, 2.23, sz3); sg2.rotation.y = yaw; level.add(sg2); }
       for (const y of [0.35, 0.82, 1.29, 1.76]) { B.box(...P(0, fz - 0.17).slice(0, 1), y - 0.02, P(0, fz - 0.17)[1], 6, y, 0.17, yaw, ALL('shelfMetal'), TILE); for (let k = 0; k < 40; k++) { const lx3 = -5.85 + k * 0.3, [bx2, bz2] = P(lx3, fz - 0.12 - Math.random() * 0.1); if (Math.random() < 0.3) continue; const ref = inst(K3.bottleG, K3.bottle[Math.floor(k / 4) % K3.bottle.length], mat4(bx2, y, bz2, Math.random() * 6, 1.15, 1.15, 1.15)); if (y > 0.5 && y < 1.5 && (Math.abs(lx3 + 3) < 0.95 || Math.abs(lx3 - 3) < 0.95)) coolerB.push([lx3, propItem(ref, 'bottle')]); else if (storeRefs && Math.random() < 0.5) storeRefs.push(ref); } }
       const gd = new THREE.MeshStandardMaterial({ color: 0x8ab0c0, roughness: 0.03, metalness: 0.4, transparent: true, opacity: 0.22, depthWrite: false });
       const doors = {};
@@ -3253,22 +3337,22 @@ export function makeWorld(scene, renderer) {
       [S.cx, S.cz] = P(0, 0); }
     // aisle signs hanging over the shelves, a convex mirror in the back corner, a clock, a mat at the door, the rules
     { const SIGNS = ['SNACKS & CHIPS', 'CANNED GOODS', 'CEREAL · PASTA'];
-      [-4.5, 0, 4.5].forEach((lx2, i) => { const sg4 = std({ map: TX.labelTexture([SIGNS[i]], '#1a4a8a', '#ffffff', 512, 96, 'bold 50px Helvetica'), roughness: 0.5 }); for (const f of [0, Math.PI]) sm(GEO.uplane, sg4, lx2 + Math.sin(f + Math.PI / 2) * 0.006, 2.55, -0.8, f + Math.PI / 2, 1.4, 0.26, 1, 0, 0, false); for (const oz of [-0.5, 0.5]) sm(GEO.ucyl, MAT.darkMetal, lx2, 3.05, -0.8 + oz, 0, 0.01, 0.84, 0.01, 0, 0, false); });
+      [-4.5, 0, 4.5].forEach((lx2, i) => { const sg4 = std({ map: fitLab([SIGNS[i]], '#1a4a8a', '#ffffff', 512, 96, 'bold 50px Helvetica'), roughness: 0.5 }); for (const f of [0, Math.PI]) sm(GEO.uplane, sg4, lx2 + Math.sin(f + Math.PI / 2) * 0.006, 2.55, -0.8, f + Math.PI / 2, 1.4, 0.26, 1, 0, 0, false); for (const oz of [-0.5, 0.5]) sm(GEO.ucyl, MAT.darkMetal, lx2, 3.05, -0.8 + oz, 0, 0.01, 0.84, 0.01, 0, 0, false); });
       sm(GEO.mirrorDome, MAT.mirror, 7.55, 2.7, -5.55, -Math.PI / 4, 1, 1, 1, 0.25, 0);
       sm(GEO.clock, MAT.white, 0, 2.7, -Dp / 2 + 0.17, 0, 1.3, 1.3, 1); sm(GEO.uplane, MAT.clockFace, 0, 2.7, -Dp / 2 + 0.19, 0, 0.34, 0.34, 1, 0, 0, false);
       sbox(-0.9, 0.03, Dp / 2 - 1.3, 0.9, 0.04, Dp / 2 - 0.2, MAT.rubber, false);
-      sm(GEO.uplane, std({ map: TX.labelTexture(['NO SHIRT', 'NO SHOES', 'NO SERVICE'], '#f4f2ea', '#1a1a1a', 256, 192, 'bold 40px Helvetica'), roughness: 0.6 }), 1.5, 1.6, Dp / 2 - 0.03, Math.PI, 0.3, 0.22, 1, 0, 0, false);
+      sm(GEO.uplane, std({ map: fitLab(['NO SHIRT', 'NO SHOES', 'NO SERVICE'], '#f4f2ea', '#1a1a1a', 256, 192, 'bold 40px Helvetica'), roughness: 0.6 }), 1.5, 1.6, Dp / 2 - 0.03, Math.PI, 0.3, 0.22, 1, 0, 0, false);
       // the OPEN sign in the window (red neon, on all day until it isn't)
       const neon = std({ color: 0x401010, emissive: 0xff2a20, emissiveIntensity: 2.4, roughness: 0.4 }); W.storeNeon = neon;
-      neon.map = neon.emissiveMap = TX.labelTexture(['OPEN'], '#000000', '#ff3a2a', 256, 96, 'bold 80px Helvetica'); neon.color.set(0xffffff); neon.emissive.set(0xffffff);
+      neon.map = neon.emissiveMap = fitLab(['OPEN'], '#000000', '#ff3a2a', 256, 96, 'bold 80px Helvetica'); neon.color.set(0xffffff); neon.emissive.set(0xffffff);
       sm(GEO.uplane, neon, 3.6, 1.85, Dp / 2 - 0.08, 0, 0.9, 0.34, 1, 0, 0, false);
     }
     // out front: an awning over the glass, parking bays and wheel stops, an ice chest, a newspaper box
     { sm(GEO.ubox, MAT.awning, 0, 2.86, Dp / 2 + 0.6, 0, Wd, 0.04, 1.25, 0.17, 0); sm(GEO.ubox, MAT.awning, 0, 2.68, Dp / 2 + 1.22, 0, Wd, 0.24, 0.02);
       for (const lx2 of [-9.5, -7, -4.5, 4.5, 7, 9.5]) { const [px5, pz5] = P(lx2, 9.2); B.box(px5, 0, pz5, 0.06, 0.03, 1.6, yaw, f => f === 'top' ? 'roadWhite' : null, TILE); }
       for (const lx2 of [-8.25, -5.75, 5.75, 8.25]) { sm(RB2(1.6, 0.12, 0.2, 0.03), MAT.concrete, lx2, 0.06, 7.9); const [wx, wz] = P(lx2, 7.9); solid(wx, wz, 0.8, 0.1, yaw, 0.12, 'concrete', 0, { vault: true }); }
-      sm(RB2(1.5, 1.15, 0.75, 0.05), MAT.ice, -6.4, 0.6, Dp / 2 + 0.55); solid(...P(-6.4, Dp / 2 + 0.55), 0.76, 0.4, yaw, 1.15, 'metal');
-      sm(RB2(0.5, 1.0, 0.45, 0.03), MAT.bluePaint, 1.8, 0.5, Dp / 2 + 0.5); sm(GEO.uplane, std({ map: TX.labelTexture(['THE MAPLE', 'HOLLOW NEWS'], '#e8e4d8', '#1a1a1a', 256, 128, 'bold 34px Georgia'), roughness: 0.7 }), 1.8, 0.82, Dp / 2 + 0.73, 0, 0.42, 0.22, 1, 0, 0, false); solid(...P(1.8, Dp / 2 + 0.5), 0.26, 0.24, yaw, 1.0, 'metal');
+      sm(RB2(1.5, 1.15, 0.75, 0.05), MAT.ice.userData.body ||= new THREE.MeshStandardMaterial({ color: 0xe8eef4, roughness: 0.45 }), -6.4, 0.6, Dp / 2 + 0.55); sm(GEO.ubox, MAT.darkMetal, -6.4, 1.0, Dp / 2 + 0.55, 0, 1.52, 0.035, 0.77); for (const sd of [-1, 1]) sm(GEO.uplane, MAT.ice, -6.4, 0.6, Dp / 2 + 0.55 + sd * 0.378, sd > 0 ? 0 : Math.PI, 1.15, 0.58, 1, 0, 0, false); solid(...P(-6.4, Dp / 2 + 0.55), 0.76, 0.4, yaw, 1.15, 'metal');
+      sm(RB2(0.5, 1.0, 0.45, 0.03), MAT.bluePaint, 1.8, 0.5, Dp / 2 + 0.5); sm(GEO.uplane, std({ map: fitLab(['THE MAPLE', 'HOLLOW NEWS'], '#e8e4d8', '#1a1a1a', 256, 128, 'bold 34px Georgia'), roughness: 0.7 }), 1.8, 0.82, Dp / 2 + 0.73, 0, 0.42, 0.22, 1, 0, 0, false); solid(...P(1.8, Dp / 2 + 0.5), 0.26, 0.24, yaw, 1.0, 'metal');
     }
     // painted walls inside (the brick is outside)
     { const [bx4, bz4] = P(0, -Dp / 2 + T / 2 + 0.006); B.box(bx4, 0, bz4, Wd / 2 - 0.2, WH, 0.004, yaw, ALL('trim'), TILE);
@@ -3293,10 +3377,10 @@ export function makeWorld(scene, renderer) {
       for (let i = 0; i < 4; i++) { const [px3, pz3] = P(-7.5 + (i % 2) * 0.2, 0.62 + Math.floor(i / 2) * 0.2); inst(bun, bm, mat4(px3, 0.935, pz3, Math.random() * 6)); }
       // the grill smokes while Raj is cooking — the morning — and goes cold once the trouble starts
       grillE = emitter({ x: P(-7.42, -0.1)[0], y: 1.0, z: P(-7.42, -0.1)[1], kind: 'smoke', rate: 1.2, t: 0, grill: true });
-      const sg3 = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.4), new THREE.MeshStandardMaterial({ map: TX.labelTexture(['GRILL · BURGERS $2'], '#b01810', '#fff4e0', 1024, 256, 'bold 120px Helvetica'), roughness: 0.5, emissive: 0x200404 }));
+      const sg3 = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.4), new THREE.MeshStandardMaterial({ map: fitLab(['GRILL · BURGERS $2'], '#b01810', '#fff4e0', 1024, 256, 'bold 120px Helvetica'), roughness: 0.5, emissive: 0x200404 }));
       const [sx5, sz5] = P(-7.85, 0.3); sg3.position.set(sx5, 2.55, sz5); sg3.rotation.y = yaw + Math.PI / 2; level.add(sg3); }
     // the poster in the window
-    { const po = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.25), new THREE.MeshStandardMaterial({ map: TX.labelTexture(['SATURDAY', 'GRILL', 'BURGERS $2', 'fresh today!'], '#f4e6b0', '#a01810', 256, 336, 'bold 46px Helvetica'), roughness: 0.8 }));
+    { const po = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.25), new THREE.MeshStandardMaterial({ map: fitLab(['SATURDAY', 'GRILL', 'BURGERS $2', 'fresh today!'], '#f4e6b0', '#a01810', 256, 336, 'bold 46px Helvetica'), roughness: 0.8 }));
       const [px6, pz6] = P(-4.6, Dp / 2 + 0.03); po.position.set(px6, 1.55, pz6); po.rotation.y = yaw; level.add(po); }
     // a pharmacy rack
     // the pharmacy gondola along the right wall: open shelving, a pegboard of blister packs above, a sign
@@ -3317,7 +3401,7 @@ export function makeWorld(scene, renderer) {
       // pegboard and blister packs on hooks
       sbox(7.5, 1.5, 1.3, 7.52, 2.0, 3.7, MAT.pegboard);
       for (let k = 0; k < 14; k++) { const zz = 1.45 + k * 0.16, yy = 1.62 + (k % 2) * 0.2; sbox(7.3, yy + 0.05, zz - 0.003, 7.5, yy + 0.058, zz + 0.003, MAT.metal, false); sm(GEO.ubox, K2.med[k % 4][4], 7.36, yy - 0.04, zz, Math.PI / 2, 0.12, 0.17, 0.015, 0, 0, false); }
-      const hs = std({ map: TX.labelTexture(['PHARMACY · HEALTH'], '#1a6a3a', '#ffffff', 512, 96, 'bold 46px Helvetica'), roughness: 0.5 });
+      const hs = std({ map: fitLab(['PHARMACY · HEALTH'], '#1a6a3a', '#ffffff', 512, 96, 'bold 46px Helvetica'), roughness: 0.5 });
       sm(GEO.uplane, hs, 7.48, 2.2, 2.5, -Math.PI / 2, 2.0, 0.36, 1, 0, 0, false);
       addItems(ph, pl, 'med'); }
     // after the outbreak: looted. Stock knocked on the floor, gaps on the shelves, money spilled by the register,
@@ -3360,7 +3444,7 @@ export function makeWorld(scene, renderer) {
     const stain = new THREE.MeshStandardMaterial({ map: TX.bloodTexture(7), color: 0x101010, transparent: true, opacity: 0.55, depthWrite: false, roughness: 0.2, polygonOffset: true, polygonOffsetFactor: -3 });
     for (const [lx, lz] of [[-1.3, 1.8], [-1.3, 4.6], [3.7, 2.2], [3.6, 4.4], [-6, 6]]) add(new THREE.PlaneGeometry(1.4, 1.4).rotateX(-Math.PI / 2), stain, lx, 0.03, lz, 0, Math.random() * 6, 0, false);
     // ---- the canopy: clad pillars, a deep fascia with the brand stripe, light panels underneath ----
-    const fascia = new THREE.MeshStandardMaterial({ map: (() => { const t = TX.labelTexture(['GAS & GO'], '#e9e6de', '#b8241c', 1024, 128, 'bold 84px Helvetica'); return t; })(), roughness: 0.5 });
+    const fascia = new THREE.MeshStandardMaterial({ map: (() => { const t = fitLab(['GAS & GO'], '#e9e6de', '#b8241c', 2048, 128, 'bold 84px Helvetica'); return t; })(), roughness: 0.5 });
     const stripe = new THREE.MeshStandardMaterial({ color: 0xb8241c, roughness: 0.45 });
     for (const [lx, lz] of [[-5, 0.5], [5, 0.5], [-5, 5.5], [5, 5.5]]) {
       add(rbx(0.55, 4.5, 0.55, 0.08), MAT.white, lx, 2.25, lz);
@@ -3377,9 +3461,9 @@ export function makeWorld(scene, renderer) {
     for (const lx of [-4, 0, 4]) for (const lz of [1, 5]) add(new THREE.BoxGeometry(1.4, 0.04, 0.7), panel, lx, 4.49, lz, 0, 0, 0, false);
     // ---- two pump islands: raised kerb, yellow bollards, a dispenser with hoses and nozzles ----
     const yellow = MAT.yellowPaint, pumpBody = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.4, metalness: 0.5 });
-    const head = new THREE.MeshStandardMaterial({ map: TX.labelTexture(['GAS & GO', 'REGULAR · PREMIUM'], '#b8241c', '#f0ece0', 256, 128, 'bold 30px Helvetica'), roughness: 0.4 });
+    const head = new THREE.MeshStandardMaterial({ map: fitLab(['GAS & GO', 'REGULAR · PREMIUM'], '#b8241c', '#f0ece0', 256, 128, 'bold 30px Helvetica'), roughness: 0.4 });
     const screen = new THREE.MeshStandardMaterial({ color: 0x0a1410, roughness: 0.1, metalness: 0.3, emissive: 0x031008 });
-    const stickers = [], sticker = new THREE.MeshStandardMaterial({ map: TX.labelTexture(['OUT OF', 'SERVICE'], '#f2f0e8', '#a01810', 128, 128, 'bold 26px Helvetica'), roughness: 0.9 });
+    const stickers = [], sticker = new THREE.MeshStandardMaterial({ map: fitLab(['OUT OF', 'SERVICE'], '#f2f0e8', '#a01810', 128, 128, 'bold 26px Helvetica'), roughness: 0.9 });
     const hoseMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.7 });
     for (const lx of [-2.5, 2.5]) {
       add(rbx(1.2, 0.22, 4.4, 0.05), MAT.concrete, lx, 0.11, 3);
@@ -3413,23 +3497,59 @@ export function makeWorld(scene, renderer) {
       for (const lx of [-3.75, -1.3, -0.5, 1.3, 3.75]) add(new THREE.BoxGeometry(0.1, 2.0, 0.12), MAT.darkMetal, lx, 1.6, -4.1);
       add(new THREE.BoxGeometry(7.7, 0.12, 0.14), MAT.darkMetal, 0, 2.62, -4.1); add(new THREE.BoxGeometry(7.6, 0.5, 0.2), MAT.brick, 0, 2.85, -4.1);
       add(new THREE.BoxGeometry(8.2, 0.12, 1.4), MAT.darkMetal, 0, 3.15, -3.5);
-      const sgn = new THREE.MeshStandardMaterial({ map: TX.labelTexture(['GAS & GO MARKET'], '#b8241c', '#f4eee0', 1024, 128, 'bold 72px Helvetica'), roughness: 0.5, emissive: 0x200404 });
+      const sgn = new THREE.MeshStandardMaterial({ map: fitLab(['GAS & GO MARKET'], '#b8241c', '#f4eee0', 1024, 128, 'bold 72px Helvetica'), roughness: 0.5, emissive: 0x200404 });
       add(new THREE.BoxGeometry(5.2, 0.6, 0.1), sgn, 0, 3.55, -4.0);
       // shelves seen through the glass
-      for (const lx of [-2.2, 0.0, 2.2]) add(new THREE.BoxGeometry(1.4, 1.5, 0.45), MAT.shelfMetal, lx, 0.75, -6.5);
-      const ice = new THREE.MeshStandardMaterial({ map: TX.labelTexture(['ICE'], '#e8eef4', '#2050a0', 256, 128, 'bold 80px Helvetica'), roughness: 0.4 });
-      add(rbx(1.6, 1.15, 0.75, 0.05), ice, 2.6, 0.58, -3.55); solid(...P(2.6, -3.55), 0.8, 0.38, yaw, 1.15, 'metal');
+      // inside it's a real little shop: a tiled floor, painted walls, a tile ceiling (not the backs of the outside walls)
+      { const IN = (lx, lz, hx, y0, y1, hz, f) => { const [ix, iz] = P(lx, lz); B.box(ix, y0, iz, hx, y1, hz, yaw, f, TILE); };
+        IN(0, -6.5, 3.78, 0, 0.02, 2.38, f => f === 'top' ? 'floorTile' : null);
+        IN(0, -6.5, 3.78, 2.58, 2.6, 2.38, f => f === 'bot' ? 'ceilTile' : null);
+        IN(0, -8.86, 3.78, 0, 2.6, 0.02, f => f === 'pz' ? 'paint1' : null);
+        IN(-3.76, -6.5, 0.02, 0, 2.6, 2.38, f => f === 'px' ? 'paint1' : null);
+        IN(3.76, -6.5, 0.02, 0, 2.6, 2.38, f => f === 'nx' ? 'paint1' : null); }
+      // three stocked gondola shelves seen through the glass (uprights, a back panel, four boards of goods)
+      { const K = prodKit(), cats = ['can', 'box', 'chips', 'bottle'];
+        for (const [si, lx] of [-2.2, 0.0, 2.2].entries()) {
+          add(new THREE.BoxGeometry(1.4, 1.62, 0.03), MAT.shelfMetal, lx, 0.81, -6.71);
+          for (const ox of [-0.69, 0.69]) add(new THREE.BoxGeometry(0.03, 1.62, 0.45), MAT.shelfMetal, lx + ox, 0.81, -6.5);
+          add(new THREE.BoxGeometry(1.4, 0.1, 0.45), MAT.darkMetal, lx, 0.05, -6.5);
+          [0.1, 0.52, 0.94, 1.36].forEach((by, tier) => {
+            add(new THREE.BoxGeometry(1.36, 0.025, 0.44), MAT.shelfMetal, lx, by, -6.5, 0, 0, 0, false);
+            const cat = cats[(si + tier) % cats.length], w = cat === 'can' ? 0.085 : cat === 'box' ? 0.205 : cat === 'chips' ? 0.185 : 0.095, brand = (si * 3 + tier * 5) % 8;
+            for (let ox = -0.64 + w / 2; ox < 0.64 - w / 2; ox += w + 0.01) for (const dz of [-0.34, -0.18]) {
+              if (Math.random() < 0.12) continue;
+              const [ix, iz] = P(lx + ox, -6.5 + 0.22 + dz + 0.16), y2 = by + 0.0125, ry = yaw + (Math.random() - 0.5) * 0.08;
+              if (cat === 'can') inst(K.canG, K.can[brand % 8], mat4(ix, y2, iz, ry));
+              else if (cat === 'box') inst(K.boxG, K.box[brand % 8], mat4(ix, y2, iz, ry));
+              else if (cat === 'chips') inst(K.chipsG, K.chips[brand % 5], mat4(ix, y2, iz, ry));
+              else inst(K.bottleG, K.bottle[brand % K.bottle.length], mat4(ix, y2, iz, ry, 1.1, 1.1, 1.1));
+            }
+          });
+        }
+        // the till counter by the right-hand wall: a wood-front cabinet, a worktop, the register, cigarettes behind
+        add(rbx(0.62, 0.95, 1.5, 0.03), MAT.cabinet, 3.25, 0.475, -5.6);
+        add(rbx(0.7, 0.05, 1.58, 0.02), MAT.counter, 3.25, 0.975, -5.6);
+        add(rbx(0.34, 0.2, 0.3, 0.03), MAT.black, 3.2, 1.1, -5.9); add(new THREE.BoxGeometry(0.22, 0.14, 0.02), MAT.darkMetal, 3.2, 1.27, -5.98, -0.3, 0, 0, false);
+        add(new THREE.PlaneGeometry(1.4, 0.7), MAT.cigs, 3.74, 1.75, -5.6, 0, -Math.PI / 2, 0, false); }
+      const ice = new THREE.MeshStandardMaterial({ map: fitLab(['ICE'], '#e8eef4', '#2050a0', 256, 128, 'bold 80px Helvetica'), roughness: 0.4 });
+      // the ice chest: a white insulated box, a dark lid seam and hinges, the ICE label on its two long faces only
+      add(rbx(1.6, 1.15, 0.75, 0.05), new THREE.MeshStandardMaterial({ color: 0xe8eef4, roughness: 0.45 }), 2.6, 0.58, -3.55);
+      add(new THREE.BoxGeometry(1.62, 0.035, 0.77), MAT.darkMetal, 2.6, 0.98, -3.55);
+      for (const sd of [-1, 1]) add(new THREE.PlaneGeometry(1.2, 0.6), ice, 2.6, 0.58, -3.55 + sd * 0.378, 0, sd > 0 ? 0 : Math.PI, 0, false); solid(...P(2.6, -3.55), 0.8, 0.38, yaw, 1.15, 'metal');
       // propane exchange cage
       const cg = new THREE.BoxGeometry(1.4, 1.5, 0.7), cu = cg.attributes.uv; { const F2 = [[0.7, 1.5], [0.7, 1.5], [1.4, 0.7], [1.4, 0.7], [1.4, 1.5], [1.4, 1.5]]; for (let i = 0; i < cu.count; i++) { const f = F2[Math.floor(i / 4)]; cu.setXY(i, cu.getX(i) * f[0] / 0.6, cu.getY(i) * f[1] / 0.6); } }   // chain link in a steel frame
       add(cg, MAT.chainlink, -2.8, 0.75, -3.6, 0, 0, 0, false);
       for (const [w2, h2, d2, ox, oy, oz] of [[1.42, 0.04, 0.72, 0, 1.5, 0], [1.42, 0.04, 0.72, 0, 0.02, 0], [0.04, 1.5, 0.04, -0.7, 0.75, 0.35], [0.04, 1.5, 0.04, 0.7, 0.75, 0.35], [0.04, 1.5, 0.04, -0.7, 0.75, -0.35], [0.04, 1.5, 0.04, 0.7, 0.75, -0.35]]) add(new THREE.BoxGeometry(w2, h2, d2), MAT.darkMetal, -2.8 + ox, oy, -3.6 + oz);
-      for (let k = 0; k < 4; k++) add(new THREE.CylinderGeometry(0.15, 0.15, 0.5, 14), MAT.white, -3.3 + k * 0.33, 0.3, -3.6);
+      for (let k = 0; k < 4; k++) { const px7 = -3.3 + k * 0.33; add(new THREE.CapsuleGeometry(0.15, 0.3, 4, 14), MAT.white, px7, 0.3, -3.6); add(new THREE.CylinderGeometry(0.1, 0.1, 0.09, 12, 1, true), MAT.darkMetal, px7, 0.56, -3.6, 0, 0, 0, false); add(new THREE.CylinderGeometry(0.025, 0.025, 0.06, 8), MAT.metal, px7, 0.56, -3.6, 0, 0, 0, false); add(new THREE.CylinderGeometry(0.152, 0.152, 0.06, 14, 1, true), MAT.redPaint, px7, 0.3, -3.6, 0, 0, 0, false); }   // propane bottles: rounded, a guard collar and valve, a red band
       solid(...P(-2.8, -3.6), 0.7, 0.35, yaw, 1.5, 'metal');
       const gk = container('garage', ...P(0.1, -3.5), 1.0, 'Station kiosk', yaw);
       { const [kx2, kz2] = P(0.5, -3.2); B.box(kx2, 0, kz2, 0.3, 0.32, 0.22, yaw, ALL('plank'), TILE); solid(kx2, kz2, 0.3, 0.22, yaw, 0.32, 'wood', 0, { vault: true }); addItems(gk, [['can', kx2 - 0.12, 0.32, kz2], ['can', kx2, 0.32, kz2 + 0.05], ['bottle', kx2 + 0.13, 0.32, kz2 - 0.04], ['box', kx2 + 0.05, 0.32, kz2 - 0.08, yaw]]); }
     }
     // ---- the price sign out by the road ----
-    { const pm = new THREE.MeshStandardMaterial({ map: (() => { const cv = document.createElement('canvas'); cv.width = 256; cv.height = 384; const g = cv.getContext('2d'); g.fillStyle = '#b8241c'; g.fillRect(0, 0, 256, 120); g.fillStyle = '#f4eee0'; g.font = 'bold 54px Helvetica'; g.textAlign = 'center'; g.fillText('GAS & GO', 128, 78); g.fillStyle = '#16181c'; g.fillRect(0, 120, 256, 264); g.font = 'bold 26px Helvetica'; g.textAlign = 'left'; g.fillStyle = '#e8e4da'; g.fillText('REGULAR', 16, 170); g.fillText('PREMIUM', 16, 230); g.fillText('DIESEL', 16, 290); g.fillStyle = '#ffb030'; g.font = 'bold 32px Courier'; ['3.49', '4.19', '3.89'].forEach((pr, i) => g.fillText(pr, 158, 170 + i * 60)); g.fillStyle = '#e8e4da'; g.font = 'bold 22px Helvetica'; g.textAlign = 'center'; g.fillText('ICE · SNACKS · PROPANE', 128, 350); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t; })(), roughness: 0.5 });
+    { const pm = new THREE.MeshStandardMaterial({ map: (() => { const cv = document.createElement('canvas'); cv.width = 256; cv.height = 384; const g = cv.getContext('2d'); g.fillStyle = '#b8241c'; g.fillRect(0, 0, 256, 120); g.fillStyle = '#f4eee0'; g.font = 'bold 54px Helvetica'; g.textAlign = 'center'; g.fillText('GAS & GO', 128, 78, 236); g.fillStyle = '#16181c'; g.fillRect(0, 120, 256, 264); g.font = 'bold 26px Helvetica'; g.textAlign = 'left'; g.fillStyle = '#e8e4da'; g.fillText('REGULAR', 16, 170); g.fillText('PREMIUM', 16, 230); g.fillText('DIESEL', 16, 290); g.fillStyle = '#ffb030'; g.font = 'bold 32px Courier'; ['3.49', '4.19', '3.89'].forEach((pr, i) => g.fillText(pr, 158, 170 + i * 60)); g.fillStyle = '#e8e4da'; g.font = 'bold 22px Helvetica'; g.textAlign = 'center'; g.fillText('ICE · SNACKS · PROPANE', 128, 350, 236); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t; })(), roughness: 0.5 });
+      // the pylon and the canopy fascia are backlit at night
+      for (const m of [pm, fascia]) { m.emissive = new THREE.Color(0xffffff); m.emissiveMap = m.map; m.emissiveIntensity = 0; }
+      W.anims.push(() => { const k = W.daylight < 0.45 ? 0.55 : 0; if (pm.emissiveIntensity !== k) pm.emissiveIntensity = fascia.emissiveIntensity = k; });
       add(rbx(2.0, 3.0, 0.3, 0.05), pm, 9, 4.2, 9); for (const ox of [-0.7, 0.7]) add(new THREE.BoxGeometry(0.18, 2.8, 0.18), MAT.darkMetal, 9 + ox, 1.4, 9);
       add(rbx(2.4, 0.5, 0.6, 0.05), MAT.brick, 9, 0.25, 9); solid(...P(9, 9), 1.2, 0.3, yaw, 0.5, 'brick', 0, { vault: true }); }
     // tyres, oil drums, an air pump
@@ -3491,6 +3611,9 @@ export function makeWorld(scene, renderer) {
       for (const ox of [-0.265, 0.265]) pm(GEO.ubox, MAT.redPaint, 5 + ox, cy2 + 0.07, cz2, 0, 0.03, 0.16, L2, th, 0);
       pm(GEO.ubox, MAT.redPaint, 5, 0.34, 0.25, 0, 0.5, 0.03, 0.5); for (const ox of [-0.265, 0.265]) pm(GEO.ubox, MAT.redPaint, 5 + ox, 0.41, 0.25, 0, 0.03, 0.16, 0.5); }
     { const [sx, sz] = P(5, -3); solid(sx, sz, 0.62, 0.62, yaw, 1.6, 'metal'); }
+    { const [lx2, lz2] = P(5, -3.95); solid(lx2, lz2, 0.3, 0.3, yaw, 1.6, 'metal'); }   // the ladder
+    { const [cx3, cz3] = P(5, -1.2); solid(cx3, cz3, 0.3, 1.2, yaw, 1.05, 'metal', 0, { vault: true }); }   // the chute: you hop over it, not walk through it
+    { const [cx3, cz3] = P(5, 0.25); solid(cx3, cz3, 0.3, 0.27, yaw, 0.5, 'metal', 0, { vault: true }); }
     // benches, a sandbox, trees
     for (const [lx, lz] of [[-6, 6], [4, 6]]) { const [bx, bz] = P(lx, lz); block(bx, 0.42, bz, 0.9, 0.48, 0.22, yaw, 'plank', 'wood', false); B.box(bx, 0, bz, 0.85, 0.42, 0.18, yaw, ALL('darkMetal'), TILE); solid(bx, bz, 0.9, 0.25, yaw, 0.5, 'wood', 0, { vault: true }); addItems(container('bench', bx, bz + 0.4, 0.5, 'Under the bench', yaw), [['bottle', bx + 0.3, 0.01, bz + 0.05], ['cloth', bx - 0.25, 0.01, bz]]); }
     { const [sx, sz] = P(-6, -5); B.box(sx, 0, sz, 1.6, 0.25, 1.6, yaw, f => f === 'top' ? 'dirt' : 'plank', TILE); }
@@ -3567,7 +3690,7 @@ export function makeWorld(scene, renderer) {
     if (AKIT) return AKIT;
     const rnd = (sd => () => ((sd = (sd * 9301 + 49297) % 233280) / 233280))(41);
     // pink fibreglass batts: soft, lumpy, fibrous
-    MAT.insul = std({ map: ctex(128, 128, (g) => { g.fillStyle = '#d89aa0'; g.fillRect(0, 0, 128, 128); for (let k = 0; k < 900; k++) { const l = rnd(); g.fillStyle = `rgba(${l < 0.5 ? '255,214,214' : '150,80,88'},${0.05 + rnd() * 0.12})`; g.beginPath(); g.ellipse(rnd() * 128, rnd() * 128, 2 + rnd() * 6, 1 + rnd() * 3, rnd() * 3, 0, 7); g.fill(); } g.strokeStyle = 'rgba(255,235,235,0.18)'; for (let k = 0; k < 120; k++) { g.beginPath(); const x = rnd() * 128, y = rnd() * 128; g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 18, y + (rnd() - 0.5) * 6); g.stroke(); } }, [1, 1]), roughness: 1 });
+    MAT.insul = std({ map: ctex(128, 128, (g) => { g.fillStyle = '#e9b9a3'; g.fillRect(0, 0, 128, 128); for (let k = 0; k < 900; k++) { const l = rnd(); g.fillStyle = `rgba(${l < 0.5 ? '255,226,212' : '160,104,86'},${0.05 + rnd() * 0.12})`; g.beginPath(); g.ellipse(rnd() * 128, rnd() * 128, 2 + rnd() * 6, 1 + rnd() * 3, rnd() * 3, 0, 7); g.fill(); } g.strokeStyle = 'rgba(255,235,235,0.18)'; for (let k = 0; k < 120; k++) { g.beginPath(); const x = rnd() * 128, y = rnd() * 128; g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 18, y + (rnd() - 0.5) * 6); g.stroke(); } }, [1, 1]), roughness: 1 });
     // plywood sheets: a fine wavy grain, a patch or two, the nail lines over the joists, the sheet's edges
     MAT.plywood = std({ map: ctex(256, 256, (g) => { g.fillStyle = '#c3a272'; g.fillRect(0, 0, 256, 256); for (let k = 0; k < 90; k++) { const y = rnd() * 256; g.strokeStyle = `rgba(${rnd() < 0.6 ? '120,86,48' : '230,205,160'},${0.1 + rnd() * 0.22})`; g.lineWidth = 0.6 + rnd() * 2.2; g.beginPath(); g.moveTo(0, y); for (let x = 0; x <= 256; x += 32) g.lineTo(x, y + Math.sin(x * 0.03 + k) * (3 + rnd() * 5)); g.stroke(); } for (let k = 0; k < 4; k++) { g.fillStyle = 'rgba(150,112,64,0.5)'; g.beginPath(); g.ellipse(rnd() * 256, rnd() * 256, 10, 5, 0, 0, 7); g.fill(); } g.fillStyle = 'rgba(60,50,40,0.8)'; for (let x = 0; x < 256; x += 84) for (let y = 6; y < 256; y += 24) g.fillRect(x + 4, y, 2, 2); g.fillStyle = 'rgba(70,52,30,0.7)'; g.fillRect(0, 0, 256, 2); g.fillRect(0, 0, 2, 256); for (let k = 0; k < 160; k++) { g.fillStyle = `rgba(90,80,70,${rnd() * 0.12})`; g.fillRect(rnd() * 256, rnd() * 256, 3 + rnd() * 8, 2 + rnd() * 6); } }, [1, 1]), roughness: 0.9 });
     // the roof boards seen from underneath: old 1x6 planks, darker where the nails rusted, a water stain or two
@@ -3699,7 +3822,9 @@ export function makeWorld(scene, renderer) {
       for (let j = 0; j < N; j++) {
         const s0 = j * L / N, s1 = (j + 1) * L / N, lo = yOf(s0), hi = yOf(s1);
         for (const s2 of [-1, 1]) sol(s2 * SW, at(s1), s2 * (SW + 0.15), at(s0), Math.max(0, lo - 0.3), hi + 1.05);
-        if (lo < 2.3 && lo - 0.3 > 0.3) sol(-SW - 0.15, at(s1), SW + 0.15, at(s0), 0, lo - 0.3);
+        if (lo < 2.3 && lo - 0.3 > 0.3) { sol(-SW - 0.15, at(s1), SW + 0.15, at(s0), 0, lo - 0.3);
+          // and you can see why: board skirts down both sides of the stair there (no invisible wall)
+          for (const s2 of [-1, 1]) { const [kx, kz] = P(s2 * (SW + 0.1), (at(s0) + at(s1)) / 2); B.box(kx, 0, kz, 0.02, lo - 0.3, Math.abs(at(s1) - at(s0)) / 2, yaw, ALL('timber'), TILE); } }
       }
       return ra;
     };
@@ -3989,27 +4114,43 @@ export function makeWorld(scene, renderer) {
   }
   // distances from a goal (the player) out to radius R, so zombies can walk round walls toward you
   const heapD = new Float32Array(400000), heapK = new Int32Array(400000);
+  // (fast path: the heap's pop writes to hD / hK instead of returning an array; the 8 neighbours are unrolled; only
+  // the window searched last time and this time is reset; and when you're in the same cell, the doors are as they
+  // were and it's less than 2 s since the last full search, nothing has changed — it's skipped)
+  const navLast = { si: -1, sj: -1, R: 0, sig: -1, t: -99, i0: 0, i1: -1, j0: 0, j1: -1 };
   W.navFrom = (gx, gz, R = 55) => {
-    const { nx, nz, blocked, dist } = NAV, c = NAV.cell;
-    dist.fill(1e9);
+    const { nx, nz, blocked, dist } = NAV, c = NAV.cell, doors = W.doors;
     const si = clamp(Math.round((gx - NAV.x0) / c), 0, nx - 1), sj = clamp(Math.round((gz - NAV.z0) / c), 0, nz - 1);
-    const Rc = R / c, i0 = Math.max(0, si - Rc), i1 = Math.min(nx - 1, si + Rc), j0 = Math.max(0, sj - Rc), j1 = Math.min(nz - 1, sj + Rc);
-    let n = 0;
-    const push = (d, k) => { let i = n++; heapD[i] = d; heapK[i] = k; while (i > 0) { const p = (i - 1) >> 1; if (heapD[p] <= heapD[i]) break; const td = heapD[p]; heapD[p] = heapD[i]; heapD[i] = td; const tk = heapK[p]; heapK[p] = heapK[i]; heapK[i] = tk; i = p; } };
-    const pop = () => { const d = heapD[0], k = heapK[0]; n--; if (n > 0) { heapD[0] = heapD[n]; heapK[0] = heapK[n]; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < n && heapD[l] < heapD[m]) m = l; if (r < n && heapD[r] < heapD[m]) m = r; if (m === i) break; const td = heapD[m]; heapD[m] = heapD[i]; heapD[i] = td; const tk = heapK[m]; heapK[m] = heapK[i]; heapK[i] = tk; i = m; } } return [d, k]; };
-    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const k = (sj + dj) * nx + si + di; if (k < 0 || k >= dist.length) continue; dist[k] = 0; push(0, k); }
-    const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
+    let sig = doors.length; for (let q = 0; q < doors.length; q++) if (doors[q].box && doors[q].box.off) sig = (sig * 31 + q + 1) | 0;
+    const now = performance.now() / 1000, L = navLast;
+    if (si === L.si && sj === L.sj && R === L.R && sig === L.sig && now - L.t < 2 && NAV.gen > 0) return;
+    L.si = si; L.sj = sj; L.R = R; L.sig = sig; L.t = now;
+    const Rc = Math.ceil(R / c), i0 = Math.max(0, si - Rc), i1 = Math.min(nx - 1, si + Rc), j0 = Math.max(0, sj - Rc), j1 = Math.min(nz - 1, sj + Rc);
+    if (L.i1 < 0) dist.fill(1e9);
+    else for (let j = L.j0; j <= L.j1; j++) dist.fill(1e9, j * nx + L.i0, j * nx + L.i1 + 1);
+    for (let j = j0; j <= j1; j++) dist.fill(1e9, j * nx + i0, j * nx + i1 + 1);
+    L.i0 = i0; L.i1 = i1; L.j0 = j0; L.j1 = j1;
+    let n = 0, hD = 0, hK = 0;
+    const push = (d, k) => { let i = n++; while (i > 0) { const p = (i - 1) >> 1; if (heapD[p] <= d) break; heapD[i] = heapD[p]; heapK[i] = heapK[p]; i = p; } heapD[i] = d; heapK[i] = k; };
+    const pop = () => {
+      hD = heapD[0]; hK = heapK[0]; n--;
+      if (n > 0) { const d = heapD[n], k = heapK[n]; let i = 0; for (;;) { const l = 2 * i + 1; if (l >= n) break; const r = l + 1, m = r < n && heapD[r] < heapD[l] ? r : l; if (heapD[m] >= d) break; heapD[i] = heapD[m]; heapK[i] = heapK[m]; i = m; } heapD[i] = d; heapK[i] = k; }
+    };
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const a = si + di, b = sj + dj; if (a < i0 || a > i1 || b < j0 || b > j1) continue; const k = b * nx + a; dist[k] = 0; push(0, k); }
+    const SQ = 1.414;
+    const relax = (d, i, j, a, b2, w, diag) => {
+      if (a < i0 || b2 < j0 || a > i1 || b2 > j1) return;
+      const kk = b2 * nx + a, bk = blocked[kk]; if (bk === 1 || bk === 2) return;
+      if (diag) { const p = blocked[j * nx + a], q = blocked[b2 * nx + i]; if (p === 1 || p === 2 || q === 1 || q === 2) return; }
+      let cost = w; if (bk === 3) { const D = doors[NAV.door[kk]]; if (D && !D.box.off) cost += 6; }   // a closed door: they'd rather go round, but they'll break through
+      const nd = d + cost;
+      if (nd < dist[kk]) { dist[kk] = nd; push(nd, kk); }
+    };
     while (n > 0 && n < 399990) {
-      const [d, k] = pop(); if (d > dist[k]) continue;
+      pop(); const d = hD, k = hK; if (d > dist[k]) continue;
       const i = k % nx, j = (k / nx) | 0;
-      for (const [di, dj, w] of NB) {
-        const a = i + di, b2 = j + dj; if (a < i0 || b2 < j0 || a > i1 || b2 > j1) continue;
-        const kk = b2 * nx + a, bk = blocked[kk]; if (bk === 1 || bk === 2) continue;
-        if (di && dj && (blocked[j * nx + a] === 1 || blocked[b2 * nx + i] === 1 || blocked[j * nx + a] === 2 || blocked[b2 * nx + i] === 2)) continue;
-        let cost = w; if (bk === 3) { const D = W.doors[NAV.door[kk]]; if (D && !D.box.off) cost += 6; }   // a closed door: they'd rather go round, but they'll break through
-        const nd = d + cost;
-        if (nd < dist[kk]) { dist[kk] = nd; push(nd, kk); }
-      }
+      relax(d, i, j, i + 1, j, 1, false); relax(d, i, j, i - 1, j, 1, false); relax(d, i, j, i, j + 1, 1, false); relax(d, i, j, i, j - 1, 1, false);
+      relax(d, i, j, i + 1, j + 1, SQ, true); relax(d, i, j, i + 1, j - 1, SQ, true); relax(d, i, j, i - 1, j + 1, SQ, true); relax(d, i, j, i - 1, j - 1, SQ, true);
     }
     NAV.gen++;
   };
@@ -4186,7 +4327,7 @@ export function makeWorld(scene, renderer) {
     // rain dim it); the same light and shadow map as the sun, so night costs nothing extra
     const moonL = moonK * (0.35 + 0.65 * moonUp) * (1 - over * 0.5) * (1 - k * 0.55);
     W.moonLight = moonL;
-    if (sunPart < 0.02 && moonK > 0.02) { sun.color.setRGB(0.6, 0.71, 1.0); sun.intensity = 0.55 * moonL; W.lightDir = moonDir; }
+    if (sunPart < 0.02 && moonK > 0.02) { sun.color.setRGB(0.6, 0.71, 1.0); sun.intensity = 0.48 * moonL; W.lightDir = moonDir; }
     else { sun.color.copy(uni.sunCol.value); sun.intensity = sunPart; W.lightDir = sunDir; }
     FOL.fSun.value.copy(W.lightDir); FOL.fSunCol.value.copy(sun.color).multiplyScalar(sun.intensity * 0.45);
     // under cloud the sky carries the light: soft fill instead of hard sun
@@ -4194,14 +4335,15 @@ export function makeWorld(scene, renderer) {
     hemi.color.copy(uni.zen.value).lerp(tc.set(0xb8c4d4), 0.5); if (W.daylight < 0.4) hemi.color.lerp(uni.hor.value, (0.4 - W.daylight) * 1.5);
     hemi.groundColor.set(0x4a4436).multiplyScalar(0.3 + W.daylight * 0.7);
     // the moonlit sky: a cool blue fill at night so shapes read in the dark (silhouettes, roads, walls)
-    if (night > 0.01) { hemi.color.lerp(tc.set(0x7a8cb0), night * 0.75); hemi.groundColor.lerp(tc.set(0x2a2c34), night * 0.6); hemi.intensity += night * (0.07 + 0.13 * moonL); }
+    if (night > 0.01) { hemi.color.lerp(tc.set(0x7a8cb0), night * 0.75); hemi.groundColor.lerp(tc.set(0x2a2c34), night * 0.6); hemi.intensity += night * (0.25 + 0.15 * moonL); }
     sun.shadow.radius = 1 + cov * 5;
     scene.fog.color.copy(a[6]).lerp(b[6], t); scene.fog.density = lerp(a[7], b[7], t);
-    if (night > 0.01) { scene.fog.color.lerp(tc.set(0x1c2333), night * (0.25 + 0.4 * moonL)); scene.fog.density *= 1 - night * 0.18; }   // moonlit haze: far shapes stand out dark against it
+    if (night > 0.01) { scene.fog.color.lerp(uni.hor.value, night * (0.35 + 0.4 * moonL)); scene.fog.density *= 1 - night * 0.18; }   // moonlit haze, the colour of the sky low down: far shapes stand out dark against it, no band where the fog meets the sky
     scene.environmentIntensity = lerp(a[8], b[8], t) * (1 + cov * 0.4);
     if (sk > 0.001) { scene.fog.density *= 1 - sk * 0.6; scene.fog.color.lerp(tc.set(0xc8d8e6), sk * 0.75); scene.environmentIntensity *= 1 + sk * 0.3; }
     W.night = night;
     if (W.preset) applyPreset(W.preset, k);
+    if (W.hills && W.hills.userData.far) W.hills.userData.far.material.color.copy(W.hills.material.color).lerp(scene.fog.color, 0.5);   // the far ridge: paler, into the haze
     // rain: thicker air, dark glossy wet streets and roofs
     if (k > 0.001) scene.fog.density *= 1 + k * 0.7;
     if (Math.abs(k - (W._wetK ?? -1)) > 0.01) {
@@ -4271,7 +4413,7 @@ export function makeWorld(scene, renderer) {
   W.lightBuild = () => { if (LOW) lightBuild(); };   // maps / later additions can call it again (already-known objects are skipped)
   let cullI = 0, cullT = 0;
   const cv = new THREE.Vector3();
-  function cullFar(dt, focus) {
+  function cullFar(dt, focus, kIn = 1) {
     if (!CULL.length) return;
     const cam = C.camera, p = cam ? cam.getWorldPosition(cv) : focus;
     const zoom = cam && cam.fov ? Math.max(1, 55 / cam.fov) : 1, z2 = zoom * zoom;   // zoomed in / scoped: see further
@@ -4281,7 +4423,7 @@ export function makeWorld(scene, renderer) {
       if (cullI >= CULL.length) cullI = 0;
       const c = CULL[cullI++], o = c[0], e = o.matrixWorld.elements;
       const x = e[0] * c[1] + e[4] * c[2] + e[8] * c[3] + e[12] - p.x, y = e[1] * c[1] + e[5] * c[2] + e[9] * c[3] + e[13] - p.y, zz = e[2] * c[1] + e[6] * c[2] + e[10] * c[3] + e[14] - p.z;
-      let d2 = x * x + y * y + zz * zz; const lim = c[5] * z2;
+      let d2 = x * x + y * y + zz * zz; const lim = c[5] * z2 * kIn * kIn;
       if (c[4] > 0) { const d = Math.max(0, Math.sqrt(d2) - c[4]); d2 = d * d; }
       const hide = c[6] ? d2 > lim * 0.9 : d2 > lim * 1.1;   // a little hysteresis: no flicker at the edge
       if (hide !== c[6]) { c[6] = hide; o.layers.mask = hide ? 0 : 1; }
@@ -4301,7 +4443,7 @@ export function makeWorld(scene, renderer) {
     uni.time.value = t; FOL.fTime.value = t;
     grass.update(t, focus);
     updateProps(dt); updateBreakables(dt);
-    if (LOW) cullFar(dt, focus);
+    if (LOW) cullFar(dt, focus, inside && !inside.cave ? 0.45 : 1);   // indoors only the near things can be seen (out of the windows)
     for (const c of W.shutCargo) { const v = (c.openK || 0) > 0.3; for (const it of c.items) if (it.mesh.visible !== (v && !it.taken)) it.mesh.visible = v && !it.taken; }   // a closed trunk lid hides what's inside
     for (let i = W.opening.length - 1; i >= 0; i--) {
       const c = W.opening[i], up = c.openTarget === 1;
@@ -4339,16 +4481,21 @@ export function makeWorld(scene, renderer) {
       if (H) { atticLight.position.set(H.bulb[0], H.bulb[2] - 0.05, H.bulb[1]); atticLight.intensity = 3.2; } else atticLight.intensity = 0;
       if (W.atticBulbMat) W.atticBulbMat.emissiveIntensity = H ? 2.5 : 0; }
     // indoors as the day goes: a warm lamp-lit room (one light, moved to whichever house you're in), eased on
-    { const want = inside && !up && W.daylight < 0.6 ? 6 * (1 - W.daylight / 0.6) * (W.powerOn ?? 1) : 0;
-      if (want > 0) roomLight.position.set(inside.x, (inside.floorY || 0) + 2.4, inside.z);
+    // (placed over the middle of the room you're in; in a big hall it hangs over you, kept inside the room)
+    { let want = inside && !up && W.daylight < 0.6 ? 6 * (1 - W.daylight / 0.6) * (W.powerOn ?? 1) : 0;
+      if (want > 0) want *= placeRoomLight(inside, focus);
       roomLight.intensity += (want - roomLight.intensity) * Math.min(1, dt * 3); if (roomLight.intensity < 0.01) roomLight.intensity = 0; }
+    // a cave / a windowless room never goes pitch black: the sky's fill has a floor in there
+    if (inside && inside.cave && hemi.intensity < 0.32) hemi.intensity = 0.32;
+    // the house lamps' shades and the ceiling fixtures glow once it's dark (if there's power)
+    { const e = W.daylight < 0.4 && (W.powerOn ?? 1) > 0 ? 1.6 : 0; if (MAT.lampShade.emissiveIntensity !== e) { MAT.lampShade.emissiveIntensity = e; MAT.fixture.emissiveIntensity = e; } }
     for (const a of W.anims) a(dt, t, focus);
     { let best = null, bd = 45 * 45; for (const h of W.hazards) { if (h.off || h.kind !== 'fire') continue; const d = (h.x - focus.x) ** 2 + (h.z - focus.z) ** 2; if (d < bd) { bd = d; best = h; } }
       if (best) { fireLight.position.set(best.x, 1.3, best.z); fireLight.intensity = 26 * (0.75 + 0.15 * Math.sin(t * 13) + 0.1 * Math.sin(t * 31.7)); } else fireLight.intensity = 0; }
     // the roof over the house you're in isn't drawn — but it still shades the rooms (it keeps casting its shadow);
     // from its attic (or up on top of it) you see it again
     for (const H of W.houses) {
-      const hide = H === inside && !up; if (H._hid === hide) continue; H._hid = hide;
+      const hide = H === inside && !up && !W.firstPerson; if (H._hid === hide) continue; H._hid = hide;   // (first person: you see the ceiling, so the roof stays)
       H.roof.traverse(o => { if (!o.isMesh) return; o.userData.mat ??= o.material; o.material = hide ? MAT.shadowOnly : o.userData.mat; });
     }
     // street lamps come on at dusk (photocells): bulbs glow, a pool of light on the road, the closest few cast real light
@@ -4368,7 +4515,8 @@ export function makeWorld(scene, renderer) {
     }
     if (lampT <= 0) {
       lampT = 0.5;
-      const lit = W.lamps.filter(L => !L.broken).map(L => [L, Math.hypot(L.x - focus.x, L.z - focus.z) - (L.reach || 0)]).sort((a, b) => a[1] - b[1]).slice(0, lampLights.length);
+      // (the big floodlights — pow ≥ 10, a prison yard's masts — win a slot whenever they're within 80 m)
+      const lit = W.lamps.filter(L => !L.broken).map(L => { const d = Math.hypot(L.x - focus.x, L.z - focus.z); return [L, d - (L.reach || 0) - ((L.pow || 1) >= 10 && d < 80 ? 1000 : 0)]; }).sort((a, b) => a[1] - b[1]).slice(0, lampLights.length);
       lampLights.forEach((pl, i) => { const L = lit[i] && lit[i][0]; pl.userData.lamp = L; if (L) { pl.position.set(L.x, L.y, L.z); pl.target.position.set(L.tx ?? L.x, 0, L.tz ?? L.z); pl.target.updateMatrixWorld(); pl.distance = L.dist || 24; pl.angle = L.angle || 1.05; pl.color.setHex(L.col || 0xffc890); } });
     }
     // they light the street, not the inside of the house you're standing in (no shadows from these: so cut them there)
@@ -4391,15 +4539,33 @@ export function makeWorld(scene, renderer) {
     // the police lights still turning
     if (W.police && W.police.hidden) policeLight.intensity = 0;
     else if (W.police) { const k = Math.floor(t * 3) % 2; W.police.bar.red.emissiveIntensity = k ? 3 : 0.2; W.police.bar.blue.emissiveIntensity = k ? 0.2 : 3; policeLight.color.setHex(k ? 0xff2010 : 0x1030ff); policeLight.intensity = W.night > 0.3 ? 10 : 3; }
-    if (LOW) poolLights(C.camera ? C.camera.position : focus);
+    poolLights(C.camera ? C.camera.position : focus);
   };
   // the nearest lamps' light: spots pointing straight down (so it falls on the road, not up into the trees)
   const lampLights = [];
-  for (let i = 0; i < (LOW ? 2 : 4); i++) { const l = new THREE.SpotLight(0xffc890, 0, 24, 1.05, 0.65, 1.6); scene.add(l, l.target); lampLights.push(l); }
+  const addLampSlot = () => { const l = new THREE.SpotLight(0xffc890, 0, 24, 1.05, 0.65, 1.6); scene.add(l, l.target); lampLights.push(l); };
+  for (let i = 0; i < (LOW ? 2 : 4); i++) addLampSlot();
+  // a map may ask for more (W.lampSlots, set while it builds; capped — each one costs every lit pixel)
+  const growLampSlots = () => { const want = Math.min(W.lampSlots || 0, LOW ? 3 : 6); while (lampLights.length < want) addLampSlot(); };
   const canopyLight = new THREE.SpotLight(0xfff2d8, 0, 20, 1.2, 0.7, 1.5); scene.add(canopyLight, canopyLight.target);
   W.placeCanopyLight = (x, z) => { canopyLight.position.set(x, 4.4, z); canopyLight.target.position.set(x, 0, z); canopyLight.target.updateMatrixWorld(); };
   const atticLight = new THREE.PointLight(0xffd6a0, 0, 9, 1.6); addLight(atticLight, scene);
   const roomLight = new THREE.PointLight(0xffd8a8, 0, 8, 1.5); addLight(roomLight, scene);
+  // move the room light to the room the player is in (H.rooms, in the house's local frame); returns an intensity scale
+  function placeRoomLight(H, f) {
+    const c = Math.cos(H.yaw), sn = Math.sin(H.yaw), fl = H.flip || 1, dx = f.x - H.x, dz = f.z - H.z;
+    const lx = (dx * c - dz * sn) * fl, lz = dx * sn + dz * c;
+    let R = null; if (H.rooms) for (const r of H.rooms) if (lx >= r[0] && lx <= r[2] && lz >= r[1] && lz <= r[3]) { R = r; break; }
+    let cx = 0, cz = 0, hw = H.hw || 4, hd = H.hd || 4;
+    if (R) { cx = (R[0] + R[2]) / 2; cz = (R[1] + R[3]) / 2; hw = (R[2] - R[0]) / 2; hd = (R[3] - R[1]) / 2; }
+    let px = cx, pz = cz;
+    if (hw > 6 || hd > 6) { px = clamp(lx, cx - Math.max(0, hw - 1), cx + Math.max(0, hw - 1)); pz = clamp(lz, cz - Math.max(0, hd - 1), cz + Math.max(0, hd - 1)); }
+    const wx = px * fl;
+    roomLight.position.set(H.x + wx * c + pz * sn, (H.floorY || 0) + (H.wallH ? H.wallH - 0.4 : 2.4), H.z - wx * sn + pz * c);
+    const dist = clamp(Math.max(hw, hd) * 1.1, 8, 26); roomLight.distance = dist;
+    roomLight.color.setHex(W.mapId === 'prison' ? 0xe4ecff : 0xffd8a8);   // (prison: cold strip lights)
+    return clamp(dist / 8, 1, 2.2);
+  }
   const fireLight = new THREE.PointLight(0xff7a2a, 0, 16, 1.7); addLight(fireLight, scene);   // the glow of the nearest fire (one light, moved about)
   const policeLight = new THREE.PointLight(0xff2010, 0, 16, 1.8); policeLight.position.set(1.5, 2.2, -100); addLight(policeLight, scene);
   W.grass = grass;
@@ -4410,23 +4576,32 @@ export function makeWorld(scene, renderer) {
   const PRESETS = {
     suburb: null,
     // hot, clear and dusty: a deep blue zenith, pale sand-coloured haze, thin cloud, low mesas all round
-    desert: { zen: 0x3f73b8, hor: 0xe2d2ae, fog: 0xd6c6a2, fogMul: 0.55, cloud: 0.14, hills: 0x9a7250, hillH: 1.9, ground: 'sand', grassK: 0, grass: false, step: 'gravel', ambient: 'desert' },
-    // humid green gloom: thick low haze, heavy cloud, a dark wall of canopy round the edge
-    jungle: { zen: 0x56706a, hor: 0xb4c0a6, fog: 0x7c8e78, fogMul: 1.6, cloud: 0.72, hills: 0x172812, hillH: 1.5, ground: 'grass', grassK: 1.15, step: 'grass', ambient: 'jungle' },
-    // grey concrete overcast, flat light, scrubby yard dirt
-    prison: { zen: 0x56606c, hor: 0xa4a6a6, fog: 0x989a9a, fogMul: 1.0, cloud: 0.82, hills: 0x363c32, hillH: 0.9, ground: 'dirt', grassK: 0.3, step: 'concrete', ambient: 'prison' },
-    // city edge: hazy, a skyline of grey blocks instead of trees
-    stadium: { zen: 0x4c6888, hor: 0xc2baa8, fog: 0xa2a2a0, fogMul: 0.8, cloud: 0.42, hills: 0x4a4e54, hillH: 1.6, ground: 'grass', grassK: 0.55, step: 'concrete', ambient: 'city' },
+    desert: { zen: 0x2f63b0, hor: 0xe2d2ae, fog: 0xd6c6a2, fogMul: 0.55, cloud: 0.14, full: true, hills: 0x9a7250, hillH: 1.9, ground: 'sand', grassK: 0, grass: false, step: 'gravel', ambient: 'desert' },
+    // humid green gloom: thick low haze, heavy cloud, a dark wall of canopy round the edge; a muddy leaf-litter floor
+    // with grass only in the clearings. At night the haze keeps a little green-grey light so you can still see
+    jungle: { zen: 0x56706a, hor: 0xb4c0a6, fog: 0x7c8e78, fogMul: 1.6, cloud: 0.72, hills: 0x172812, hillH: 1.5, ground: 'mud', grassK: 0.35, step: 'grass', ambient: 'jungle', nightHemi: 0.22, nightHemiCol: 0x6a8478, nightFog: 0x1a2420 },
+    // grey concrete overcast, flat light, scrubby yard dirt; at night the sodium lights glow orange under the cloud
+    prison: { zen: 0x56606c, hor: 0xa4a6a6, fog: 0x989a9a, fogMul: 1.0, cloud: 0.82, hills: 0x363c32, hillH: 0.9, ground: 'dirt', grassK: 0.3, step: 'concrete', ambient: 'prison', nightGlow: 0x3a2e22, nightGlowK: 0.18, nightHor: 0x4a3a2c },
+    // city edge: hazy, a skyline of grey blocks instead of trees; the city lights the night sky low down
+    stadium: { zen: 0x4c6888, hor: 0xc2baa8, fog: 0xa2a2a0, fogMul: 0.8, cloud: 0.42, hills: 0x4a4e54, hillH: 1.6, ground: 'grass', grassK: 0.55, step: 'concrete', ambient: 'city', nightHor: 0x3a2a22 },
   };
   W.PRESETS = PRESETS;
   const ptc = new THREE.Color();
   // called from setTime after the suburb sky is worked out: tint it toward the map's own air (strongest by day)
   function applyPreset(PR, wet) {
-    const dk = W.daylight * (1 - wet * 0.7);
-    if (PR.zen != null) uni.zen.value.lerp(ptc.set(PR.zen), 0.7 * dk);
-    if (PR.hor != null) uni.hor.value.lerp(ptc.set(PR.hor), 0.7 * dk);
+    const dk = W.daylight * (1 - wet * 0.7), nt = W.night || 0, kk = (PR.full ? 1 : 0.7) * dk;   // (clear-air maps take their own sky fully)
+    if (PR.zen != null) uni.zen.value.lerp(ptc.set(PR.zen), kk);
+    if (PR.hor != null) uni.hor.value.lerp(ptc.set(PR.hor), kk);
     if (PR.fog != null) scene.fog.color.lerp(ptc.set(PR.fog), 0.75 * dk);
     if (PR.fogMul != null) scene.fog.density *= PR.fogMul;
+    if (nt > 0.01) {
+      // a city's / a prison's lights glow in the low sky at night, and the haze takes that colour
+      if (PR.nightHor != null) { uni.hor.value.lerp(ptc.set(PR.nightHor), nt * 0.8); scene.fog.color.lerp(uni.hor.value, nt * 0.6); }
+      if (PR.nightFog != null) scene.fog.color.lerp(ptc.set(PR.nightFog), nt * 0.8);
+      if (PR.nightHemi != null) hemi.intensity += PR.nightHemi * nt;
+      if (PR.nightHemiCol != null) hemi.color.lerp(ptc.set(PR.nightHemiCol), nt * 0.6);
+      if (PR.nightGlow != null) { const g = PR.nightGlowK ?? 0.15; hemi.groundColor.lerp(ptc.set(PR.nightGlow), nt * 0.7); hemi.color.lerp(ptc, nt * 0.35); hemi.intensity += g * nt; }
+    }
   }
   function setPreset(name) {
     const PR = typeof name === 'string' ? PRESETS[name] : name;
@@ -4479,6 +4654,7 @@ export function makeWorld(scene, renderer) {
   let terrainMesh = null;
   function terrain(fn, step = 2) {
     W.terrainH = fn;
+    if (LOW && step < 3) step = 3;   // phones / tablets: a coarser sheet (less than half the triangles); one mesh still (maps edit it)
     const Bd = W.bounds, x0 = Bd.x0 - 60, x1 = Bd.x1 + 60, z0 = Bd.z0 - 60, z1 = Bd.z1 + 60;
     const nx = Math.ceil((x1 - x0) / step), nz = Math.ceil((z1 - z0) / step);
     const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0, nx, nz).rotateX(-Math.PI / 2);
@@ -4492,7 +4668,7 @@ export function makeWorld(scene, renderer) {
   }
   // rocks and boulders: a lumpy stone, s metres across; solid unless tiny
   const ROCKG = [];
-  MAT.rock = std({ ...TX.relief(TX.rockTexture(), 1.2), color: 0xb0a898, roughness: 0.92 });
+  MAT.rock = std({ ...TX.relief(rockTx, 1.2), color: 0xb0a898, roughness: 0.92 });   // (the same texture as the ground's rocky banks)
   contactAO(MAT.rock, 'ext');
   function rock(x, z, s = 1, o = {}) {
     if (!ROCKG.length) for (let k = 0; k < 4; k++) { const g = new THREE.IcosahedronGeometry(0.5, 2), p = g.attributes.position; const r = TX.rng(31 + k); const ph = [r() * 6, r() * 6, r() * 6]; for (let i = 0; i < p.count; i++) { const v = new THREE.Vector3().fromBufferAttribute(p, i); const n = 1 + 0.18 * Math.sin(v.x * 7 + ph[0]) * Math.cos(v.z * 6 + ph[1]) + 0.1 * Math.sin(v.y * 11 + ph[2]); v.multiplyScalar(n); if (v.y < -0.15) v.y = -0.15 + (v.y + 0.15) * 0.3; p.setXYZ(i, v.x, v.y, v.z); } g.computeVertexNormals(); ROCKG.push(g); }
@@ -4520,8 +4696,12 @@ export function makeWorld(scene, renderer) {
       if (top < h) piece(p.a0, p.a1, y0 + top, y0 + h);
       if (p.glass) {
         const [cx, cz] = at((p.a0 + p.a1) / 2);
+        // the pane sits recessed in the middle of the wall, in a frame (frameMat, default painted trim) that stands
+        // proud of both faces; a window (not a glass door) gets a sill ledge outside
+        const fm = p.frameMat || o.frameMat || 'trim', sn = Math.sin(yaw), cs = Math.cos(yaw);
         B.box(cx, y0 + sill, cz, (p.a1 - p.a0) / 2, y0 + top, 0.012, yaw, f => f === 'pz' || f === 'nz' ? (p.glassMat || 'glass') : null, TILE);
-        for (const [a, b, ya, yb] of [[p.a0, p.a0 + 0.06, sill, top], [p.a1 - 0.06, p.a1, sill, top], [p.a0, p.a1, sill - 0.05, sill], [p.a0, p.a1, top, top + 0.05]]) { const [fx2, fz2] = at((a + b) / 2); B.box(fx2, y0 + ya, fz2, (b - a) / 2, y0 + yb, t / 2 + 0.02, yaw, () => 'trim', TILE); }
+        for (const [a, b, ya, yb] of [[p.a0, p.a0 + 0.06, sill, top], [p.a1 - 0.06, p.a1, sill, top], [p.a0, p.a1, sill - 0.05, sill], [p.a0, p.a1, top, top + 0.05]]) { const [fx2, fz2] = at((a + b) / 2); B.box(fx2, y0 + ya, fz2, (b - a) / 2, y0 + yb, t / 2 + 0.02, yaw, () => fm, TILE); }
+        if (sill > 0.3 && p.sillLedge !== false) { const off = t / 2 + 0.05; B.box(cx - sn * off, y0 + sill - 0.07, cz - cs * off, (p.a1 - p.a0) / 2 + 0.07, y0 + sill - 0.02, 0.06, yaw, f => f === 'bot' ? null : (p.sillMat || o.sillMat || fm), TILE); }
         out.boxes.push(solid(cx, cz, (p.a1 - p.a0) / 2, t / 2, yaw, y0 + top, 'glass', y0 + sill, { window: true }));
       }
       if (p.door) { const [hx2, hz2] = at(p.a0); out.doors.push(door(hx2, hz2, yaw, p.dir || 1, p.col ?? 0xe6e2d8, o.house || null, { w: p.w, frame: !p.glassDoor, wallT: t, hp: p.hp, glassDoor: p.glassDoor, front: p.front, interior: p.interior })); }
@@ -4545,21 +4725,24 @@ export function makeWorld(scene, renderer) {
     paved.push(rectOf(x, z, w / 2 + 0.3, d / 2 + 0.3, yaw));
     const A = P(-w / 2, -d / 2), Bc = P(w / 2, -d / 2), Cc = P(w / 2, d / 2), D = P(-w / 2, d / 2);
     const sides = { s: [A, Bc, w], e: [Bc, Cc, d], n: [Cc, D, w], w: [D, A, d] };
-    const opsFor = k => [...(o.doors || []).filter(p => p.side === k).map(p => ({ w: 0.95, ...p, door: p.door !== false })), ...(o.windows || []).filter(p => p.side === k).map(p => ({ w: 1.2, ...p, glass: p.glass !== false }))];
+    // (o.lit: its windows glow warm from inside at night — glassLit — like the houses' do)
+    const opsFor = k => [...(o.doors || []).filter(p => p.side === k).map(p => ({ w: 0.95, ...p, door: p.door !== false })), ...(o.windows || []).filter(p => p.side === k).map(p => ({ w: 1.2, ...(o.lit ? { glassMat: 'glassLit' } : {}), ...p, glass: p.glass !== false }))];
     H.doors = [];
     for (const k of ['s', 'e', 'n', 'w']) {
       const [a, b] = sides[k];
       // the walls overlap at the corners (each runs t/2 past its end) so no light leaks through
       const ux = (b[0] - a[0]), uz = (b[1] - a[1]), L = Math.hypot(ux, uz), ex = ux / L * t / 2, ez = uz / L * t / 2;
-      const r = wall(a[0] - ex, a[1] - ez, b[0] + ex, b[1] + ez, { h, t, mat: o.mat || 'concrete', inMat: o.inMat || 'paint0', surf: o.surf || 'concrete', openings: opsFor(k), house: H, capMat: o.mat || 'concrete' });
+      const r = wall(a[0] - ex, a[1] - ez, b[0] + ex, b[1] + ez, { h, t, mat: o.mat || 'concrete', inMat: o.inMat || 'paint0', surf: o.surf || 'concrete', openings: opsFor(k), house: H, capMat: o.mat || 'concrete', frameMat: o.frameMat, sillMat: o.sillMat });
       H.doors.push(...r.doors);
     }
     H.front = H.doors[0] || null;
     if (o.floor !== null) B.box(x, 0, z, w / 2 - t / 2, 0.03, d / 2 - t / 2, yaw, f => f === 'top' ? (o.floor || 'floorTile') : null, TILE);
     H.rooms.push([-w / 2, -d / 2, w / 2, d / 2, o.step || (o.floor && o.floor.startsWith('floorWood') ? 'wood' : 'tile')]);
+    // the ceiling: part of the building, not the roof (so it's still there over you when the roof hides; it faces
+    // down only, so from a camera above it's not drawn)
+    if (o.ceiling !== false) B.box(x, h - 0.02, z, w / 2, h, d / 2, yaw, f => f === 'bot' ? (o.ceilMat || 'ceiling') : null, TILE);
     // roof (in its own group: hidden from the inside, still casting its shadow)
     const rg = sub(() => {
-      if (o.ceiling !== false) B.box(x, h - 0.02, z, w / 2, h, d / 2, yaw, f => f === 'bot' ? (o.ceilMat || 'ceiling') : null, TILE);
       if (o.roof === 'gable') gableRoof(x, z, w / 2 + 0.35, d / 2 + 0.35, yaw, h, h + (o.ridge ?? d * 0.3), o.roofMat || 'shingle0', o.mat || 'siding0', false);
       else if (o.roof !== null) {
         B.box(x, h, z, w / 2 + 0.15, h + 0.22, d / 2 + 0.15, yaw, f => f === 'top' ? (o.roofMat || 'concrete') : f === 'bot' ? null : 'trim', TILE);
@@ -4632,6 +4815,8 @@ export function makeWorld(scene, renderer) {
     chaos, emitter, hazard: hazardK, blood: (...a) => W.blood(...a),
     // ground, water, terrain, air
     paint, region, slab, water, terrain, light, preset: setPreset, groundKind: groundKindSet,
+    // shading: contactAO(material, 'ext' | 'int') — walls darken where they meet the ground / floor and ceiling
+    contactAO: (m, kind = 'ext') => { if (m && !m.userData.pk) contactAO(m, kind); return m; },
     // the map's frame
     spawn, bounds,
   };
@@ -4653,6 +4838,7 @@ export function makeWorld(scene, renderer) {
     if (info.spawns) for (const p of info.spawns) if (!W.spawns.includes(p)) W.spawns.push(p);
     if (!W.spawns.length) for (let i = 0; i < 40; i++) { const a = i / 40 * Math.PI * 2, Bd = W.bounds; W.spawns.push({ x: (Bd.x0 + Bd.x1) / 2 + Math.cos(a) * (Bd.x1 - Bd.x0) * 0.45, z: (Bd.z0 + Bd.z1) / 2 + Math.sin(a) * (Bd.z1 - Bd.z0) * 0.45 }); }
     W.lz = info.lz || { x: 0, z: 0 };
+    growLampSlots();
     finish();
     W.mapInfo = { id: mapId, name: info.name || mapId, ...info, spawns: W.spawns, bounds: W.bounds, preset: W.presetName || 'suburb', ambient: W.ambient };
     return W.mapInfo;

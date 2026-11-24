@@ -622,7 +622,7 @@
   @media (max-width: 720px) { .center-panel { padding: 20px 16px 16px !important; } }
   #who .center-panel .btns { position: sticky; bottom: -26px; z-index: 2; margin: 16px -34px -26px !important; padding: 12px 34px 14px; background: linear-gradient(180deg, rgba(12,11,10,0), rgba(12,11,10,.96) 30%); }
   @media (max-width: 720px) { #who .center-panel .btns { bottom: -16px; margin: 16px -16px -16px !important; padding: 12px 16px 14px; } }
-  @media (max-height: 820px) { #whoList .face { width: 56px; height: 70px; } #whoList .dbtn { padding: 10px 12px !important; } .opt { padding: 6px 10px; } .opt small { display: none; } #who .sub { display: none; } }
+  @media (max-height: 820px) { #whoList .face { width: 56px; height: 70px; } #whoList .dbtn { padding: 10px 12px !important; } .opt { padding: 6px 10px; } .opt small { font-size: 11px; line-height: 1.25; } #who .sub { font-size: 11px !important; line-height: 1.25; margin-bottom: 10px !important; } }
   #howBack { position: sticky; bottom: 0; background: rgba(12,11,10,.96) !important; z-index: 2; }
   @media (max-height: 820px) { #howto .cols { font-size: 12.5px; line-height: 1.45; } #howto h3 { margin: 10px 0 4px; } }
   @media (max-width: 720px) { #howto .cols { grid-template-columns: 1fr !important; } }
@@ -631,7 +631,7 @@
   #mapList .dbtn { padding: 10px 14px; border-left-color: #c9a24a; }
   #mapList .dbtn.on { border-color: #c9a24a; }
   #mapList .dbtn small { font-size: 11px; margin-top: 3px; }
-  @media (max-height: 700px) { #diffList .dbtn { padding: 10px 14px; } #diffList .dbtn small { font-size: 11px; margin-top: 3px; } #diffList .stat { margin-top: 2px; } #diff .sub { display: none; } }
+  @media (max-height: 700px) { #diffList .dbtn { padding: 10px 14px; } #diffList .dbtn small { font-size: 11px; margin-top: 3px; } #diffList .stat { margin-top: 2px; } #diff .sub { font-size: 11px !important; line-height: 1.25; margin-bottom: 10px !important; } }
   @media (max-width: 720px) { #diffList { grid-template-columns: 1fr 1fr; gap: 6px; } #diffList .dbtn small { display: none; } }
   #result .btns { position: sticky; bottom: 0; background: rgba(12,11,10,.96); padding: 10px 0; z-index: 2; }
   @media (max-width: 720px) { .rstats { grid-template-columns: repeat(2, 1fr); } }
@@ -640,7 +640,7 @@
   #pause.show, #result.show { transition: opacity .25s, backdrop-filter .25s, -webkit-backdrop-filter .25s, visibility 0s; }
   #pause:not(.show), #result:not(.show) { backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0); }
   /* HUD: prompt above the caption, caption between the side panels */
-  #caption { bottom: 7vh !important; max-width: max(260px, min(62vw, 760px, calc(100vw - 2 * (var(--ui) * 330px)))) !important; padding: 8px 24px !important; box-sizing: border-box; display: -webkit-box !important; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #caption { bottom: 7vh !important; max-width: max(260px, min(62vw, 760px, calc(100vw - 2 * (var(--ui) * 330px)))) !important; padding: 8px 24px !important; box-sizing: border-box; display: block !important; overflow: visible; }
   #prompt { bottom: calc(7vh + 96px) !important; }
   #toasts { top: max(34%, calc(var(--ui) * 215px)) !important; }
   @media (max-height: 620px) { #help { display: none !important; } }
@@ -764,7 +764,7 @@ html.touch:not(.phone) #phoneAway { position: absolute; left: 12px; right: 12px;
   html.touch #diffBack { margin-top: 10px !important; }
   /* set up your run: people on the left, options on the right, buttons always on screen */
   html.touch #who .center-panel { display: flex; flex-direction: column; overflow: hidden !important; }
-  html.touch #who .sub { display: none; }
+  html.touch #who .sub { font-size: 12px !important; line-height: 1.25; margin-bottom: 4px !important; }
   html.touch #who .setupGrid { grid-template-columns: 1.25fr 1fr !important; gap: 14px; margin-top: 6px; flex: 1; min-height: 0; }
   html.touch #who .setupGrid > div { overflow-y: auto; min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; padding-right: 2px; }
   html.touch #whoList { grid-template-columns: 1fr !important; gap: 6px; }
@@ -774,7 +774,7 @@ html.touch:not(.phone) #phoneAway { position: absolute; left: 12px; right: 12px;
   html.touch #whoList .dbtn small { font-size: 12px !important; margin: 0 !important; line-height: 1.3; }
   html.touch .opts { gap: 5px; }
   html.touch .opt { padding: 4px 10px !important; min-height: 40px; box-sizing: border-box; margin: 0 !important; }
-  html.touch .opt small { display: none !important; }
+  html.touch .opt small { font-size: 12px !important; line-height: 1.25; }
   html.touch .opt.col { min-height: 0; padding: 4px 10px 2px !important; }
   html.touch #who .center-panel .btns { position: static !important; margin: 8px 0 0 !important; padding: 0 !important; background: none !important; flex: none; }
   html.touch #who .btns button.m { margin: 0 !important; }
@@ -801,7 +801,7 @@ html.touch:not(.phone) #phoneAway { position: absolute; left: 12px; right: 12px;
   html.touch #result .rstats { grid-template-columns: repeat(3, 1fr) !important; gap: 6px; margin: 10px 0; }
   html.touch #result .rstats div { padding: 6px 10px; }
   html.touch #result .rstats b { font-size: 24px; }
-  html.touch #result .btns { bottom: calc(-1 * max(10px, env(safe-area-inset-bottom))); padding: 8px 0 max(8px, env(safe-area-inset-bottom)) !important; margin-bottom: calc(-1 * max(10px, env(safe-area-inset-bottom))); }
+  html.touch #result .center-panel .btns { padding-top: 8px !important; }
   html.touch #result .btns button.m { margin: 0 !important; padding: 8px 10px !important; font-size: 12px !important; }
   /* a note you found */
   html.touch #note .paper { width: min(560px, calc(100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right))); max-height: calc(100dvh - 24px); padding: 18px 24px 14px; font-size: 16px; line-height: 1.45; }
@@ -890,6 +890,109 @@ html.touch:not(.phone) #phoneAway { position: absolute; left: 12px; right: 12px;
   html.touch #whoList .dbtn { padding: 10px 12px !important; }
   html.touch #phone .pframe { height: min(640px, calc(100dvh - 6vh - env(safe-area-inset-bottom))); width: min(320px, 46vh); }
 }
+
+/* =============================== [fit2] no word cut off, nothing covered ===============================
+   One padding per panel (as variables) so the sticky button bars line up with it on every screen size. */
+.center-panel { --pt: 30px; --pr: 34px; --pb: 26px; --pl: 34px; }
+#diff .center-panel { --pt: 24px; --pr: 30px; --pb: 20px; --pl: 30px; }
+@media (max-width: 720px) { .center-panel, #diff .center-panel { --pt: 20px; --pr: 16px; --pb: 16px; --pl: 16px; } }
+@media (max-width: 700px), (max-height: 560px) { .center-panel, #diff .center-panel { --pt: 16px; --pr: 16px; --pb: 14px; --pl: 16px; } }
+@media (max-height: 540px) {
+  html.touch .center-panel, html.touch #diff .center-panel { --pt: max(12px, env(safe-area-inset-top)); --pr: calc(18px + env(safe-area-inset-right)); --pb: max(10px, env(safe-area-inset-bottom)); --pl: calc(18px + env(safe-area-inset-left)); }
+  html.touch #diff .center-panel { --pt: max(10px, env(safe-area-inset-top)); }
+}
+html body .center-panel:is(.center-panel, #_fit2) { padding: var(--pt) var(--pr) var(--pb) var(--pl) !important; }
+.center-panel .btns.sticky, #who .center-panel .btns, #result .center-panel .btns { position: sticky; bottom: calc(-1 * var(--pb)) !important; margin: 16px calc(-1 * var(--pr)) calc(-1 * var(--pb)) calc(-1 * var(--pl)) !important;
+  padding: 12px var(--pr) max(14px, env(safe-area-inset-bottom)) var(--pl) !important; background: #0c0b0a !important; border-top: 1px solid rgba(255,255,255,.08); z-index: 2; }
+.center-panel .btns.sticky button.m:not(.go), #result .btns button.m:not(.go) { background: linear-gradient(180deg, #221f1c, #1a1816) !important; }
+.center-panel .btns.sticky button.m:not(.go):hover, #result .btns button.m:not(.go):hover { background: linear-gradient(90deg, #4a1a14, #241412) !important; }
+#result .btns button.m { white-space: normal; line-height: 1.25; }
+#result .zst-rmore { justify-content: center; }
+@media (max-height: 560px) and (min-height: 380px) { #result .zst-rtiles { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 6px !important; } #result .zst-results .zst-tile b { font-size: 22px !important; } #result .zst-results { margin: 10px 0 !important; } }
+
+/* set up your run: the option labels keep their own case and spacing, the little descriptions stay */
+#who .center-panel label.opt { padding: 9px 12px !important; margin: 0 !important; text-transform: none; letter-spacing: .04em !important; border-bottom: 1px solid var(--edge); color: var(--bone) !important; }
+#who .opt small { text-transform: none; }
+#who .opts > *, #whoList > * { flex-shrink: 0; }
+#who .opt span { min-width: 0; }
+#who .btns.sticky button.m { white-space: nowrap; letter-spacing: .14em !important; }
+@media (max-width: 1100px) { #whoRandom { font-size: 0 !important; } #whoRandom::after { content: '\1F3B2  Random'; font-size: 13px; letter-spacing: .14em; } }
+@media (max-height: 540px) {
+  html.touch #who .setupGrid > div { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent); padding-bottom: 18px; }
+  html.touch #who .center-panel label.opt { padding: 5px 10px !important; }
+}
+
+/* pause: the game's HUD steps back, the panel is solid, the settings go two-wide when the window is short */
+body.paused .hud, body:has(#pause.show) .hud { opacity: 0 !important; }
+#pause .center-panel { background: var(--grain), linear-gradient(165deg, #1a1816, #0a0908) !important; }
+@media (max-height: 960px) {
+  html:not(.touch) #pause .center-panel { width: min(640px, calc(100vw - 16px)); }
+  html:not(.touch) #pause .pset { display: grid; grid-template-columns: 1fr 1fr; column-gap: 22px; text-align: left; }
+  html:not(.touch) #pause .pset label { margin: 4px 0; padding: 4px 0; letter-spacing: .16em !important; }
+  html:not(.touch) #pause .pset input[type=range] { width: 46%; }
+  html:not(.touch) #pause .pbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  html:not(.touch) #pause .pbtns button.m { margin: 6px 0; letter-spacing: .16em !important; }
+  #pause .keys { margin-top: 12px; line-height: 1.8; }
+}
+@media (max-height: 760px) {
+  html:not(.touch) #pause .zst-rgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  html:not(.touch) #pause .pbtns { position: sticky; bottom: calc(-1 * var(--pb)); z-index: 2; margin: 8px calc(-1 * var(--pr)) calc(-1 * var(--pb)) calc(-1 * var(--pl)); padding: 6px var(--pr) 10px var(--pl); background: #0c0b0a; border-top: 1px solid rgba(255,255,255,.08); }
+  html:not(.touch) #pause .keys { display: none; }
+}
+
+/* the HUD never shrinks words below what you can read */
+#caption { font-size: max(18px, calc(14px / var(--uis, 1))) !important; }
+#prompt:not(:empty) { font-size: max(14px, calc(14px / var(--uis, 1))) !important; }
+.toast { font-size: max(13px, calc(14px / var(--uis, 1))) !important; }
+#prompt .sm, #struggle .s { font-size: max(11px, calc(11px / var(--uis, 1))) !important; }
+.slot { width: auto !important; min-width: 58px; box-sizing: border-box; padding: 7px 6px 5px !important; white-space: nowrap; font-size: max(10px, calc(11px / var(--ui, 1))) !important; letter-spacing: .06em !important; }
+@media (max-width: 900px), (max-height: 560px) { .slot { width: auto !important; min-width: 42px; } }
+html.touch .slot { width: auto !important; min-width: 54px; font-size: 12px !important; letter-spacing: .04em !important; }
+html.touch #phone { zoom: 1 !important; }
+#bag .bagwrap { zoom: max(.85, var(--uis, 1)); }
+html.touch #bag .bagwrap { zoom: 1 !important; }
+.pocket .it .d { font-size: 12px !important; line-height: 1.3; }
+.pocket .it button { font-size: 12px !important; letter-spacing: .14em !important; }
+body.grabbed #prompt { display: none !important; }
+html.touch #prompt { z-index: 9; }
+
+/* objective chapter line + the big chapter card */
+#obj .ch { font-size: 12px; letter-spacing: .15em; line-height: 1.3; }
+#obj .ch span { min-width: 0; }
+#big { width: max-content; max-width: calc((100vw - 32px) / var(--uis, 1)); box-sizing: border-box; }
+#big:not(:empty) { padding: 22px 70px; background: radial-gradient(closest-side, rgba(0,0,0,.62), rgba(0,0,0,.35) 60%, rgba(0,0,0,0)); }
+#big .s { color: var(--bone) !important; font-size: max(13px, calc(13px / var(--uis, 1))) !important; letter-spacing: .22em !important; white-space: normal !important; justify-content: center; line-height: 1.4; }
+@media (max-width: 900px) { #big .s::before, #big .s::after { display: none !important; } #big:not(:empty) { padding: 16px 28px; } }
+
+/* NIGHT sits beside the clock, so the compass never slides under it; the boss bar goes below both */
+#clock .n { position: absolute; left: 100%; top: 50%; transform: translateY(-50%); margin: 0; white-space: nowrap; font-size: 11px; padding: 2px 8px; background: rgba(0,0,0,.42); border-radius: 2px; }
+#clock .n:empty { display: none; }
+#bossBar { top: calc(env(safe-area-inset-top, 0px) + var(--ui, 1) * 108px) !important; }
+body.heliOn #bossBar, body:has(#heliUI.on) #bossBar { top: calc(78px + 3vh + 170px) !important; }
+
+/* tutorial card below the objective; weapon slots clear of the weapon box */
+#tut { top: max(36%, calc(var(--objB, 0px) + 10px)); }
+@media (max-width: 900px), (max-height: 560px) { #slots { bottom: 150px !important; } }
+
+/* a note you found, on a phone: fits the screen, the close line always shows */
+html.touch #note .paper { box-sizing: border-box; max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+html.touch #note .paper .close { position: sticky; bottom: -14px; margin-bottom: -14px; padding: 10px 0 12px; background: linear-gradient(180deg, rgba(230,223,205,0), #e6dfcd 40%); }
+@media (max-height: 400px) { html.touch #note .paper { font-size: 14px; line-height: 1.35; } }
+
+/* backpack */
+#bag .bagzip .pull { left: 50%; right: auto; margin-left: -6px; }
+html.touch #bag .bagzip .pull { left: 50%; }
+html.touch #bag .baghead { padding-left: 14px; }
+.pocket h4 { flex-wrap: wrap; } .pocket h4 span { white-space: nowrap; }
+#bag #bagClose { color: var(--bone) !important; background: rgba(0,0,0,.5) !important; font-size: 13px !important; letter-spacing: .2em !important; white-space: nowrap; }
+html.touch #bag #bagClose { min-width: 96px; min-height: 44px; font-size: 0 !important; justify-content: center; }
+html.touch #bag #bagClose::after { content: '\2715  Close'; font-size: 14px; letter-spacing: .14em; }
+body.bagopen #caption, body.bagopen #help, body.bagopen #clock, body:has(#bag.show) #caption, body:has(#bag.show) #help, body:has(#bag.show) #clock { opacity: 0 !important; }
+
+/* your phone: readable small print */
+.papp, .phint { font-size: 12px !important; }
+.pbar { font-size: 13px !important; }
+.perr small { font-size: 13px; }
 </style>
 </head>
 <body>
@@ -1050,17 +1153,35 @@ html.touch:not(.phone) #phoneAway { position: absolute; left: 12px; right: 12px;
 <script>
 // if anything stops the game from loading, say what on the loading screen instead of just freezing
 (function () {
-  var shown = false, ua = navigator.userAgent, m = ua.match(/OS (\d+)_(\d+)/), ios = m ? m[1] + '.' + m[2] : '';
-  function show(msg) {
-    if (window.ZA && window.ZA.G && window.ZA.G.state !== 'loading') return;
-    var b = document.getElementById('loaderr');
-    if (!b) { b = document.createElement('div'); b.id = 'loaderr'; b.style.cssText = 'position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:99;max-width:92vw;padding:12px 16px;background:rgba(120,10,10,.92);color:#fff;font:13px/1.45 -apple-system,Helvetica,sans-serif;border-radius:8px;text-align:left;white-space:pre-wrap;word-break:break-word'; document.body.appendChild(b); }
-    b.textContent = 'The game hit a problem while loading:\n' + msg + '\n\n' + (ios ? 'iOS ' + ios + ' · ' : '') + (navigator.maxTouchPoints > 1 ? 'touch' : 'desktop') + ' · ' + (window.innerWidth + 'x' + window.innerHeight);
-    shown = true;
+  // a real error gets a red box; a slow load only gets a soft grey note at the top, and both go away by themselves once the game is up
+  var shown = false, poll = 0, ua = navigator.userAgent, m = ua.match(/OS (\d+)_(\d+)/), ios = m ? m[1] + '.' + m[2] : '';
+  function loaded() { return (window.ZA && window.ZA.G && window.ZA.G.state !== 'loading') || document.body.classList.contains('ready'); }
+  function watch() {
+    if (poll) return;
+    poll = setInterval(function () {
+      if (!loaded()) return;
+      clearInterval(poll); poll = 0;
+      var b = document.getElementById('loaderr'); if (!b) return;
+      if (b.className === 'soft') b.remove(); else setTimeout(function () { b.remove(); }, 4000);   // the game got going anyway: the error wasn't fatal
+    }, 1000);
   }
-  window.addEventListener('error', function (e) { show((e.message || 'error') + (e.filename ? '\n' + e.filename.split('/').pop() + ':' + e.lineno : '')); });
+  function box(soft) {
+    var b = document.getElementById('loaderr');
+    if (!b) { b = document.createElement('div'); b.id = 'loaderr'; b.title = 'tap to close'; b.onclick = function () { b.remove(); }; document.body.appendChild(b); }
+    b.className = soft ? 'soft' : '';
+    b.style.cssText = soft
+      ? 'position:fixed;left:50%;top:max(14px,env(safe-area-inset-top));transform:translateX(-50%);z-index:99;max-width:calc(100vw - 32px);box-sizing:border-box;padding:8px 16px;background:rgba(14,13,12,.85);color:#cfc8ba;border:1px solid rgba(255,255,255,.14);font:14px/1.4 Oswald,-apple-system,Helvetica,sans-serif;letter-spacing:.06em;border-radius:6px;text-align:center;cursor:pointer'
+      : 'position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:99;width:max-content;max-width:calc(100vw - 32px);max-height:calc(100vh - 40px);overflow:auto;box-sizing:border-box;padding:12px 16px;background:rgba(120,10,10,.94);color:#fff;font:14px/1.45 -apple-system,Helvetica,sans-serif;border-radius:8px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;cursor:pointer';
+    return b;
+  }
+  function show(msg) {
+    if (loaded()) return;
+    box(false).textContent = 'The game hit a problem while loading:\n' + msg + '\n\n' + (ios ? 'iOS ' + ios + ' · ' : '') + (navigator.maxTouchPoints > 1 ? 'touch' : 'desktop') + ' · ' + (window.innerWidth + 'x' + window.innerHeight) + '\n(tap to close)';
+    shown = true; watch();
+  }
+  window.addEventListener('error', function (e) { if (e.message) show(e.message + (e.filename ? '\n' + e.filename.split('/').pop() + ':' + e.lineno : '')); });
   window.addEventListener('unhandledrejection', function (e) { var r = e.reason; show(r && (r.stack || r.message) ? String(r.message || r).slice(0, 300) : String(r)); });
-  setTimeout(function () { if (!shown && !(window.ZA && window.ZA.G && window.ZA.G.state !== 'loading')) show('Still loading after 60 seconds (no error reported). ' + (window.ZA ? 'Step: ' + ((document.getElementById('loadtext') || {}).textContent || '?') : 'The game code never started.')); }, 60000);
+  setTimeout(function () { if (shown || loaded()) return; box(true).textContent = window.ZA ? 'Still loading… (slow device)' : 'Still loading… (slow connection or device)'; watch(); }, 60000);
 })();
 </script>
 <script async src="three/es-module-shims.js"></script>

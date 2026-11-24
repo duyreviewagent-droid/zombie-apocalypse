@@ -32,6 +32,18 @@ export function rng(seed) {   // mulberry32
   return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 const cv = (w, h = w) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; };
+// text that always fits: shrink the font's px size until `text` is no wider than maxW (and never taller than maxH); ?dbg warns when it had to
+const DBG_TX = (() => { try { return new URLSearchParams(location.search).has('dbg'); } catch { return false; } })();
+function fitFont(g, text, font, maxW, maxH = Infinity, minPx = 6) {
+  const m = /(\d+(?:\.\d+)?)px/.exec(font); g.font = font; if (!m) return font;
+  const px0 = +m[1]; let px = Math.min(px0, maxH);
+  g.font = font.replace(m[0], px + 'px');
+  for (let k = 0; k < 40 && px > minPx && g.measureText(text).width > maxW; k++) { px = Math.max(minPx, Math.floor(px * 0.94)); g.font = font.replace(m[0], px + 'px'); }
+  if (px < px0 && DBG_TX) console.warn(`[tex] shrank "${text}" ${px0}px -> ${px}px to fit ${Math.round(maxW)}px`);
+  return g.font;
+}
+// fit, then draw (maxWidth as a last guarantee nothing spills off the canvas)
+function fitText(g, text, x, y, font, maxW, maxH) { fitFont(g, text, font, maxW, maxH); g.fillText(text, x, y, maxW); }
 const tex = (c, { srgb = true, repeat = true, aniso = 8 } = {}) => {
   const t = new THREE.CanvasTexture(c);
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
@@ -278,7 +290,7 @@ export function crateTexture() {
   for (let i = 0; i < 5; i++) { const v = 0.8 + r() * 0.3; g.fillStyle = `rgb(${120 * v | 0},${96 * v | 0},${58 * v | 0})`; g.fillRect(0, i * N / 5, N, N / 5); g.fillStyle = 'rgba(30,20,10,0.8)'; g.fillRect(0, i * N / 5, N, 2); for (let k = 0; k < 20; k++) { g.strokeStyle = `rgba(70,50,25,${0.2 + r() * 0.3})`; g.beginPath(); const y = i * N / 5 + r() * N / 5; g.moveTo(0, y); g.lineTo(N, y + (r() - 0.5) * 6); g.stroke(); } }
   g.fillStyle = 'rgba(70,52,30,1)'; g.fillRect(0, 0, N, 16); g.fillRect(0, N - 16, N, 16); g.fillRect(0, 0, 16, N); g.fillRect(N - 16, 0, 16, N);
   g.save(); g.translate(N / 2, N / 2); g.rotate(Math.atan2(N, N)); g.fillRect(-N * 0.7, -8, N * 1.4, 16); g.restore();
-  g.fillStyle = 'rgba(25,25,20,0.75)'; g.font = 'bold 28px Helvetica, Arial'; g.textAlign = 'center'; g.fillText('AMMO', N / 2, N / 2 - 30); g.font = 'bold 14px Helvetica'; g.fillText('5.56 MM · 1680 RDS', N / 2, N / 2 + 46);
+  g.fillStyle = 'rgba(25,25,20,0.75)'; g.font = 'bold 28px Helvetica, Arial'; g.textAlign = 'center'; fitText(g, 'AMMO', N / 2, N / 2 - 30, 'bold 28px Helvetica, Arial', N - 48); fitText(g, '5.56 MM · 1680 RDS', N / 2, N / 2 + 46, 'bold 14px Helvetica', N - 48);
   return tex(c);
 }
 export function burntMetalTexture() {
@@ -330,7 +342,8 @@ export function signTexture(lines, bg = '#2d3524', fg = '#e8e2c8', w = 512, h = 
   g.fillStyle = bg; g.fillRect(0, 0, w, h);
   g.strokeStyle = fg; g.lineWidth = 8; g.strokeRect(10, 10, w - 20, h - 20);
   g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
-  lines.forEach((l, i) => { g.font = `bold ${i ? 30 : 52}px Helvetica, Arial`; g.fillText(l, w / 2, h / 2 + (i - (lines.length - 1) / 2) * 62); });
+  const step = Math.min(62, (h - 40) / Math.max(1, lines.length));
+  lines.forEach((l, i) => fitText(g, l, w / 2, h / 2 + (i - (lines.length - 1) / 2) * step, `bold ${i ? 30 : 52}px Helvetica, Arial`, w - 44, step * 0.92));
   const id = g.getImageData(0, 0, w, h), d = id.data; for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 20; d[i] += n; d[i + 1] += n; d[i + 2] += n; } g.putImageData(id, 0, 0);
   return tex(c, { repeat: false });
 }
@@ -600,8 +613,9 @@ export function carPaintTexture(col, seed = 3) {
 export function labelTexture(lines, bg, fg, w = 256, h = 128, font = 'bold 40px Helvetica') {
   const [c, g] = cv(w, h);
   g.fillStyle = bg; g.fillRect(0, 0, w, h);
-  g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = font;
-  lines.forEach((l, i) => g.fillText(l, w / 2, h / 2 + (i - (lines.length - 1) / 2) * h / (lines.length + 0.5)));
+  g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const step = h / (lines.length + 0.5), lineH = lines.length === 1 ? h * 0.8 : step * 0.95;
+  lines.forEach((l, i) => fitText(g, l, w / 2, h / 2 + (i - (lines.length - 1) / 2) * step, font, w * 0.9, lineH));
   return tex(c, { repeat: false });
 }
 // a clump of leaves (alpha-tested): hundreds of small leaves in mixed greens, a few gone yellow
@@ -610,14 +624,24 @@ export function leafTexture(seed = 3, palette = 'oak') {
   const [c, g] = cv(N);
   g.clearRect(0, 0, N, N);
   const cols = palette === 'pine' ? [[34, 52, 30], [44, 64, 36], [28, 44, 26], [52, 70, 40]] : palette === 'hedge' ? [[42, 62, 26], [54, 76, 32], [36, 52, 22], [64, 84, 36]] : [[62, 90, 36], [78, 106, 42], [50, 76, 32], [94, 116, 48], [124, 124, 56], [104, 128, 50]];
-  const n = palette === 'pine' ? 1400 : 900;
+  const n = palette === 'pine' ? 1800 : 1300;
+  // leaves grow in sprays: most sit in a few dense clusters (solid cover, darker in the middle) with gaps of sky between,
+  // instead of an even sprinkle that alpha-tests into salt-and-pepper stipple. Drawn wrapped so the clump meshes tile seamlessly.
+  const CL = []; for (let k = 0; k < 11; k++) CL.push([r() * N, r() * N, N * (0.12 + r() * 0.08)]);
+  const gauss = () => (r() + r() + r() - 1.5) / 1.5;
   for (let k = 0; k < n; k++) {
-    const x = r() * N, y = r() * N, a = r() * 6.28, v = 0.75 + r() * 0.4, col = cols[Math.floor(r() * cols.length)];
-    g.fillStyle = `rgb(${col[0] * v | 0},${col[1] * v | 0},${col[2] * v | 0})`;
-    g.save(); g.translate(x, y); g.rotate(a);
-    if (palette === 'pine') g.fillRect(-0.8, -6, 1.6, 12);
-    else { g.beginPath(); g.ellipse(0, 0, 3.2 + r() * 2.5, 1.6 + r() * 1.2, 0, 0, 7); g.fill(); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(-3, -0.2, 6, 0.4); }
-    g.restore();
+    let x, y, depth = 1;
+    if (r() < 0.88) { const [cx, cy, sp] = CL[(r() * CL.length) | 0], ox = gauss(), oy = gauss(); x = cx + ox * sp * 1.6; y = cy + oy * sp * 1.6; depth = Math.min(1, Math.hypot(ox, oy)); }
+    else { x = r() * N; y = r() * N; }
+    x = ((x % N) + N) % N; y = ((y % N) + N) % N;
+    const a = r() * 6.28, v = (0.62 + depth * 0.18) + r() * 0.4, col = cols[Math.floor(r() * cols.length)];
+    const rx = 3.2 + r() * 2.5, ry = 1.6 + r() * 1.2, fill = `rgb(${col[0] * v | 0},${col[1] * v | 0},${col[2] * v | 0})`;
+    for (const dx of x < 10 ? [0, N] : x > N - 10 ? [0, -N] : [0]) for (const dy of y < 10 ? [0, N] : y > N - 10 ? [0, -N] : [0]) {
+      g.fillStyle = fill; g.save(); g.translate(x + dx, y + dy); g.rotate(a);
+      if (palette === 'pine') g.fillRect(-0.8, -6, 1.6, 12);
+      else { g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, 7); g.fill(); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(-3, -0.2, 6, 0.4); }
+      g.restore();
+    }
   }
   return tex(c);
 }
@@ -628,6 +652,7 @@ export function sprayTexture(lines, col = '#b01810', seed = 1, w = 512, h = 256)
   g.fillStyle = col; g.strokeStyle = col; g.textAlign = 'center'; g.textBaseline = 'middle';
   const fs = Math.min(h / lines.length * 0.72, w / Math.max(...lines.map(l => l.length)) * 1.45);
   g.font = `bold ${fs}px "Marker Felt", "Comic Sans MS", Impact, sans-serif`;
+  { const wide = lines.reduce((a, l) => g.measureText(l).width > g.measureText(a).width ? l : a, ''); fitFont(g, wide, g.font, w * 0.92); }   // the font may be wider than the guess: never cut a word off
   lines.forEach((l, i) => {
     const y = h / 2 + (i - (lines.length - 1) / 2) * fs * 1.05;
     g.save(); g.translate(w / 2, y); g.rotate((r() - 0.5) * 0.08);
@@ -711,7 +736,7 @@ export function productTexture(kind, i) {
     g.fillStyle = L[2]; g.fillRect(0, 0, W, H);
     g.fillStyle = 'rgba(255,255,255,0.22)'; g.fillRect(0, H * 0.78, W, H * 0.08); g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, H * 0.06, W, H * 0.05);
     g.fillStyle = L[3]; g.textAlign = 'center';
-    for (let q = 0; q < 2; q++) { const cx = (q + 0.5) * W / 2; g.font = 'bold italic 22px Helvetica'; g.fillText(L[0], cx, H * 0.48); g.font = 'bold 13px Helvetica'; g.fillText(L[1], cx, H * 0.72); }
+    for (let q = 0; q < 2; q++) { const cx = (q + 0.5) * W / 2; fitText(g, L[0], cx, H * 0.48, 'bold italic 22px Helvetica', W / 2 - 30); fitText(g, L[1], cx, H * 0.72, 'bold 13px Helvetica', W / 2 - 30); }
     g.font = '7px Helvetica'; g.globalAlpha = 0.6; g.fillText('500 mL  ·  NUTRITION FACTS', W * 0.5, H * 0.96); g.fillText('▮▯▮▮▯▮▯▮', W * 0.97, H * 0.5); g.globalAlpha = 1;
     const t = tex(c); t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping; labelCache.set(key, t); return t;
   }
@@ -723,8 +748,8 @@ export function productTexture(kind, i) {
   const reps = kind === 'can' ? 2 : 1;
   for (let r = 0; r < reps; r++) {
     const cx = (r + 0.5) * W / reps;
-    g.font = `bold ${kind === 'can' ? 26 : 22}px Helvetica`; g.fillText(L[0], cx, H * 0.34);
-    g.font = `bold ${kind === 'can' ? 30 : 24}px Helvetica`; g.fillText(L[1], cx, H * 0.58);
+    fitText(g, L[0], cx, H * 0.34, `bold ${kind === 'can' ? 26 : 22}px Helvetica`, W / reps - 12);
+    fitText(g, L[1], cx, H * 0.58, `bold ${kind === 'can' ? 30 : 24}px Helvetica`, W / reps - 12);
     g.beginPath(); g.arc(cx, H * 0.84, 9, 0, 7); g.fill();
   }
   if (kind === 'chips') { g.fillStyle = 'rgba(255,255,255,0.25)'; g.beginPath(); g.ellipse(W * 0.5, H * 0.85, W * 0.3, 8, 0, 0, 7); g.fill(); }

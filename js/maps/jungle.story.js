@@ -71,7 +71,7 @@ export const CHAPTERS = [
   { id: 'camp', title: 'THE CAMP', goal: 'Search the camp: <b>tents</b>, the <b>huts on stilts</b>, the <b>generator</b>. Find a <b>flashlight</b> and the <b>field log</b>.', done: 'note:campLog' },
   { id: 'throat', title: 'THE THROAT', goal: 'Into the cave under the mountain. Find the <b>cave lab</b> and the <b>radio</b>. Press <b>F</b> for light.', done: 'radio' },
   { id: 'night', title: 'THE NIGHT', goal: 'Get out of the mountain and back down the valley to the beach. Survive until <b>06:00</b>. Be at the <b>north dock</b>.', done: 'time:5.9' },
-  { id: 'boat', title: 'THE BOAT', goal: 'The <b>RIO LENTO</b> is at the dock. Tomas waits <b>two minutes</b>. Get aboard — <b>E</b>.', done: 'board' },
+  { id: 'boat', title: 'THE BOAT', goal: 'When the <b>RIO LENTO</b> comes in to the <b>north dock</b> at 06:00, Tomas waits <b>two minutes</b> (120 s). Get aboard — <b>E</b>.', done: 'board' },
 ];
 
 // the way out: the boat at the end of the dock (jungle.js SPOTS.boat), at 06:00 on day 2, for 120 seconds
@@ -120,8 +120,11 @@ export const news = {
 // the way out: the RIO LENTO at the north dock, first light (06:00) on day 2, 2 minutes (then the island is closed)
 export const ending = {
   kind: 'boat',
-  at: { x: 40.2, z: 139, yaw: Math.PI },   // = jungle.js LZ (on the dock beside the boat)
+  at: { x: 40.2, z: 139, yaw: 0 },   // = jungle.js LZ (on the dock beside the boat)
   name: 'the north dock',
+  // the boat comes in from the east (heli.js boatPath) and lies along the dock's east side, its door at the dock's
+  // edge where the rail has its gap: centre 3.1 m east of the dock's middle, level with the LZ; it floats on the sea
+  vehicle: 'boat', dockSide: 3.1, dockOut: -0.5, waterY: -0.5,
   hour: ENDING.hour,
   schedule: [{ day: 2, hour: 6 }],
   window: ENDING.window,
@@ -142,5 +145,7 @@ export function beats(G, api) {
   if (near(S.ruins, 18)) say('ruins', 'Ruins. Older than anything on the maps.');
   if (near(S.waterfall, 16)) say('falls', 'The waterfall\'s loud enough to cover my footsteps. And theirs.');
   if (near(S.dock, 10)) say('dock', 'The dock. Tomas, please still be here.');
+  // the camp generator: walk up to it and it gets started (the bulb string and the camp light come on after dark)
+  if (S.campGen && near(S.campGen, 2.2) && !W.jungle.genOn) { W.jungle.genOn = true; say('gen', "Diesel's still in it... one pull, two — it catches. There'll be light here tonight."); }
 }
 export default { id: 'jungle', title, subtitle, intro, startHour, outbreakHour, cast: CAST, chapters, notes, radio, tips, news, ending, objectives: OBJECTIVES, noteSpots: NOTE_SPOTS, beats };
