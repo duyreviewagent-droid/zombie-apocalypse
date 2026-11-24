@@ -172,6 +172,37 @@ class HazePass extends ShaderPass {
   }
 }
 
+// [sky] rain far off: two soft walls of falling streaks round the camera (18 m and 42 m out), so the street fades into
+// grey sheets of rain that sweep across on the gusts instead of ending where the drop box ends. Depth-tested: walls,
+// cars and people in front of a curtain hide it, so it only ever shows as rain *between* you and the far things.
+const CVS = `
+  uniform vec3 cam; varying vec3 vW; varying float vR;
+  void main(){
+    vR = length(position.xz);
+    vec3 p = vec3(cam.x + position.x, cam.y - 6.0 + position.y, cam.z + position.z);
+    vW = p;
+    gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+  }`;
+const CFS = `
+  uniform float time, k, gustK; uniform vec3 col, cam; uniform vec2 wind; varying vec3 vW; varying float vR;
+  float hh(float n){ return fract(sin(n) * 43758.5453); }
+  void main(){
+    vec3 d = vW - cam; float ang = atan(d.z, d.x);
+    float far = step(30.0, vR);
+    float y = vW.y;
+    float u = ang * vR + y * (wind.x * 0.6 + wind.y * 0.3);           // slant with the wind
+    float cols = mix(9.0, 5.0, far);                                   // streaks per metre (fewer, finer far off)
+    float c = floor(u * cols), r = hh(c + far * 71.0);
+    float v = fract((y + time * (9.0 + r * 3.0)) / (0.9 + r * 0.9) + r * 13.1);
+    float streak = smoothstep(0.0, 0.25, v) * (1.0 - smoothstep(0.35, 0.6, v)) * (1.0 - abs(fract(u * cols) - 0.5) * 2.0);
+    // sheets: broad bands of heavier rain drifting sideways on the gusts
+    float sheet = 0.55 + 0.45 * sin(ang * 3.0 + time * (0.25 + gustK * 0.5) + sin(ang * 7.0 - time * 0.13) * 0.8);
+    float hz = smoothstep(-0.5, 2.5, y - cam.y + 6.0) * (1.0 - smoothstep(14.0, 26.0, y - cam.y + 6.0));
+    float mist = mix(0.10, 0.20, far) * sheet;                         // the haze of countless drops too small to see
+    float a = (mist + streak * mix(0.18, 0.10, far) * (0.6 + 0.4 * sheet)) * hz * k;
+    if (a < 0.003) discard;
+    gl_FragColor = vec4(col, a);
+  }`;
 const quadGeo = (inst, attrName, arr, extraKind = false) => {
   const g = new THREE.InstancedBufferGeometry();
   const P = extraKind
@@ -223,13 +254,78 @@ export function makeRain(scene, N = 9000) {
   const dm = new THREE.ShaderMaterial({ uniforms: duni, vertexShader: DVS, fragmentShader: DFS, transparent: true, depthWrite: false, fog: false });
   const sand = new THREE.Mesh(dg, dm); sand.frustumCulled = false; sand.renderOrder = 6; sand.visible = false;
   scene.add(sand);
+  // ---- [sky] the far rain curtains (desktop and iPad: one draw, a cheap streak hash; small phones skip them)
+  let curtain = null, cuni = null;
+  if (LOW <= 1) {
+    const parts = [18, 42].map(r => new THREE.CylinderGeometry(r, r, 26, LOW ? 28 : 40, 1, true).translate(0, 13, 0));
+    const pos = [], idx = []; let base = 0;
+    for (const pg of parts) { const pa = pg.attributes.position.array; for (let i = 0; i < pa.length; i++) pos.push(pa[i]); for (const ix of pg.index.array) idx.push(ix + base); base += pa.length / 3; pg.dispose(); }
+    const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); cg.setIndex(idx);
+    cuni = { time: uni.time, cam: uni.cam, wind: uni.wind, k: { value: 0 }, gustK: { value: 0 }, col: { value: new THREE.Color(0x9aa2aa) } };
+    curtain = new THREE.Mesh(cg, new THREE.ShaderMaterial({ uniforms: cuni, vertexShader: CVS, fragmentShader: CFS, transparent: true, depthWrite: false, fog: false, side: THREE.BackSide }));
+    curtain.frustumCulled = false; curtain.renderOrder = 4; curtain.visible = false;
+    scene.add(curtain);
+  }
+  // ---- [sky] lightning: a real forked bolt in the sky, far off over the rooftops, for the instant of each flash
+  // (main.js rolls the strike and the thunder; we only draw it). A jagged main channel with a few dying branches,
+  // built as flat ribbons facing the camera at the moment of the strike: a white-hot core in a blue-violet glow.
+  const boltMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide });
+  const boltGeo = new THREE.BufferGeometry();
+  const bolt = new THREE.Mesh(boltGeo, boltMat); bolt.frustumCulled = false; bolt.renderOrder = 3; bolt.visible = false;
+  scene.add(bolt);
+  let boltT = -1, lastBF = 0;
+  const bDir = new THREE.Vector3(), bSide = new THREE.Vector3();
+  function makeBolt(cam, close, ahead = false, distOv = 0) {
+    const za = ZA(), camO = za && za.camera;
+    let a;
+    if (camO && (ahead || Math.random() < 0.7)) { camO.getWorldDirection(bDir); a = Math.atan2(bDir.z, bDir.x) + (Math.random() - 0.5) * (ahead ? 0.4 : 1.6); }   // mostly somewhere you can see it
+    else a = Math.random() * Math.PI * 2;
+    const dist = distOv || Math.min(820, 260 + (1 - close) * 560), cx = cam.x + Math.cos(a) * dist, cz = cam.z + Math.sin(a) * dist;
+    const top = 230 + Math.random() * 120;
+    bSide.set(-Math.sin(a), 0, Math.cos(a));   // across the line of sight
+    const P = [], C = [], I = [];
+    const ribbon = (pts, w, glowW, b) => {   // pts: [x, y, z]...; a crisp core and a wide glow that fades to nothing at its edges
+      for (const [ww, mid, edge] of [[glowW, 0.3 * b, 0], [w, 1.0 * b, 0.55 * b]]) {
+        const s = P.length / 3, glow = ww === glowW;
+        for (const q of pts) {
+          P.push(q[0] - bSide.x * ww, q[1], q[2] - bSide.z * ww, q[0], q[1], q[2], q[0] + bSide.x * ww, q[1], q[2] + bSide.z * ww);
+          for (const c of [edge, mid, edge]) C.push(c * (glow ? 0.7 : 1), c * (glow ? 0.75 : 1), c);   // the glow a little violet-blue
+        }
+        for (let i = 0; i < pts.length - 1; i++) { const j = s + i * 3; I.push(j, j + 1, j + 3, j + 3, j + 1, j + 4, j + 1, j + 2, j + 4, j + 4, j + 2, j + 5); }
+      }
+    };
+    const walk = (x, y, z, yEnd, step, jag) => {
+      const pts = [[x, y, z]];
+      while (y > yEnd) {
+        y -= step * (0.6 + Math.random() * 0.8);
+        const o = (Math.random() - 0.5) * jag;
+        x += bSide.x * o + (Math.random() - 0.5) * jag * 0.3; z += bSide.z * o + (Math.random() - 0.5) * jag * 0.3;
+        pts.push([x, Math.max(y, yEnd), z]);
+      }
+      return pts;
+    };
+    const main = walk(cx, top, cz, 0, 9, 14);
+    ribbon(main, 0.45, 9, 1);
+    const nb = 2 + Math.floor(Math.random() * 3);
+    for (let b = 0; b < nb; b++) {
+      const at = main[1 + Math.floor(Math.random() * Math.min(main.length - 2, main.length * 0.6))];
+      const br = walk(at[0], at[1], at[2], at[1] - 30 - Math.random() * 70, 7, 16);
+      ribbon(br, 0.25, 5, 0.5);
+    }
+    boltGeo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+    boltGeo.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+    boltGeo.setIndex(I);
+    boltMat.color.setRGB(1.6, 1.65, 2.0);
+    boltT = 0;
+  }
   // ---- heat haze pass (put into the composer once, right after the scene render)
   let haze = null, hazeComposer = null;
   const hv = new THREE.Vector3(), fwd = new THREE.Vector3(), sandCol = new THREE.Color(0xc8a878), tc = new THREE.Color();
   let roofT = 0, fogSet = -1, fogBase = 0;
   const ZA = () => (typeof window !== 'undefined' && window.ZA) || null;
   const R = {
-    mesh, splashes, sand, wetK, gust,
+    mesh, splashes, sand, wetK, gust, curtain, bolt,
+    strike(close = 0.5, dist = 0) { const za = ZA(); if (za && za.camera) makeBolt(za.camera.position, close, true, dist); },   // test hook (boltHold: keep it on screen)
     gustNow: 0,
     // the desert sandstorm: one a day at a random hour (force: start one now, for tests / the story)
     storm: { k: 0, day: -1, start: -1, end: -1, on: false },
@@ -251,6 +347,7 @@ export function makeRain(scene, N = 9000) {
         // drops are lit by the scene: grey-white by day, only faint glints in the dark (the fog colour tracks the light)
         const fc = scene.fog ? scene.fog.color : null, lum = fc ? Math.min(1, Math.max(0.12, (fc.r * 0.3 + fc.g * 0.59 + fc.b * 0.11) * 1.8)) : 1;
         uni.col.value.setHex(0xb8c0c8).multiplyScalar(lum); suni.col.value.setHex(0xc8d0d8).multiplyScalar(lum * 0.9);
+        if (fc) { tc.copy(fc).multiplyScalar(1.5); uni.col.value.lerp(tc, 0.5); }   // [sky] drops pick up the colour of the sky they fall against (pink-orange at dusk, grey at noon)
         if (house) shelter.house.value.set(house.x, house.z, Math.cos(house.yaw), Math.sin(house.yaw)), shelter.houseHalf.value.set(house.hw, house.hd);
         else shelter.house.value.w = 2;
         // the 8 nearest porch roofs / canopies (world.rainRoofs: [{ x, z, hw, hd, y }])
@@ -275,6 +372,31 @@ export function makeRain(scene, N = 9000) {
         }
         if (dirty) sAttr.needsUpdate = true;
       } else splashes.visible = false;
+      // [sky] the far curtains: same light as the drops, a touch of the fog colour so they melt into the distance
+      if (curtain) {
+        curtain.visible = k > 0.05;
+        if (curtain.visible) {
+          cuni.k.value = smooth(0.05, 0.8, k) * (night ? 0.75 : 1); cuni.gustK.value = gu;
+          if (scene.fog) cuni.col.value.copy(scene.fog.color).lerp(uni.col.value, 0.45); else cuni.col.value.copy(uni.col.value);
+        }
+      }
+      // [sky] lightning: a new strike shows up as G.boltFlash jumping back up (main.js sets it to 0.35)
+      {
+        const bf = (G && G.boltFlash) || 0;
+        if (bf > lastBF + 0.1 && k > 0.3) {
+          const C = za && za.C, base = W && W.night > 0.5 ? 0.45 : 0.18;
+          const close = C ? Math.min(1, Math.max(0, (C.flash || 0) / base - 0.5)) : Math.random();
+          try { makeBolt(cam, close); } catch (e) { boltT = -1; R.boltErr = String(e); }
+        }
+        lastBF = bf;
+        if (boltT >= 0) {
+          boltT += dt;
+          // a return stroke, a dim gap, a second stroke down the same channel, then a fading flicker
+          const f = R.boltHold ? 1 : boltT < 0.06 ? 1 : boltT < 0.11 ? 0.15 : boltT < 0.18 ? 0.85 : boltT < 0.42 ? 0.5 * (1 - (boltT - 0.18) / 0.24) * (0.6 + 0.4 * Math.sin(boltT * 90)) : 0;
+          bolt.visible = f > 0.01;
+          if (bolt.visible) boltMat.opacity = f; else if (boltT > 0.42) boltT = -1;
+        } else bolt.visible = false;
+      }
       // ---- how soaked you are: wet through in ~20 s of hard rain, dry in a few minutes
       const out = house ? 0 : 1;
       if (k * out > wetK.value) wetK.value = Math.min(k * out, wetK.value + dt * 0.05 * (0.3 + k));

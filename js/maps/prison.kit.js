@@ -6,6 +6,7 @@
 // K.inst) so the whole prison stays a few hundred draw calls.
 import * as THREE from 'three';
 import { decor, P2, XCELLS } from './decor.js';
+import { isLow } from '../tex.js';   // [prison-real] phones keep the cheaper razor wire
 
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export function rng(seed) { let a = seed >>> 0 || 1; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -43,6 +44,13 @@ function cinderTex(base, seed) {
     for (let row = 0; row < 12; row++) for (let k = -1; k < 8; k++) g.fillRect(k * bw + (row % 2 ? bw / 2 : 0) - 1.5, row * bh, 3, bh);
     speck(g, w, h, 5000, [rgba(base, 0.85, 0.5), rgba(base, 1.1, 0.4)], r, 1.4);
     for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(40,36,30,${0.05 + r() * 0.08})`; g.fillRect(r() * w, h * 0.8 + r() * h * 0.2, 10 + r() * 40, 2 + r() * 4); }   // scuffs
+    // [prison-real] years of use: a greasy band where shoulders and hands rub (≈0.9–1.6 m), patchy touch-up paint
+    // that never quite matches, chips knocked out of the block corners, a dribble of something down the wall
+    { const gr = g.createLinearGradient(0, h * 0.33, 0, h * 0.62); gr.addColorStop(0, 'rgba(60,52,40,0)'); gr.addColorStop(0.5, 'rgba(60,52,40,0.09)'); gr.addColorStop(1, 'rgba(60,52,40,0)'); g.fillStyle = gr; g.fillRect(0, h * 0.33, w, h * 0.29); }
+    for (let i = 0; i < 14; i++) { g.fillStyle = `rgba(50,44,36,${0.05 + r() * 0.07})`; g.beginPath(); g.ellipse(r() * w, h * (0.38 + r() * 0.2), 4 + r() * 7, 6 + r() * 9, r(), 0, 7); g.fill(); }   // palm prints
+    for (let i = 0; i < 5; i++) { const x = r() * w, y = r() * h, ww = 30 + r() * 70, hh = 20 + r() * 50; g.fillStyle = rgba(base, 1.03 + r() * 0.05, 0.55); g.fillRect(x, y, ww, hh); }   // touch-up patches
+    for (let i = 0; i < 40; i++) { const x = ((r() * 7) | 0) * bw + (r() < 0.5 ? bw / 2 : 0), y = ((r() * 12) | 0) * bh, s = 2 + r() * 4; g.fillStyle = 'rgba(120,114,100,0.85)'; g.beginPath(); g.moveTo(x, y); g.lineTo(x + s * (r() < 0.5 ? 1 : -1), y + s * 0.3); g.lineTo(x + s * 0.2, y + s); g.fill(); }   // chipped arrises
+    for (let i = 0; i < 3; i++) { const x = r() * w, y = h * (0.2 + r() * 0.4), len = 30 + r() * 90, gr = g.createLinearGradient(0, y, 0, y + len); gr.addColorStop(0, 'rgba(90,70,40,0.22)'); gr.addColorStop(1, 'rgba(90,70,40,0)'); g.fillStyle = gr; g.fillRect(x, y, 2 + r() * 3, len); }
   }, null);
 }
 // the perimeter wall: big cast panels, tie-holes, rain streaks and rust bleeding from the top
@@ -50,11 +58,30 @@ function wallTex() {
   const r = rng(77);
   return cv(512, 512, (g, w, h) => {
     g.fillStyle = '#9a968c'; g.fillRect(0, 0, w, h);
+    // [prison-real] each 3 m panel was cast on its own day: a slightly different tone, mottled cloud in the cement
+    for (const [x0, k] of [[0, 0.97 + r() * 0.05], [w / 2, 1.0 + r() * 0.05]]) { g.fillStyle = `rgba(${k > 1 ? '255,250,240' : '40,38,34'},${Math.abs(k - 1) * 2.2})`; g.fillRect(x0, 0, w / 2, h); }
+    for (let i = 0; i < 70; i++) { const x = r() * w, y = r() * h, rad = 20 + r() * 70, gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, r() < 0.5 ? 'rgba(70,66,58,0.10)' : 'rgba(200,196,186,0.10)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2); }
     speck(g, w, h, 16000, ['rgba(70,68,62,0.35)', 'rgba(190,186,176,0.3)', 'rgba(120,116,108,0.4)'], r, 2);
-    stains(g, w, h, 40, 'rgba(60,58,50,0.25)', r, 0.7); stains(g, w, h, 10, 'rgba(120,70,30,0.25)', r, 0.4);
+    for (let i = 0; i < 260; i++) { g.fillStyle = 'rgba(40,38,34,0.45)'; g.beginPath(); g.arc(r() * w, r() * h, 0.6 + r() * 1.6, 0, 7); g.fill(); }   // bug holes (air pockets)
+    // the lift lines where each pour stopped, and the form-tie holes in rows
+    g.fillStyle = 'rgba(60,58,52,0.18)'; for (const y of [h * 0.34, h * 0.67]) g.fillRect(0, y + (r() - 0.5) * 4, w, 2);
+    // rain run-off: soft, uneven, wider under the coping drips, fading out, never a neat barcode
+    for (let i = 0; i < 26; i++) {
+      const x = r() * w, len = h * (0.15 + r() * 0.55 * r()), ww = 3 + r() * 16, a = 0.08 + r() * 0.14;
+      for (let k = 0; k < 3; k++) { const xx = x + (r() - 0.5) * ww, gr = g.createLinearGradient(0, 0, 0, len); gr.addColorStop(0, `rgba(52,50,44,${a})`); gr.addColorStop(0.6, `rgba(52,50,44,${a * 0.5})`); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.beginPath(); g.moveTo(xx, 0); g.lineTo(xx + ww * (0.3 + r() * 0.5), 0); g.lineTo(xx + ww * 0.3 + (r() - 0.5) * 6, len); g.lineTo(xx + (r() - 0.5) * 4, len * (0.6 + r() * 0.4)); g.fill(); }
+    }
+    // rust bleeding from the coping anchors and the tie holes (thin, orange-brown, short)
+    for (let i = 0; i < 7; i++) { const x = r() * w, y = r() < 0.5 ? 0 : [96, 256, 416][(r() * 3) | 0], len = 20 + r() * 80, gr = g.createLinearGradient(0, y, 0, y + len); gr.addColorStop(0, 'rgba(130,70,30,0.35)'); gr.addColorStop(1, 'rgba(130,70,30,0)'); g.fillStyle = gr; g.fillRect(x, y, 2 + r() * 3, len); }
+    // white efflorescence blooming out of the joints, a patched repair, a few hairline cracks
+    for (const x of [2, w / 2]) for (let i = 0; i < 5; i++) { const y = r() * h, rad = 6 + r() * 18, gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, 'rgba(230,228,220,0.28)'); gr.addColorStop(1, 'rgba(230,228,220,0)'); g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2); }
+    { const px = 60 + r() * 300, py = 120 + r() * 200; g.fillStyle = 'rgba(175,172,162,0.2)'; g.beginPath(); g.moveTo(px, py); g.lineTo(px + 60 + r() * 30, py + 6); g.lineTo(px + 70, py + 40 + r() * 20); g.lineTo(px + 4, py + 46); g.fill(); }
+    g.strokeStyle = 'rgba(45,43,38,0.5)'; g.lineWidth = 1;
+    for (let i = 0; i < 6; i++) { let x = r() * w, y = r() * h; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 8; k++) { x += (r() - 0.5) * 18; y += 6 + r() * 14; g.lineTo(x, y); } g.stroke(); }
     g.fillStyle = 'rgba(50,48,44,0.6)'; g.fillRect(0, 0, 3, h); g.fillRect(w / 2, 0, 2, h);   // panel joints
     for (const x of [64, 192, 320, 448]) for (const y of [96, 256, 416]) { g.fillStyle = 'rgba(40,38,34,0.7)'; g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill(); }
-    const gr = g.createLinearGradient(0, h, 0, h * 0.82); gr.addColorStop(0, 'rgba(60,54,40,0.45)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, h * 0.82, w, h * 0.18);
+    // splash-back: mud and green algae creeping up the foot of the wall
+    const gr = g.createLinearGradient(0, h, 0, h * 0.78); gr.addColorStop(0, 'rgba(60,54,40,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, h * 0.78, w, h * 0.22);
+    for (let i = 0; i < 40; i++) { const x = r() * w, rad = 8 + r() * 26, y = h - r() * 30, gq = g.createRadialGradient(x, y, 0, x, y, rad); gq.addColorStop(0, `rgba(${60 + r() * 20},${78 + r() * 20},${40},${0.12 + r() * 0.12})`); gq.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gq; g.fillRect(x - rad, y - rad, rad * 2, rad * 2); }
   });
 }
 // sealed concrete floor: grey epoxy, swirl marks, a sheen of polish, the odd crack
@@ -110,6 +137,11 @@ function courtTex() {   // acrylic sport court: green outer, terracotta key, cha
     g.fillStyle = '#3e6a52'; g.fillRect(0, 0, w, h);
     speck(g, w, h, 6000, ['rgba(255,255,255,0.06)', 'rgba(0,0,0,0.08)', 'rgba(120,150,120,0.1)'], r, 2);
     for (let i = 0; i < 8; i++) { const x = r() * w, y = r() * h, rad = 20 + r() * 50, gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, 'rgba(180,190,170,0.12)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); }
+    // [prison-real] sun-faded, cracked through the coating (the slab moving underneath), a dark rubber-scuffed patch,
+    // dirt blown in along the cracks
+    for (let i = 0; i < 3; i++) { let x = r() * w, y = r() * h; g.strokeStyle = 'rgba(30,40,30,0.55)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 14; k++) { x += (r() - 0.5) * 26; y += (r() - 0.3) * 20; g.lineTo(x, y); } g.stroke(); g.strokeStyle = 'rgba(120,100,70,0.18)'; g.lineWidth = 4; g.stroke(); }
+    for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(20,22,20,${0.04 + r() * 0.06})`; g.beginPath(); g.ellipse(r() * w, r() * h, 2 + r() * 8, 1 + r() * 3, r() * 3, 0, 7); g.fill(); }   // shoe scuffs
+    for (let i = 0; i < 2; i++) { const x = r() * w, y = r() * h, s = 4 + r() * 8; g.fillStyle = 'rgba(120,128,112,0.22)'; g.beginPath(); g.ellipse(x, y, s, s * 0.7, r() * 3, 0, 7); g.fill(); }   // coating flaked off to bare concrete
   });
 }
 function vinylTex(col, seed) {
@@ -175,6 +207,35 @@ function graffitiTex() {
     for (let i = 0; i < 400; i++) { g.fillStyle = `rgba(${r() < 0.5 ? '40,90,190' : '200,40,30'},${0.25 * r()})`; g.fillRect(r() * w, r() * h, 1.5, 1.5); }   // overspray
   }, null);
 }
+// [prison-real] painted steel that's been painted over and over: chips through to grey primer and bare metal,
+// rust blooming at the chips, grime darker low down (bars, fences, rails). Isotropic so it reads on any axis.
+function chippedTex(base, seed, rustK = 1) {
+  const r = rng(seed);
+  return cv(128, 128, (g, w, h) => {
+    g.fillStyle = rgba(base); g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 30; i++) { const x = r() * w, y = r() * h, rad = 6 + r() * 20, gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, rgba(base, 0.85 + r() * 0.3, 0.35)); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2); }
+    speck(g, w, h, 900, [rgba(base, 0.8, 0.5), rgba(base, 1.15, 0.4)], r, 1.2);
+    for (let i = 0; i < 34; i++) {   // chips: rust halo, primer, bright bare steel in the middle
+      const x = r() * w, y = r() * h, s = 1 + r() * 3.5;
+      g.fillStyle = `rgba(110,58,26,${0.35 * rustK})`; g.beginPath(); g.ellipse(x, y, s * 1.9, s * 1.4, r() * 3, 0, 7); g.fill();
+      g.fillStyle = 'rgba(120,122,118,0.9)'; g.beginPath(); g.ellipse(x, y, s, s * (0.5 + r() * 0.5), r() * 3, 0, 7); g.fill();
+      if (r() < 0.5) { g.fillStyle = 'rgba(190,192,190,0.8)'; g.fillRect(x - s * 0.3, y - s * 0.2, s * 0.6, s * 0.4); }
+    }
+    for (let i = 0; i < 5 * rustK; i++) { const x = r() * w, y = r() * h, len = 10 + r() * 30, gr = g.createLinearGradient(0, y, 0, y + len); gr.addColorStop(0, 'rgba(120,62,24,0.4)'); gr.addColorStop(1, 'rgba(120,62,24,0)'); g.fillStyle = gr; g.fillRect(x, y, 1.5 + r() * 2, len); }
+  });
+}
+// [prison-real] worn floor/court paint: scuffed through in patches, edges ragged (alpha-tested: no sorting cost)
+function wornLineTex(col, seed) {
+  const r = rng(seed);
+  return cv(256, 256, (g, w, h) => {
+    g.fillStyle = rgba(col); g.fillRect(0, 0, w, h);
+    speck(g, w, h, 2500, [rgba(col, 0.82, 0.6), rgba(col, 0.7, 0.4), 'rgba(60,55,45,0.25)'], r, 1.6);
+    for (let i = 0; i < 18; i++) { const x = r() * w, y = r() * h, rad = 4 + r() * 22, gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, 'rgba(70,64,52,0.35)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - rad, y - rad, rad * 2, rad * 2); }   // dirt ground in
+    g.globalCompositeOperation = 'destination-out';   // worn right through: shoes, wheels, years
+    for (let i = 0; i < 120; i++) { g.fillStyle = `rgba(0,0,0,${0.5 + r() * 0.5})`; g.beginPath(); g.ellipse(r() * w, r() * h, 1 + r() * 9, 1 + r() * 4, r() * 3, 0, 7); g.fill(); }
+    g.globalCompositeOperation = 'source-over';
+  });
+}
 function bloodSmearTex() {
   const r = rng(66);
   return cv(256, 256, (g, w, h) => {
@@ -208,11 +269,13 @@ export function prisonMats(K) {
   add('pFloorW', std({ map: epoxyTex([196, 198, 192], 10), roughness: 0.25 }), 4);          // white (infirmary)
   add('pTread', std({ map: treadTex(), roughness: 0.4, metalness: 0.75, ...relief(nTread, 1.0) }), 1.2);
   add('pCourt', std({ map: courtTex(), roughness: 0.8 }), 4);
-  add('pBars', std({ color: 0x5a646c, roughness: 0.45, metalness: 0.7 }), 1);
+  add('pBars', std({ map: chippedTex([90, 100, 108], 41), roughness: 0.5, metalness: 0.6 }), 1);   // [prison-real] chipped, re-painted steel
+  add('pLineW', std({ map: wornLineTex([226, 224, 214], 42), alphaTest: 0.45, roughness: 0.75 }), 2);   // [prison-real] worn white court / yard paint
+  add('pLineY', std({ map: wornLineTex([214, 170, 40], 43), alphaTest: 0.45, roughness: 0.7 }), 2);     // [prison-real] worn safety-yellow floor line
   add('pSteel', std({ map: cv(256, 256, (g, w, h) => P2.brushed(g, 0, 0, w, h, rng(21), [196, 200, 204])), roughness: 0.3, metalness: 0.7 }), 1.2);   // brushed stainless (mess tables, toilets, counters)
   add('pSheet', std({ map: cv(128, 128, (g, w, h) => { g.fillStyle = '#eef0ee'; g.fillRect(0, 0, w, h); const r = rng(22); for (let y = 0; y < h; y += 2) { g.fillStyle = `rgba(0,0,0,${0.02 + r() * 0.03})`; g.fillRect(0, y, w, 1); } g.fillStyle = '#7aa0c8'; g.fillRect(0, 18, w, 5); g.fillRect(0, 26, w, 2); speck(g, w, h, 300, ['rgba(120,130,150,0.12)'], r, 2); }), roughness: 0.95 }), 1.0);   // hospital sheets: a blue stripe
   add('pPaintDoor', std({ map: cv(128, 128, (g, w, h) => { g.fillStyle = '#5a6670'; g.fillRect(0, 0, w, h); speck(g, w, h, 900, ['rgba(0,0,0,0.12)', 'rgba(255,255,255,0.08)'], rng(23), 2); }), roughness: 0.55, metalness: 0.3 }), 1);
-  add('pRail', std({ color: 0xc8a030, roughness: 0.5, metalness: 0.4 }), 1);                // safety-yellow rails
+  add('pRail', std({ map: chippedTex([200, 160, 48], 44, 0.7), roughness: 0.55, metalness: 0.3 }), 1);   // safety-yellow rails, hand-worn [prison-real]
   add('pMat', std({ map: vinylTex([44, 70, 120], 11), roughness: 0.5 }), 1);                // blue vinyl mattress
   add('pWool', std({ map: woolTex([110, 108, 100], 12), roughness: 1 }), 1);                // grey blanket
   add('pOrange', std({ map: woolTex([226, 110, 30], 13), roughness: 0.95 }), 1);            // jumpsuits
@@ -237,7 +300,7 @@ export function prisonMats(K) {
   add('pFelt', std({ color: 0x2a4a3a, roughness: 1 }), 1);
   add('pCopper', std({ color: 0x7a7c78, roughness: 0.6, metalness: 0.5 }), 1);
   add('pWater', std({ color: 0x23302c, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.88 }), 1);
-  add('pRazor', std({ color: 0xb8bcc0, roughness: 0.3, metalness: 0.9 }), 1);
+  add('pRazor', std({ color: 0xb8bcc0, roughness: 0.3, metalness: 0.9, side: THREE.DoubleSide }), 1);   // (double-sided: the flat razor barbs)
   // signs
   const S = (k, lines, bg, fg, w, h, size) => add(k, std({ map: stencil(lines, bg, fg, w, h, size), roughness: 0.6 }), 1);
   S('sGate', ['BLACKWATER', 'STATE PENITENTIARY · DEPARTMENT OF CORRECTIONS'], '#1e2a3a', '#e8e4d8', 1024, 256, 120);
@@ -275,7 +338,26 @@ export function geos() {
   {
     const pts = [], L = 2, R = 0.42, n = 14, N = 240;
     for (let i = 0; i <= N; i++) { const t = i / N, a = t * n * Math.PI * 2; pts.push(new THREE.Vector3(-L / 2 + t * L + Math.sin(a) * 0.05, R + Math.sin(a) * R, Math.cos(a) * R)); }
-    G.coil = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), N, 0.012, 3, false);
+    const curve = new THREE.CatmullRomCurve3(pts), tube = new THREE.TubeGeometry(curve, N, 0.012, 3, false).toNonIndexed();
+    // [prison-real] the razor blades: a flat, pointed barb clipped to the ribbon every ~30 cm, alternating sides,
+    // merged into the coil (one instanced draw for every coil on the map; phones keep the bare coil)
+    if (isLow()) G.coil = tube;
+    else {
+      const P = [...tube.attributes.position.array], Nn = [...tube.attributes.normal.array], U = [...tube.attributes.uv.array];
+      const t3 = new THREE.Vector3(), p3 = new THREE.Vector3(), o3 = new THREE.Vector3(), s3 = new THREE.Vector3();
+      const NB = 120;
+      for (let i = 0; i < NB; i++) {
+        const u = (i + 0.5) / NB; curve.getPointAt(u, p3); curve.getTangentAt(u, t3);
+        o3.set(0, p3.y - R, p3.z).normalize();   // outward from the coil's axis
+        s3.crossVectors(t3, o3).normalize(); if (i % 2) s3.negate(); s3.lerp(o3, 0.5).normalize();
+        const L = 0.045, W = 0.011, a = p3.clone().addScaledVector(t3, -L), b = p3.clone().addScaledVector(t3, L), c = p3.clone().addScaledVector(s3, W * 2.2).addScaledVector(t3, L * 0.3), d = p3.clone().addScaledVector(s3, -W * 0.6);
+        const nn = new THREE.Vector3().crossVectors(t3, s3).normalize();
+        for (const q of [a, c, b, a, b, d]) { P.push(q.x, q.y, q.z); Nn.push(nn.x, nn.y, nn.z); U.push(0, 0); }
+      }
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); gg.setAttribute('normal', new THREE.Float32BufferAttribute(Nn, 3)); gg.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+      gg.computeBoundingSphere(); gg.computeBoundingBox(); tube.dispose(); G.coil = gg;
+    }
   }
   G.bar = new THREE.CylinderGeometry(0.016, 0.016, 1, 6).translate(0, 0.5, 0);
   G.pipe = new THREE.CylinderGeometry(1, 1, 1, 10).translate(0, 0.5, 0);

@@ -873,6 +873,22 @@ export function makeWorld(scene, renderer) {
     px = Math.min(px, px * w * 0.9 / Math.max(1, wide), lines.length === 1 ? h * 0.8 : h / (lines.length + 0.5) * 0.95);
     return TX.labelTexture(lines, bg, fg, w, h, font.replace(m[0], Math.floor(px) + 'px'));
   }
+  // [maple-out] autumn: in Maple Hollow (it's November) some of the broadleaf trees have turned — orange, rust, gold.
+  // FALL.k is the share that have (set by buildMaple only); the leaf texture is the green one, recoloured per cluster
+  const FALL = { k: 0, m: null };
+  function fallLeaves() {
+    if (FALL.m) return FALL.m;
+    const src = TX.leafTexture(11, 'oak').image, N = src.width, cv = document.createElement('canvas'); cv.width = cv.height = N;
+    const g = cv.getContext('2d'); g.drawImage(src, 0, 0); const D = g.getImageData(0, 0, N, N), d = D.data, R = TX.rng(1111);
+    // a slow wash of colour across the sheet (seamless sines): olive where it's still turning, gold, orange, a little rust
+    const pal = [[120, 122, 52], [196, 156, 56], [200, 118, 44], [156, 74, 36]], P1 = R() * 6, P2 = R() * 6;
+    for (let i = 0; i < d.length; i += 4) { if (d[i + 3] < 8) continue; const px = (i / 4) % N / N * 6.2832, py = ((i / 4 / N) | 0) / N * 6.2832;
+      let t = 0.5 + 0.28 * Math.sin(px * 2 + P1) * Math.cos(py * 1 + P2) + 0.18 * Math.sin(px * 3 + py * 4 + P2) + (R() - 0.5) * 0.12; t = Math.max(0, Math.min(0.999, t)) * (pal.length - 1);
+      const j = t | 0, f = t - j, A = pal[j], Bc = pal[j + 1], v = (d[i] + d[i + 1] + d[i + 2]) / 260;
+      for (let q = 0; q < 3; q++) d[i + q] = Math.min(255, (A[q] + (Bc[q] - A[q]) * f) * v); }
+    g.putImageData(D, 0, 0); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+    FALL.m = std({ map: t, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.85 }); foliage(FALL.m, 0.045); FALL.m.userData.mo = 1; return FALL.m;
+  }
   function tree(x, z, s = 1, kind = 0, rnd = Math.random) {
     if (FALLEN_AT.some(([fx, fz]) => Math.hypot(fx - x, fz - z) < 3)) return 0;
     W.treeSpots.push([x, z, s]);
@@ -886,7 +902,7 @@ export function makeWorld(scene, renderer) {
     for (let i = 0; i < nl; i++) { const yb = (2.0 + rnd() * 0.8) * s; inst(GEO.branch, MAT.bark, mat4(X0(yb), yb, Z0(yb), rnd() * 6.28, 2.4 * s, (1.8 + rnd() * 0.8) * s, 2.4 * s, 0.85 + rnd() * 0.3, 0)); }
     const nb = 4 + Math.floor(rnd() * 3);
     for (let i = 0; i < nb; i++) { const a = i / nb * 6.28 + rnd(), yb = h * (0.5 + rnd() * 0.2); inst(GEO.branch, MAT.bark, mat4(X0(yb), yb, Z0(yb), a, 1.2 * s, (1.6 + rnd()) * s, 1.2 * s, 0.75 + rnd() * 0.4, 0)); }
-    const lm = kind ? MAT.leaves2 : MAT.leaves;
+    const lm = FALL.k && (((Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1 + 1) % 1) < FALL.k ? fallLeaves() : kind ? MAT.leaves2 : MAT.leaves;   // [maple-out] (a hash: no extra dice)
     // crowns differ: tall and narrow, round, or broad and spreading; heavier on one side, some foliage hanging lower
     const form = rnd(), heavy = rnd() * 6.28;
     const cy = h * 0.82, rx = (form < 0.33 ? 1.7 : form < 0.7 ? 2.3 : 2.8) * s, ry = (form < 0.33 ? 2.4 : form < 0.7 ? 1.5 : 1.2) * s, n = 9 + Math.floor(rnd() * 6);
@@ -2068,6 +2084,11 @@ export function makeWorld(scene, renderer) {
     if (r() < 0.55 && !opts.noCar) { const [cx, cz] = P(8.6, 6.5 - r() * 3); car(cx, cz, Y(flip > 0 ? 0 : 0) + (r() - 0.5) * 0.15, Math.floor(r() * 8), r() < 0.5 ? 'suv' : 'sedan'); }
     // a mown lawn; a mulch bed along the front wall; a worn patch under the tree
     for (let k = -5; k <= 5; k += 1.25) if (Math.abs(k - frontDoorX) > 1.6) paint(...P(k, 5.65), 0.6, 'mud', 0.55);
+    { let s7 = seed * 4111 + 77; const r7 = () => ((s7 = (s7 * 9301 + 49297) % 233280) / 233280);   // [maple-out] (own dice)
+      // nobody's watered or mown in weeks: thin, browned patches in the front lawn, a bare strip along the sidewalk edge
+      const np = 1 + Math.floor(r7() * 3); for (let k = 0; k < np; k++) paint(...P(-5.5 + r7() * 11, 6.6 + r7() * 3.6), 0.7 + r7() * 1.3, 'dirt', 0.16 + r7() * 0.22);
+      if (r7() < 0.5) for (let k = -5.5; k <= 5.5; k += 1.1) paint(...P(k, 10.75), 0.45, 'dirt', 0.12 + r7() * 0.1);
+    }
     // where the driveway crosses the sidewalk, the curb is cut down to a ramp
     { const [dx2, dz2] = P(8.6, 12); curbCut(dx2, dz2, 1.75); }
 
@@ -2356,7 +2377,7 @@ export function makeWorld(scene, renderer) {
       hm(GEO.ucyl, MAT.chrome, 5.2, 1.93, -4.66, 0, 0.13, 0.03, 0.13, 0.5, 0, false);
       hm(GEO.ucyl, MAT.chrome, 4.71, 2.02, -3.2, 0, 0.022, 3.0, 0.022, Math.PI / 2, 0, false);   // the curtain rail (over the tub, inside its rim)
       // the shower curtain, hanging inside the tub: pleated in soft folds, on rings round the rail
-      for (let k = 0; k < 6; k++) { const ox = k % 2 ? 0.012 : -0.012, z0 = -2.45 + k * 0.1217; hbox(4.695 + ox, 0.25, z0, 4.725 + ox, 1.99, z0 + 0.1217, MAT[cur]); }
+      hm(inKit().pleat, inKit().curtain, 4.71, 1.12, -2.08, Math.PI / 2, 0.76, 1.74, 1);   // [maple-in] a printed vinyl curtain in soft pleats (it was six grey slabs)
       for (let k = 0; k < 6; k++) hm(GEO.ucyl, MAT.chrome, 4.71, 2.0, -2.42 + k * 0.13, 0, 0.03, 0.008, 0.03, Math.PI / 2, 0, false);
     }
     { // the toilet: a lathed bowl, a seat, a tank with a lid and a lever
@@ -2395,6 +2416,85 @@ export function makeWorld(scene, renderer) {
     }
     // the kitchen clock
     hm(GEO.clock, MAT.white, -4.4, 1.95, 0.29, Math.PI, 1, 1, 1, 0, 0, false); hm(GEO.uplane, MAT.clockFace, -4.4, 1.95, 0.27, Math.PI, 0.26, 0.26, 1, 0, 0, false);
+    // ---- [maple-in] lived in: the little things people leave about (own dice: nothing else about the house changes).
+    // Mail through the slot, coats on hooks and shoes kicked off by the door, mugs and a remote, a dish rack and a coffee
+    // maker, papers on the fridge, a calendar, photos in frames, toiletries, clothes on the bedroom floor. All of it is
+    // printed from one atlas (one material), so it merges into a single draw call per chunk of town ----
+    { let s8 = seed * 3571 + 101; const r8 = () => ((s8 = (s8 * 9301 + 49297) % 233280) / 233280);
+      const IK = inKit(), A = IK.mat, LOWH = TX.tier() > 1;
+      const AP = (k, lx, ly, lz, ry, w, h, rx = 0) => hm(atlasPlane(IK.c[k]), A, lx, ly, lz, ry, unM(w), h, 1, rx, 0, false);                 // a printed sheet
+      const AB = (k, lx, ly, lz, ry, w, h, d, rx = 0, rz = 0, sh = false) => hm(IK.box(k), A, lx, ly, lz, ry, w, h, d, rx, rz, sh);          // a box in one colour / print
+      const AC = (k, lx, ly, lz, rad, h, rx = 0, rz = 0) => hm(IK.cyl(k), A, lx, ly, lz, 0, rad * 2, h, rad * 2, rx, rz, false);              // a cylinder
+      const AG = (name, k, geo, lx, ly, lz, ry = 0, s = 1, rx = 0, rz = 0, sh = false) => hm(IK.geo(name, k, () => geo), A, lx, ly, lz, ry, s, s, s, rx, rz, sh);
+      const flat = (k, lx, lz, y, ry, w, h) => AP(k, lx, y, lz, ry, w, h, -Math.PI / 2);
+      const mug = (k, lx, ly, lz, ry) => AG('mug', k, IK.mug, lx, ly, lz, ry);
+      const frame = (k, lx, ly, lz, ry, w, h, fm = MAT.walnut) => { const fx = Math.sin(ry), fz = Math.cos(ry);   // a photo standing on its easel back
+        hm(GEO.ubox, fm, lx, ly + h / 2 + 0.02, lz, ry, w + 0.035, h + 0.035, 0.014, -0.14, 0, false); AP(k, lx + fx * 0.009, ly + h / 2 + 0.02, lz + fz * 0.009, ry, w, h, -0.14); };
+      const cols = ['redP', 'blueP', 'greenP', 'yellowP', 'pinkP', 'orangeP', 'teal'], pick = a => a[Math.floor(r8() * a.length)];
+      // -- the front door: the mail on the mat, a rail of coat hooks, the shoes kicked off under it --
+      { const n = 2 + Math.floor(r8() * 5); for (let k = 0; k < n; k++) flat(r8() < 0.3 ? 'envM' : r8() < 0.2 ? 'pizza' : 'env', -3.25 + r8() * 0.55, 4.45 + r8() * 0.35, 0.034 + k * 0.0012, r8() * 6.28, 0.22, 0.12); }
+      hm(GEO.ubox, MAT.walnut, -1.75, 1.72, 4.875, 0, 0.62, 0.09, 0.022, 0, 0, false);
+      for (const hx2 of [-1.97, -1.75, -1.53]) hm(GEO.ucyl, MAT.darkMetal, hx2, 1.71, 4.83, 0, 0.012, 0.08, 0.012, Math.PI / 2, 0, false);
+      { const nc = 1 + Math.floor(r8() * 2.4); for (let k = 0; k < nc; k++) { const hx2 = [-1.97, -1.53, -1.75][k]; hm(IK.coat, MAT['fabric' + Math.floor(r8() * 5)], hx2, 1.73, 4.78, (r8() - 0.5) * 0.2, 0.95, 1, 0.9, 0.05, 0, true); } }
+      if (r8() < 0.8) { hm(GEO.ubox, MAT.black, -1.75, 0.035, 4.7, 0, 0.6, 0.01, 0.34, 0, 0, false);   // a rubber boot tray
+        const ns = 2 + Math.floor(r8() * 2); for (let k = 0; k < ns; k++) { const k2 = pick(['sneaker', 'leather', 'rubber', 'sneaker']), sx = -1.95 + k * 0.2, a = (r8() - 0.5) * 0.4;
+          for (const o of [-0.055, 0.055]) AG('shoe', k2, IK.shoe, sx + o, 0.04, 4.7 + (r8() - 0.5) * 0.05, a + (r8() - 0.5) * 0.15, 1, 0, 0, false); } }
+      // -- the coffee table: a remote, a magazine face up, a stack of them on the shelf underneath; slippers by the couch --
+      AB('remote', -3.55, 0.452, 2.95, 0.4 + r8(), 0.05, 0.022, 0.19);
+      flat('magazine', -4.02, 2.32, 0.446, 0.2 + r8() * 0.4, 0.22, 0.28);
+      for (let k = 0; k < 3; k++) AB(pick(['bookC', 'magazine', 'cream']), -3.9 + r8() * 0.05, 0.155 + k * 0.012, 2.75, r8() * 0.4, 0.22, 0.011, 0.28);
+      if (r8() < 0.6 && !LOWH) for (const o of [-0.06, 0.06]) AG('shoe', 'knitG', IK.shoe, -4.75 + o, 0.035, 1.25, -1.4 + (r8() - 0.5) * 0.4, 0.95, 0, 0, false);
+      // -- a toy or two left out on the rug (a house with kids) --
+      if (r8() < 0.45 && !LOWH) { AG('ball', pick(cols), IK.ball, -2.1 + r8() * 0.6, 0.15, 3.6 + r8() * 0.8, r8() * 6);
+        for (let k = 0; k < 4; k++) AB(pick(cols), -2.6 + r8() * 0.7, 0.07, 3.2 + r8() * 0.6, r8() * 6, 0.06, 0.06, 0.06); }
+      // -- frames on the bookshelf and the TV cabinet; a canvas over the TV; a plant --
+      frame(pick(['photo1', 'photo2', 'photo3']), -5.35, 1.9, 4.75, Math.PI, 0.16, 0.2); frame(pick(['photo1', 'photo2', 'photo3']), -4.85, 1.9, 4.72, Math.PI - 0.25, 0.13, 0.17, MAT.black);
+      frame(pick(['photo1', 'photo2']), -0.62, 0.55, 3.3, -Math.PI / 2 - 0.2, 0.18, 0.14, MAT.black);
+      { AC('teal', -0.6, 0.64, 1.92, 0.08, 0.17); AC('cardbd', -0.6, 0.725, 1.92, 0.07, 0.01);
+        for (let k = 0; k < 7; k++) { const a = k * 0.9, l = 0.16 + r8() * 0.12; AB('greenP', -0.6 + Math.cos(a) * 0.04, 0.73 + l * 0.4, 1.92 + Math.sin(a) * 0.04, a, 0.045, l, 0.006, Math.sin(a) * 0.5, -Math.cos(a) * 0.5); } }
+      if (r8() < 0.85) { hm(GEO.ubox, MAT.cabinet, 0.875, 1.9, 3.05, 0, 0.035, 0.52, 0.72, 0, 0, true); AP('art', 0.856, 1.9, 3.05, -Math.PI / 2, 0.68, 0.48); }
+      // -- the kitchen: a dish rack by the sink, a coffee maker, paper towels, a knife block and a crock of spoons --
+      { const rx2 = -0.32; hm(GEO.ubox, MAT.chrome, rx2, 0.905, -4.62, 0, 0.42, 0.012, 0.3, 0, 0, false);
+        for (const ex of [-0.2, 0.2]) hm(GEO.ubox, MAT.chrome, rx2 + ex, 0.96, -4.62, 0, 0.008, 0.1, 0.3, 0, 0, false);
+        const np = 2 + Math.floor(r8() * 3); for (let k = 0; k < np; k++) AG('plate', 'ceramic', IK.plate, rx2 - 0.12 + k * 0.05, 1.03, -4.64, Math.PI / 2, 0.85, Math.PI / 2 - 0.12, 0);
+        mug(pick(['ceramic', 'redP', 'blueP', 'teal']), rx2 + 0.12, 0.91, -4.55, r8() * 6); }
+      { const cx2 = 0.5, cz2 = -4.72; hm(RB(0.22, 0.04, 0.26, 0.01), MAT.black, cx2, 0.92, cz2 + 0.04, 0, 1, 1, 1, 0, 0, false);
+        AB('rubber', cx2, 1.08, cz2 - 0.04, 0, 0.21, 0.32, 0.16); AB('rubber', cx2, 1.26, cz2 + 0.03, 0, 0.21, 0.05, 0.3);
+        AP('coffee', cx2, 1.16, cz2 + 0.041, 0, 0.19, 0.12);
+        hm(GEO.ucyl, MAT.black, cx2, 1.0, cz2 + 0.09, 0, 0.13, 0.12, 0.13, 0, 0, false); }
+      { const px2 = 0.88; hm(GEO.ucyl, MAT.chrome, px2, 0.905, -4.7, 0, 0.13, 0.01, 0.13, 0, 0, false); AC('towelP', px2, 1.04, -4.7, 0.058, 0.26); }
+      { hm(RB(0.11, 0.24, 0.17, 0.012), MAT.walnut, -1.85, 1.0, -4.72, 0.3, 1, 1, 1, -0.35, 0, false);
+        for (let k = 0; k < 4; k++) AB('rubber', -1.87 + (k % 2) * 0.04, 1.14 + (k >> 1) * 0.03, -4.8 + (k >> 1) * 0.03, 0.3, 0.022, 0.1, 0.03, -0.35);
+        AC(pick(['ceramic', 'teal', 'cream']), -1.48, 0.97, -4.74, 0.055, 0.15);
+        for (let k = 0; k < 4; k++) AB(k % 2 ? 'woodL' : 'rubber', -1.48 + (r8() - 0.5) * 0.04, 1.1, -4.74 + (r8() - 0.5) * 0.04, r8() * 3, 0.018, 0.22, 0.012, (r8() - 0.5) * 0.4, (r8() - 0.5) * 0.4); }
+      AG('bottle', pick(['greenP', 'yellowP', 'blueP']), IK.bottle, -1.24, 0.9, -4.8, r8() * 6, 0.9);
+      // cereal on the side counter against the wall (the printed front to the room)
+      { const k = r8() < 0.5 ? 'cerealA' : 'cerealB'; AB(k === 'cerealA' ? 'redP' : 'blueP', -5.78, 1.06, -4.04, 0, 0.075, 0.31, 0.21); AP(k, -5.741, 1.06, -4.04, Math.PI / 2, 0.205, 0.3);
+        if (r8() < 0.75) { const k2 = k === 'cerealA' ? 'cerealB' : 'cerealA'; AB(k2 === 'cerealA' ? 'redP' : 'blueP', 1.62, 2.005, -4.62, 0, 0.21, 0.31, 0.075); AP(k2, 1.62, 2.005, -4.581, 0, 0.205, 0.3); } }   // (and one on top of the fridge)
+      // papers on the side of the fridge, a dish towel over the oven handle, a calendar by the clock
+      AP('kid', 1.343, 1.3, -4.5, -Math.PI / 2, 0.24, 0.24); AP('note', 1.343, 1.58, -4.32, -Math.PI / 2, 0.1, 0.1); AP(r8() < 0.5 ? 'pizza' : 'photo3', 1.343, 1.56, -4.72, -Math.PI / 2, 0.12, 0.12);
+      for (const [zz, yy] of [[-4.5, 1.415], [-4.32, 1.63], [-4.72, 1.615]]) hm(GEO.ucyl, MAT.redPaint, 1.336, yy, zz, 0, 0.022, 0.01, 0.022, 0, Math.PI / 2, false);
+      AB('check', -5.218, 0.6, -0.48, 0, 0.012, 0.26, 0.22); AB('check', -5.24, 0.72, -0.48, 0, 0.04, 0.02, 0.22);
+      AP('calendar', -3.4, 1.42, 0.293, Math.PI, 0.34, 0.34); hm(GEO.ubox, MAT.redPaint, -3.4, 1.6, 0.294, Math.PI, 0.34, 0.03, 0.004, 0, 0, false);
+      // the table: breakfast left half eaten — a plate, a mug, a pile of mail
+      AG('plate', 'ceramic', IK.plate, -2.35, 0.77, -1.95, 0, 0.9); mug(pick(['ceramic', 'redP', 'teal']), -2.66, 0.77, -1.88, r8() * 6);
+      { const n = 1 + Math.floor(r8() * 3); for (let k = 0; k < n; k++) flat(pick(['env', 'envM', 'env']), -1.85 + r8() * 0.06, -1.3 + r8() * 0.06, 0.772 + k * 0.002, 0.3 + r8() * 0.6, 0.22, 0.12); }
+      // -- the bathroom: bottles on the tub rim, a cup of toothbrushes and soap on the vanity, spare rolls on the tank --
+      for (const [bz, k, s] of [[-4.55, 'shampoo', 1], [-4.42, 'lotion', 0.85], [-4.31, pick(['shampoo', 'greenP', 'pinkP']), 0.8]]) AG('bottle', k, IK.bottle, 5.86, 0.58, bz, r8() * 6, s);
+      AB('ceramic', 4.64, 0.595, -2.3, 0.1, 0.05, 0.025, 0.08);
+      { AC('teal', 5.74, 0.905, -0.22, 0.032, 0.1); for (let k = 0; k < 2; k++) AB(k ? 'blueP' : 'redP', 5.74 + (k - 0.5) * 0.02, 1.0, -0.22, 0, 0.012, 0.18, 0.008, 0, (k - 0.5) * 0.4);
+        AB('paste', 5.52, 0.865, -0.88, 0.3, 0.16, 0.03, 0.045); AG('bottle', 'lotion', IK.bottle, 5.76, 0.85, -0.9, 0, 0.75); }
+      for (let k = 0; k < 2; k++) AC('towelP', 3.12 + k * 0.15, 0.89, -4.8, 0.055, 0.1);
+      AB('cream', 4.95, 0.055, -0.85, 0.2, 0.3, 0.045, 0.3, 0, 0, false);   // a bathroom scale
+      // -- the bedroom: a book on the nightstand, photos and a dish on the dresser, jeans on the bed, clothes and
+      // trainers on the floor --
+      AB('bookC', 5.72, 0.615, 4.44, 0.5, 0.15, 0.025, 0.22);
+      frame(pick(['photo1', 'photo2', 'photo3']), 1.35, 1.2, 4.3, Math.PI / 2 - 0.3, 0.18, 0.22); frame(pick(['photo2', 'photo3']), 1.3, 1.2, 3.7, Math.PI / 2 + 0.25, 0.12, 0.16, MAT.black);
+      AG('bottle', 'pinkP', IK.bottle, 1.42, 1.2, 3.42, 0, 0.55);
+      if (r8() < 0.7) { const jx = 3.8 + r8() * 0.4, ja = r8() * 1.5; hm(IK.geo('jeans', 'denim', () => RB(0.3, 0.035, 0.26, 0.016)), A, jx, 0.72, 2.4, ja, 1, 1, 1, 0, 0, false); hm(IK.geo('jeans', 'denim', () => RB(0.3, 0.035, 0.26, 0.016)), A, jx + 0.01, 0.75, 2.41, ja + 0.06, 0.96, 1, 0.96, 0, 0, false); }
+      if (!LOWH && r8() < 0.75) { const fa = MAT['fabric' + Math.floor(r8() * 5)], fb = MAT['fabric' + Math.floor(r8() * 5)]; hm(IK.pile, fa, 2.55 + r8() * 0.3, 0.035, 4.45, r8() * 6, 1, 1, 1, 0, 0, true); hm(IK.pile, fb, 2.75, 0.06, 4.55, r8() * 6, 0.7, 0.9, 0.6, 0.1, 0, false); }
+      if (r8() < 0.7) for (const o of [-0.06, 0.07]) AG('shoe', pick(['sneaker', 'sneaker', 'rubber']), IK.shoe, 3.0 + o, 0.03, 2.15 + o * 2, 0.9 + (r8() - 0.5) * 0.8, 1, 0, 0, false);
+    }
     // ---- the occupants are long gone (or not): a blood trail, sometimes ----
     if (r() < 0.4) { const [bx, bz] = P(-3 + r() * 5, 2 + r() * 2); chaos(hx, hz, () => W.blood(bx, bz, 0.6 + r() * 0.9, 0.035), 'house' + H.id); }
     // spots inside where a zombie might be standing
@@ -2607,6 +2707,8 @@ export function makeWorld(scene, renderer) {
     const lines = [];
     for (const sd of [-1, 1]) { lines.push([[35, sd * 31.5], [65, sd * 31.5], [95, sd * 31.5]], [[-35, sd * 31.5], [-65, sd * 31.5], [-95, sd * 31.5]], [[sd * 31.5, 35], [sd * 31.5, 65], [sd * 31.5, 95]], [[sd * 31.5, -35], [sd * 31.5, -65], [sd * 31.5, -95]]); }
     let pn = 0; const brnd = TX.rng(515);
+    const wireP = [];   // [maple-out] every wire again as 1-px lines: thin tubes break up into dashes at a distance, a line never does
+    const wireAdd = (crv, n) => { const q = crv.getPoints(n); for (let k = 0; k < q.length - 1; k++) wireP.push(q[k].x, q[k].y, q[k].z, q[k + 1].x, q[k + 1].y, q[k + 1].z); };
     for (const L of lines) {
       const ux = Math.sign(L[1][0] - L[0][0]), uz = Math.sign(L[1][1] - L[0][1]), ry = Math.atan2(ux, uz);   // along the line
       const px2 = Math.cos(ry), pz2 = -Math.sin(ry);   // across it (the crossarm)
@@ -2618,16 +2720,20 @@ export function makeWorld(scene, renderer) {
         solid(x, z, 0.16, 0.16, 0, 9.2, 'wood');
         if (i === 0 || i === L.length - 1) {   // a dead-end pole: a guy wire down to an anchor in the ground, pulling against the run
           const gx = i === 0 ? -ux : ux, gz = i === 0 ? -uz : uz;
-          xadd(new THREE.TubeGeometry(new THREE.LineCurve3(new THREE.Vector3(x, 8.4, z), new THREE.Vector3(x + gx * 3, 0.15, z + gz * 3)), 1, 0.008, 4), MAT.black, new THREE.Matrix4(), false);
+          { const gc = new THREE.LineCurve3(new THREE.Vector3(x, 8.4, z), new THREE.Vector3(x + gx * 3, 0.15, z + gz * 3)); xadd(new THREE.TubeGeometry(gc, 1, 0.008, 4), MAT.black, new THREE.Matrix4(), false); wireAdd(gc, 1); }
           X(GEO.ucyl, MAT.metal, x + gx * 3, 0.1, z + gz * 3, 0, 0.03, 0.3, 0.03, 0, 0, false);
         }
         if (i + 1 < L.length) for (const o of [-0.8, 0, 0.8]) {
           const [x2, z2] = L[i + 1], a = new THREE.Vector3(x + px2 * o, 8.74, z + pz2 * o), b = new THREE.Vector3(x2 + px2 * o, 8.74, z2 + pz2 * o);
           const mid = a.clone().lerp(b, 0.5); mid.y -= 1.2;   // a quadratic curve: dips about 0.6 m in the middle
-          xadd(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, b), 24, 0.011, 4, false), MAT.black, new THREE.Matrix4(), false);
+          { const wc = new THREE.QuadraticBezierCurve3(a, mid, b); xadd(new THREE.TubeGeometry(wc, 24, 0.011, 4, false), MAT.black, new THREE.Matrix4(), false); wireAdd(wc, 24); }
           if (o === 0.8 || o === -0.8) birdsOnWire(a, mid, b, brnd);
         }
       });
+    }
+    if (wireP.length) {   // [maple-out] one draw call for all of them
+      const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wireP, 3)); wg.computeBoundingSphere();
+      const wl = new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: 0x1c1c1c })); wl.material.userData.mo = 1; wl.frustumCulled = false; level.add(wl);
     }
   }
   W.blood = null;   // set below once decals exist
@@ -2733,6 +2839,48 @@ export function makeWorld(scene, renderer) {
     for (let i = 0; i < 46; i++) { const [x, z, ry] = onRoad(() => (rnd() - 0.5) * 7.2); const s = 1.6 + rnd() * 2.5; X(D.wearGeo[1], D.wearMat, x, 0.017, z, rnd() * 6.28, s, 1, s, 0, 0, false); }
     for (let i = 0; i < 34; i++) { const [x, z, ry] = onRoad(() => (rnd() < 0.5 ? -1 : 1) * (2.55 + rnd() * 0.35)); /* oil only where cars park, by the kerb */ const s = 0.7 + rnd() * 1.1; X(D.wearGeo[2], D.wearMat, x, 0.0175, z, rnd() * 6.28, s, 1, s * (0.8 + rnd() * 0.4), 0, 0, false); }
     for (let i = 0; i < 7; i++) { const [x, z, ry] = onRoad(() => (rnd() - 0.5) * 4); X(D.wearGeo[3], D.wearMat, x, 0.018, z, ry + Math.PI / 2 + (rnd() - 0.5) * 0.5, 1.9, 1, 5 + rnd() * 6, 0, 0, false); }
+    // [maple-out] ---- the lanes' own wear: two polished-dark wheel paths in each lane, an oil-drip strip between them,
+    // grit and sand drifted against the kerb — one long mesh for both streets (one draw call) ----
+    {
+      const wpTex = ctex(128, 512, (g, w, h, R) => {
+        const band = (u, half, a, col) => { for (let y = 0; y < h; y += 2) { const k = a * (0.75 + 0.25 * Math.sin(y / h * 6.283 * 3 + u * 9) + 0.12 * Math.sin(y / h * 6.283 * 11 + u)); const x0 = u * w; const gr = g.createLinearGradient(x0 - half, 0, x0 + half, 0); gr.addColorStop(0, `rgba(${col},0)`); gr.addColorStop(0.5, `rgba(${col},${k.toFixed(3)})`); gr.addColorStop(1, `rgba(${col},0)`); g.fillStyle = gr; g.fillRect(x0 - half, y, half * 2, 2); } };
+        band(0.28, 10, 0.26, '14,14,16'); band(0.72, 10, 0.26, '14,14,16');   // the wheel paths: rubber-polished, darker
+        band(0.5, 7, 0.07, '20,16,12');                                         // the drip line down the middle of the lane
+        for (let k = 0; k < 70; k++) { const x = (0.5 + (R() - 0.5) * 0.12) * w, y = R() * h, r2 = 1.5 + R() * 4; for (const yy of [y, y - h, y + h]) { const gr = g.createRadialGradient(x, yy, 0, x, yy, r2 * 2); gr.addColorStop(0, `rgba(8,6,4,${0.2 + R() * 0.25})`); gr.addColorStop(1, 'rgba(8,6,4,0)'); g.fillStyle = gr; g.beginPath(); g.ellipse(x, yy, r2, r2 * (1.2 + R() * 1.5), 0, 0, 7); g.fill(); } }
+        for (let k = 0; k < 900; k++) { const u = R() < 0.5 ? 0.28 : 0.72; g.fillStyle = `rgba(${R() < 0.6 ? '10,10,10' : '160,156,148'},${0.05 + R() * 0.08})`; g.fillRect(u * w + (R() - 0.5) * 18, R() * h, 1, 4 + R() * 14); }   // fine streaks along the tracks
+        { const gr = g.createLinearGradient(w * 0.9, 0, w, 0); gr.addColorStop(0, 'rgba(128,112,90,0)'); gr.addColorStop(1, 'rgba(128,112,90,0.2)'); g.fillStyle = gr; g.fillRect(w * 0.9, 0, w * 0.1, h); }   // sand at the kerb
+        for (let k = 0; k < 260; k++) { g.fillStyle = `rgba(${R() < 0.5 ? '120,104,84' : '60,56,50'},${0.15 + R() * 0.2})`; g.fillRect(w * (0.93 + R() * 0.07), R() * h, 1 + R() * 2, 1 + R() * 2); }
+      });
+      wpTex.wrapS = THREE.ClampToEdgeWrapping; wpTex.wrapT = THREE.RepeatWrapping; wpTex.anisotropy = LOW ? 2 : 8;
+      const wpMat = std({ map: wpTex, transparent: true, depthWrite: false, roughness: 0.78, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }); wpMat.userData.mo = 1;
+      const parts = [], E2 = 112, J = 8.6, WD = 3.6, REP = 16;
+      for (const main of [true, false]) for (const sd of [-1, 1]) for (const [a0, a1] of [[-E2, -J], [J, E2]]) {
+        const L = a1 - a0, pg = new THREE.PlaneGeometry(WD, L).rotateX(-Math.PI / 2), uv = pg.attributes.uv, pos = pg.attributes.position;
+        for (let i = 0; i < uv.count; i++) { const lx = pos.getX(i) / WD + 0.5, lz = pos.getZ(i); uv.setXY(i, lx, (lz + a0 + L / 2) / REP); }
+        // plane x across (0 at the centre line side → WD at the kerb), z along; then laid on the road
+        const m = new THREE.Matrix4();
+        if (main) m.compose(new THREE.Vector3((a0 + a1) / 2, 0.0162, sd * (0.2 + WD / 2)), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, sd > 0 ? -Math.PI / 2 : Math.PI / 2, 0)), new THREE.Vector3(1, 1, 1));
+        else m.compose(new THREE.Vector3(sd * (0.2 + WD / 2), 0.0162, (a0 + a1) / 2), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, sd > 0 ? 0 : Math.PI, 0)), new THREE.Vector3(1, 1, 1));
+        pg.applyMatrix4(m); parts.push(pg);
+      }
+      const wpm = new THREE.Mesh(mergeGeometries(parts), wpMat); wpm.receiveShadow = true; wpm.renderOrder = 1; wpm.geometry.computeBoundingSphere(); level.add(wpm);
+    }
+    // [maple-out] ---- weeds: nobody has sprayed in weeks — tufts up the kerb line and out of the sidewalk's joints ----
+    {
+      const weedM = std({ map: ctex(64, 64, (g, w, h, R) => {
+        for (let k = 0; k < 26; k++) { const x0 = 8 + R() * 48, lean = (R() - 0.5) * 22, ht = 22 + R() * 40, gr = 60 + R() * 70 | 0; const dry = R() < 0.3; g.strokeStyle = dry ? `rgb(${gr + 40},${gr + 26},${gr * 0.5 | 0})` : `rgb(${gr * 0.7 | 0},${gr * 0.86 + 12 | 0},${gr * 0.4 | 0})`; g.lineWidth = 1 + R() * 1.4; g.beginPath(); g.moveTo(x0, 64); g.quadraticCurveTo(x0 + lean * 0.3, 64 - ht * 0.6, x0 + lean, 64 - ht); g.stroke(); }
+        for (let k = 0; k < 3; k++) { g.fillStyle = R() < 0.5 ? '#e8d23a' : '#f0eee0'; g.beginPath(); g.arc(12 + R() * 40, 10 + R() * 24, 2.2, 0, 7); g.fill(); }   // a dandelion or two
+      }), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }); weedM.userData.mo = 1;
+      const weedG = mergeGeometries([0, 1.05, 2.1].map(a => { const q = new THREE.PlaneGeometry(0.34, 0.26).translate(0, 0.13, 0).rotateY(a); return q; }));
+      const wr = TX.rng(733), nW = LOW ? 0.22 : 0.45;
+      for (const main of [true, false]) for (const sd of [-1, 1]) for (let a = -110; a <= 110; a += 1.3) {
+        if (Math.abs(a) < 9 || wr() > nW) continue;
+        const aa = a + (wr() - 0.5) * 0.9; if (cutAt(main, sd, aa)) continue;
+        const kerb = wr() < 0.75, c = kerb ? sd * (3.97 - wr() * 0.05) : sd * 4.1, y = kerb ? 0.017 : 0.108;   // against the kerb face, or in the gap where walk meets curb / lawn
+        const [x, z] = main ? [aa, c] : [c, aa], sc = 0.4 + wr() * 0.5;
+        inst(weedG, weedM, mat4(x, y, z, wr() * 6.28, sc, sc * (0.7 + wr() * 0.6), sc), false);
+      }
+    }
     // ---- crosswalk signals at the four corners: a pole, two heads (one per crosswalk), a push button ----
     const heads = [];
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
@@ -2866,6 +3014,7 @@ export function makeWorld(scene, renderer) {
   }
   // ================================================================ BUILD THE TOWN
   function buildMaple() {
+    FALL.k = 0.3;   // [maple-out] about a third of the broadleaf trees have turned
     FALLEN_AT.push([-60.5, -10.2], [10.2, 55.0], [-10.4, -71.5]);   // the chaos layer blows trees down here (no standing tree in the root ball)
     // streets: Main St (z = 0) and Maple Ave (x = 0)
     // (the streets themselves are laid after the houses, which say where their driveways cross the sidewalk)
@@ -3481,6 +3630,24 @@ export function makeWorld(scene, renderer) {
     // painted walls inside (the brick is outside)
     { const [bx4, bz4] = P(0, -Dp / 2 + T / 2 + 0.006); B.box(bx4, 0, bz4, Wd / 2 - 0.2, WH, 0.004, yaw, ALL('trim'), TILE);
       for (const e of [-1, 1]) { const [sx4, sz4] = P(e * (Wd / 2 - T / 2 - 0.006), 0); B.box(sx4, 0, sz4, 0.004, WH, Dp / 2 - 0.2, yaw, ALL('trim'), TILE); } }
+    // [maple-in] the walls were bare white boxes and the floor showroom-clean: a rubber cove base round the walls, the
+    // store's red band up high, two promo posters, and the scuffs of ten thousand shoes by the door, the till and down
+    // the aisles (one see-through decal material, merged; none on the lowest tier)
+    { for (const e of [-1, 1]) { sbox(e * 7.865 - 0.02, 0, -5.86, e * 7.865 + 0.02, 0.1, 5.85, MAT.rubber, false); sbox(e * 7.865 - 0.012, 2.76, -5.86, e * 7.865 + 0.012, 2.9, 5.85, MAT.redPaint, false); }
+      sbox(-7.86, 0, -5.885, 7.86, 0.1, -5.845, MAT.rubber, false); sbox(-7.86, 2.76, -5.875, 7.86, 2.9, -5.855, MAT.redPaint, false);
+      const pm = MAT.storePromo || (MAT.storePromo = std({ roughness: 0.5, map: ctex(512, 256, (g, w, h, rnd) => {
+        g.fillStyle = '#f2c21a'; g.fillRect(0, 0, 256, 256); g.fillStyle = '#c8241c'; g.fillRect(0, 0, 256, 60); g.fillStyle = '#fff'; g.font = 'bold 40px Helvetica'; g.textAlign = 'center'; g.fillText('COLD', 128, 45);
+        g.fillStyle = '#1a3a8a'; g.font = 'bold 54px Helvetica'; g.fillText('2 FOR', 128, 130); g.fillText('$3', 128, 190); g.fillStyle = '#c8241c'; g.font = 'bold 18px Helvetica'; g.fillText('20 OZ SODAS', 128, 235);
+        const gr = g.createLinearGradient(256, 0, 512, 256); gr.addColorStop(0, '#1a2a4a'); gr.addColorStop(1, '#3a5a9a'); g.fillStyle = gr; g.fillRect(256, 0, 256, 256);
+        g.fillStyle = '#f2c21a'; g.font = 'bold 44px Helvetica'; g.fillText('LOTTO', 384, 70); g.fillStyle = '#fff'; g.font = 'bold 22px Helvetica'; g.fillText('JACKPOT', 384, 120); g.font = 'bold 46px Helvetica'; g.fillText('$42 MIL', 384, 175); g.font = '16px Helvetica'; g.fillText('PLAY HERE TODAY', 384, 225);
+        for (let k = 0; k < 900; k++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '0,0,0' : '255,255,255'},${rnd() * 0.05})`; g.fillRect(rnd() * 512, rnd() * 256, 2, 2); } }) }));
+      sm(atlasPlane([0, 0, 0.5, 1]), pm, 7.855, 1.65, -2.6, -Math.PI / 2, 0.6, 0.6, 1, 0, 0, false); sm(atlasPlane([0.5, 0, 1, 1]), pm, -7.855, 1.65, -3.4, Math.PI / 2, 0.6, 0.6, 1, 0, 0, false);
+      if (TX.tier() < 2) { const scuff = MAT.storeScuff || (MAT.storeScuff = new THREE.MeshStandardMaterial({ transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, roughness: 0.9, color: 0x3a3226, map: ctex(256, 256, (g, w, h, rnd) => {
+          for (let k = 0; k < 70; k++) { const x0 = 128 + (rnd() - 0.5) * 200, y0 = 128 + (rnd() - 0.5) * 200, rr = 10 + rnd() * 40; const gr = g.createRadialGradient(x0, y0, 0, x0, y0, rr); gr.addColorStop(0, `rgba(255,255,255,${0.05 + rnd() * 0.12})`); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(x0 - rr, y0 - rr, rr * 2, rr * 2); }
+          g.lineCap = 'round'; for (let k = 0; k < 40; k++) { g.strokeStyle = `rgba(255,255,255,${0.2 + rnd() * 0.3})`; g.lineWidth = 1 + rnd() * 2; const x0 = 30 + rnd() * 196, y0 = 30 + rnd() * 196, a = rnd() * 6.28, l = 6 + rnd() * 22; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + Math.cos(a) * l, y0 + Math.sin(a) * l); g.stroke(); }
+          const e = g.createRadialGradient(128, 128, 60, 128, 128, 128); e.addColorStop(0, 'rgba(0,0,0,0)'); e.addColorStop(1, 'rgba(0,0,0,1)'); g.globalCompositeOperation = 'destination-out'; g.fillStyle = e; g.fillRect(0, 0, 256, 256); }), alphaMap: null }));
+        for (const [lx, lz, w, d] of [[0, 4.2, 3.2, 2.6], [-4.6, 3.4, 2.2, 1.8], [-2.25, 0, 1.2, 5.5], [2.25, 0, 1.2, 5.5], [0, -4.0, 7, 1.4], [6.3, 2.4, 1.0, 2.6], [-6.3, 0.3, 1.0, 2.2]]) sm(GEO.uplane, scuff, lx, 0.033, lz, 0, w, d, 1, -Math.PI / 2, 0, false); }
+    }
     // Raj's grill: a stainless counter, the flat-top, burgers sizzling, buns waiting, a hood over it all
     { const [gx, gz] = P(-7.42, 0.3);
       B.box(gx, 0, gz, 0.42, 0.88, 0.95, yaw, ALL('metal'), TILE); solid(gx, gz, 0.45, 0.97, yaw, 0.95, 'metal');
@@ -3657,6 +3824,40 @@ export function makeWorld(scene, renderer) {
         add(rbx(0.7, 0.05, 1.58, 0.02), MAT.counterL, 3.25, 0.975, -5.6);
         add(rbx(0.34, 0.2, 0.3, 0.03), MAT.black, 3.2, 1.1, -5.9); add(new THREE.BoxGeometry(0.22, 0.14, 0.02), MAT.darkMetal, 3.2, 1.27, -5.98, -0.3, 0, 0, false);
         add(new THREE.PlaneGeometry(1.4, 0.7), MAT.cigs, 3.74, 1.75, -5.6, 0, -Math.PI / 2, 0, false); }
+      // [maple-in] the back of the kiosk was bare paint: a three-door drinks cooler (lit, stocked) on the left, a coffee
+      // station on the right with two pots on the warmer, cups and lids, and a menu board and a couple of posters over it.
+      // All merged (B.box / xadd / inst), no new lights: the cooler's glow is an emissive strip
+      { const K = prodKit(), KX = new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1));
+        const km = (geo, m, lx, ly, lz, ry = 0, sx = 1, sy = 1, sz = 1, rx = 0, sh = false) => xadd(geo, m, KX.clone().multiply(mat4(lx, ly, lz, ry, sx, sy, sz, rx)), sh);
+        const IB = (lx, lz, hx2, y0, y1, hz2, f) => { const [ix, iz] = P(lx, lz); B.box(ix, y0, iz, hx2, y1, hz2, yaw, typeof f === 'string' ? ALL(f) : f, TILE); };
+        const c0 = -2.2, cz0 = -8.5;   // the cooler: x -3.7..-0.7, against the back wall
+        IB(c0, -8.82, 1.5, 0, 2.15, 0.02, 'white'); IB(c0 - 1.49, cz0, 0.02, 0, 2.15, 0.32, 'darkMetal'); IB(c0 + 1.49, cz0, 0.02, 0, 2.15, 0.32, 'darkMetal');
+        IB(c0, cz0, 1.5, 0, 0.22, 0.32, 'darkMetal'); IB(c0, cz0, 1.5, 1.9, 2.15, 0.32, 'darkMetal');
+        for (const y of [0.24, 0.66, 1.08, 1.5]) { IB(c0, cz0 - 0.03, 1.47, y - 0.02, y, 0.28, 'shelfMetal');
+          for (let k = 0; k < 30; k++) { if (Math.random() < 0.18) continue; const lx3 = c0 - 1.4 + k * 0.097, [bx2, bz2] = P(lx3, cz0 + 0.08 - (k % 2) * 0.12); inst(K.bottleG, K.bottle[(Math.floor(k / 5) + Math.round(y * 3)) % K.bottle.length], mat4(bx2, y, bz2, yaw + Math.random()), false); } }
+        km(GEO.ubox, MAT.coolerGlow || (MAT.coolerGlow = std({ color: 0xffffff, emissive: 0xeaf4ff, emissiveIntensity: 1.6 })), c0, 1.88, cz0 + 0.2, 0, 2.9, 0.02, 0.05);
+        for (let k = 0; k < 3; k++) { const dx = c0 - 1 + k; km(GEO.ubox, MAT.glass, dx, 1.06, cz0 + 0.33, 0, 0.92, 1.62, 0.012);
+          for (const [ox, w2] of [[-0.48, 0.04], [0.48, 0.04]]) km(GEO.ubox, MAT.darkMetal, dx + ox, 1.06, cz0 + 0.33, 0, w2, 1.68, 0.04, 0, false);
+          km(GEO.ucyl, MAT.chrome, dx + 0.4, 1.1, cz0 + 0.37, 0, 0.022, 0.5, 0.022); }
+        km(GEO.ubox, MAT.darkMetal, c0, 0.24, cz0 + 0.33, 0, 3.0, 0.04, 0.04); km(GEO.ubox, MAT.darkMetal, c0, 1.88, cz0 + 0.33, 0, 3.0, 0.04, 0.04);
+        { const sg = MAT.kioskDrinks || (MAT.kioskDrinks = std({ map: fitLab(['COLD DRINKS'], '#c8241c', '#ffffff', 512, 64, 'bold 46px Helvetica'), emissive: 0x401010, roughness: 0.4 })); km(GEO.uplane, sg, c0, 2.03, cz0 + 0.33, 0, 2.6, 0.22, 1); }
+        // the coffee station: a counter, a two-pot brewer, cup stacks, a sugar and creamer caddy
+        const k0 = 1.0, kz = -8.5;
+        IB(k0, kz, 0.9, 0, 0.88, 0.3, f => f === 'top' ? null : 'oak'); IB(k0, kz, 0.94, 0.88, 0.92, 0.33, 'counterL');
+        { const IK = inKit(), A = IK.mat;
+          km(GEO.ubox, MAT.black, k0 - 0.35, 1.2, kz - 0.12, 0, 0.5, 0.56, 0.26, 0, true); km(GEO.ubox, MAT.black, k0 - 0.35, 1.46, kz + 0.04, 0, 0.5, 0.06, 0.52);
+          for (const ox of [-0.12, 0.12]) { km(GEO.ucyl, MAT.darkMetal, k0 - 0.35 + ox, 0.935, kz + 0.12, 0, 0.16, 0.03, 0.16); km(GEO.ucyl, MAT.black, k0 - 0.35 + ox, 1.02, kz + 0.12, 0, 0.13, 0.15, 0.13); km(GEO.ucyl, MAT.redPaint, k0 - 0.35 + ox, 1.105, kz + 0.12, 0, 0.1, 0.03, 0.1); }
+          km(atlasPlane(IK.c.coffee), A, k0 - 0.35, 1.32, kz + 0.011, 0, 0.42, 0.2);
+          for (let k = 0; k < 3; k++) km(IK.cyl('ceramic'), A, k0 + 0.15 + k * 0.12, 1.06, kz - 0.05, 0, 0.09, 0.28 - k * 0.05, 0.09);   // cup stacks
+          km(IK.box('cardbd'), A, k0 + 0.6, 0.98, kz + 0.05, 0.1, 0.22, 0.12, 0.14);
+          for (let k = 0; k < 6; k++) km(IK.box(k % 2 ? 'pinkP' : 'cream'), A, k0 + 0.55 + (k % 3) * 0.04, 1.05, kz + 0.02 + Math.floor(k / 3) * 0.05, 0, 0.03, 0.05, 0.02);
+          // a menu board over it and a couple of posters (the atlas' printed sheets) on the walls
+          km(GEO.ubox, MAT.black, k0, 1.95, -8.83, 0, 1.4, 0.6, 0.02); km(GEO.uplane, MAT.kioskMenu || (MAT.kioskMenu = std({ map: fitLab(['COFFEE  1.29', 'HOT DOG  1.99', 'NACHOS  2.49'], '#1e1e1e', '#f4e8c8', 512, 220, 'bold 36px Helvetica'), roughness: 0.6 })), k0, 1.95, -8.818, 0, 1.34, 0.54);
+          km(atlasPlane(IK.c.pizza), A, -3.745, 1.6, -5.4, Math.PI / 2, 0.5, 0.5); km(atlasPlane(IK.c.calendar), A, 2.4, 1.6, -8.818, 0, 0.42, 0.42); }
+        // a mop bucket and a wet-floor sign in the corner, as every station has
+        km(GEO.ucyl, MAT.yellowPaint, 3.3, 0.18, -8.4, 0, 0.36, 0.34, 0.36, 0, true); km(GEO.ucyl, MAT.darkMetal, 3.25, 0.75, -8.45, 0, 0.03, 1.2, 0.03, 0.15);
+        km(GEO.ubox, MAT.yellowPaint, 2.75, 0.32, -8.55, 0.5, 0.3, 0.62, 0.008, 0.18, true); km(GEO.ubox, MAT.yellowPaint, 2.75, 0.32, -8.35, 0.5, 0.3, 0.62, 0.008, -0.18, true);
+      }
       const ice = new THREE.MeshStandardMaterial({ map: fitLab(['ICE'], '#e8eef4', '#2050a0', 256, 128, 'bold 80px Helvetica'), roughness: 0.4 });
       // the ice chest: a white insulated box, a dark lid seam and hinges, the ICE label on its two long faces only
       add(rbx(1.6, 1.15, 0.75, 0.05), new THREE.MeshStandardMaterial({ color: 0xe8eef4, roughness: 0.45 }), 2.6, 0.58, -3.55);
@@ -3791,6 +3992,97 @@ export function makeWorld(scene, renderer) {
     bag.computeVertexNormals();
     TGEO = { beam, corr, bag, lamp: new THREE.CylinderGeometry(0.22, 0.26, 0.42, 20, 1).rotateX(Math.PI / 2), lensG: new THREE.CircleGeometry(0.2, 20), wheelG: new THREE.CylinderGeometry(0.08, 0.08, 0.06, 12).rotateZ(Math.PI / 2) };
     return TGEO;
+  }
+  // [maple-in] the small things people leave about a house (mail, mugs, shoes, coats, toys, bottles, photos, a calendar):
+  // ONE 512 px atlas and ONE material for all of them, so a whole street's clutter merges into a draw call per chunk.
+  // Cells are 64 px; IK.c[name] is that cell's UV rect; IK.box/IK.cyl give unit shapes printed with one cell
+  let IKIT = null;
+  function inKit() {
+    if (IKIT) return IKIT;
+    const S = 512, Q = 64, c = {};
+    const cell = (name, cx, cy, cw = 1, chh = 1, ins = 2) => { c[name] = [(cx * Q + ins) / S, 1 - ((cy + chh) * Q - ins) / S, ((cx + cw) * Q - ins) / S, 1 - (cy * Q + ins) / S]; return [cx * Q, cy * Q, cw * Q, chh * Q]; };
+    const tex = ctex(S, S, (g, w, h, rnd) => {
+      const noise = (x, y, ww, hh, n, a) => { for (let k = 0; k < n; k++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '0,0,0' : '255,255,255'},${rnd() * a})`; g.fillRect(x + rnd() * ww, y + rnd() * hh, 1 + rnd() * 2, 1 + rnd() * 2); } };
+      const sw = (name, cx, cy, col, n = 160, a = 0.06) => { const [x, y, ww, hh] = cell(name, cx, cy); g.fillStyle = col; g.fillRect(x, y, ww, hh); noise(x, y, ww, hh, n, a); };
+      // row 0-1: plain stuff, a little grain so nothing reads as flat paint
+      [['ceramic', '#efede6'], ['redP', '#b8262a'], ['blueP', '#2a5a9e'], ['greenP', '#3a8a4a'], ['yellowP', '#e2b828'], ['pinkP', '#e48aa8'], ['rubber', '#1e1e20'], ['leather', '#5a3420']].forEach(([n, col], i) => sw(n, i, 0, col));
+      [['denim', '#3a4c6e'], ['knitG', '#8a8a86'], ['clothR', '#8e2a2a'], ['cream', '#e6dcc4'], ['orangeP', '#e0782a'], ['teal', '#2f7f84'], ['steelL', '#a8acae'], ['woodL', '#8a6038']].forEach(([n, col], i) => sw(n, i, 1, col, 260, i === 0 || i === 1 || i === 2 ? 0.14 : 0.06));
+      { const [x, y] = cell('woodL', 7, 1); for (let k = 0; k < 14; k++) { g.strokeStyle = `rgba(60,36,16,${0.2 + rnd() * 0.3})`; g.beginPath(); g.moveTo(x, y + k * 4.6 + rnd() * 2); g.bezierCurveTo(x + 20, y + k * 4.6 + rnd() * 4, x + 44, y + k * 4.6 - rnd() * 4, x + 64, y + k * 4.6); g.stroke(); } }
+      { const [x, y] = cell('denim', 0, 1); for (let k = -64; k < 64; k += 3) { g.strokeStyle = 'rgba(200,210,230,0.12)'; g.beginPath(); g.moveTo(x + k, y); g.lineTo(x + k + 64, y + 64); g.stroke(); } }
+      { const [x, y] = cell('knitG', 1, 1); for (let yy = 0; yy < 64; yy += 4) for (let xx = 0; xx < 64; xx += 4) { g.fillStyle = `rgba(255,255,255,${0.08 + rnd() * 0.06})`; g.beginPath(); g.ellipse(x + xx + 2, y + yy + 2, 1.5, 2, 0.4, 0, 7); g.fill(); } }
+      // a cereal box front: a big bowl, a wordmark, the burst
+      const box2 = (name, cx, cy, bg, word, word2, accent) => { const [x, y, ww, hh] = cell(name, cx, cy, 2, 2); g.fillStyle = bg; g.fillRect(x, y, ww, hh);
+        g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(x, y, ww, 20); g.font = 'bold 26px Helvetica'; g.fillStyle = '#fff8e0'; g.textAlign = 'center'; g.fillText(word, x + 64, y + 38); g.font = 'bold 15px Helvetica'; g.fillStyle = accent; g.fillText(word2, x + 64, y + 56);
+        g.fillStyle = '#f4f2ea'; g.beginPath(); g.ellipse(x + 64, y + 100, 44, 16, 0, 0, 7); g.fill(); g.fillStyle = '#e8b050'; for (let k = 0; k < 40; k++) { g.beginPath(); g.arc(x + 30 + rnd() * 68, y + 88 + rnd() * 12, 3 + rnd() * 2, 0, 7); g.fill(); }
+        g.fillStyle = accent; g.beginPath(); g.arc(x + 108, y + 72, 14, 0, 7); g.fill(); g.font = 'bold 9px Helvetica'; g.fillStyle = '#fff'; g.fillText('NEW!', x + 108, y + 75); noise(x, y, ww, hh, 200, 0.05); };
+      box2('cerealA', 0, 2, '#c8342a', 'CRUNCH', 'HONEY O\'S', '#f4c430'); box2('cerealB', 2, 2, '#2a62b0', 'FLAKES', 'WHOLE GRAIN', '#f08a24');
+      { const [x, y, ww, hh] = cell('magazine', 4, 2, 2, 2); const gr = g.createLinearGradient(x, y, x, y + hh); gr.addColorStop(0, '#6a98c4'); gr.addColorStop(1, '#d8c0a0'); g.fillStyle = gr; g.fillRect(x, y, ww, hh);
+        g.fillStyle = '#c8282a'; g.font = 'bold 30px Georgia'; g.textAlign = 'left'; g.fillText('HOME', x + 8, y + 32); g.fillStyle = '#3a2a20'; g.beginPath(); g.ellipse(x + 80, y + 96, 26, 34, 0, 0, 7); g.fill(); g.fillStyle = '#e0b090'; g.beginPath(); g.arc(x + 80, y + 62, 14, 0, 7); g.fill();
+        g.fillStyle = '#fff'; g.font = 'bold 10px Helvetica'; for (let k = 0; k < 4; k++) g.fillRect(x + 8, y + 50 + k * 14, 34 - k * 4, 4); noise(x, y, ww, hh, 150, 0.06); }
+      { const [x, y, ww, hh] = cell('calendar', 6, 2, 2, 2); g.fillStyle = '#f6f4ee'; g.fillRect(x, y, ww, hh); g.fillStyle = '#5a8a5a'; g.fillRect(x + 4, y + 4, 120, 52); g.fillStyle = '#8fb8e0'; g.fillRect(x + 4, y + 4, 120, 24); g.fillStyle = '#3a6a3a'; g.beginPath(); g.moveTo(x + 4, y + 56); g.lineTo(x + 40, y + 26); g.lineTo(x + 70, y + 46); g.lineTo(x + 96, y + 22); g.lineTo(x + 124, y + 56); g.fill();
+        g.fillStyle = '#222'; g.font = 'bold 9px Helvetica'; g.textAlign = 'center'; g.fillText('OCTOBER', x + 64, y + 66); g.strokeStyle = '#bbb'; g.lineWidth = 0.6; for (let r2 = 0; r2 < 5; r2++) for (let k = 0; k < 7; k++) g.strokeRect(x + 8 + k * 16, y + 70 + r2 * 11, 16, 11);
+        g.strokeStyle = '#c82020'; g.lineWidth = 1.4; for (let k = 0; k < 9; k++) { const cx3 = x + 8 + (k % 7) * 16, cy3 = y + 70 + Math.floor(k / 7) * 11; g.beginPath(); g.moveTo(cx3 + 2, cy3 + 2); g.lineTo(cx3 + 14, cy3 + 9); g.moveTo(cx3 + 14, cy3 + 2); g.lineTo(cx3 + 2, cy3 + 9); g.stroke(); }
+        g.fillStyle = '#2a4ab0'; g.font = '7px Helvetica'; g.fillText('dentist', x + 64, y + 100); g.lineWidth = 1; }
+      // photos: a family on a beach, a dog on a lawn, a wedding couple — soft and a little faded
+      const photo = (name, cx, cy, top, bot, figs) => { const [x, y, ww, hh] = cell(name, cx, cy, 2, 2); const gr = g.createLinearGradient(x, y, x, y + hh); gr.addColorStop(0, top); gr.addColorStop(0.55, top); gr.addColorStop(0.56, bot); gr.addColorStop(1, bot); g.fillStyle = gr; g.fillRect(x, y, ww, hh);
+        for (const [fx, fy, s, col] of figs) { g.fillStyle = col; g.beginPath(); g.ellipse(x + fx, y + fy, 9 * s, 22 * s, 0, 0, 7); g.fill(); g.fillStyle = '#e8c0a0'; g.beginPath(); g.arc(x + fx, y + fy - 26 * s, 7 * s, 0, 7); g.fill(); g.fillStyle = '#4a3020'; g.beginPath(); g.arc(x + fx, y + fy - 29 * s, 7 * s, Math.PI, 0); g.fill(); }
+        g.fillStyle = 'rgba(255,240,210,0.16)'; g.fillRect(x, y, ww, hh); noise(x, y, ww, hh, 300, 0.05); };
+      photo('photo1', 0, 4, '#8cc0e4', '#e4d2a0', [[40, 86, 1, '#c03030'], [64, 82, 1.1, '#2a5a9e'], [86, 94, 0.7, '#e0b020']]);
+      photo('photo2', 2, 4, '#c8dce8', '#5a8a40', [[64, 90, 1.15, '#f4f2ec'], [86, 90, 1.15, '#222']]);
+      { const [x, y, ww, hh] = cell('kid', 4, 4, 2, 2); g.fillStyle = '#fbfaf4'; g.fillRect(x, y, ww, hh); g.lineWidth = 3; g.lineCap = 'round';
+        g.strokeStyle = '#e8c020'; g.beginPath(); g.arc(x + 104, y + 22, 12, 0, 7); g.stroke(); for (let k = 0; k < 8; k++) { const a = k * 0.785; g.beginPath(); g.moveTo(x + 104 + Math.cos(a) * 16, y + 22 + Math.sin(a) * 16); g.lineTo(x + 104 + Math.cos(a) * 22, y + 22 + Math.sin(a) * 22); g.stroke(); }
+        g.strokeStyle = '#c03030'; g.strokeRect(x + 24, y + 60, 46, 40); g.beginPath(); g.moveTo(x + 18, y + 62); g.lineTo(x + 47, y + 34); g.lineTo(x + 76, y + 62); g.stroke(); g.strokeStyle = '#3070c0'; g.strokeRect(x + 40, y + 78, 12, 22);
+        g.strokeStyle = '#30a040'; g.beginPath(); g.moveTo(x + 4, y + 112); for (let k = 0; k < 12; k++) g.lineTo(x + 8 + k * 10, y + 104 + (k % 2) * 8); g.stroke();
+        g.strokeStyle = '#7a3ab0'; for (const fx of [90, 104]) { g.beginPath(); g.arc(fx + x, y + 70, 5, 0, 7); g.moveTo(fx + x, y + 75); g.lineTo(fx + x, y + 96); g.moveTo(fx + x - 8, y + 84); g.lineTo(fx + x + 8, y + 84); g.stroke(); } g.lineWidth = 1; }
+      { const [x, y, ww, hh] = cell('art', 6, 4, 2, 2); const gr = g.createLinearGradient(x, y, x, y + hh); gr.addColorStop(0, '#e8b888'); gr.addColorStop(0.5, '#f0d8b0'); gr.addColorStop(1, '#6a7a58'); g.fillStyle = gr; g.fillRect(x, y, ww, hh);
+        g.fillStyle = 'rgba(90,100,120,0.6)'; g.beginPath(); g.moveTo(x, y + 80); g.lineTo(x + 30, y + 52); g.lineTo(x + 58, y + 70); g.lineTo(x + 92, y + 40); g.lineTo(x + 128, y + 76); g.lineTo(x + 128, y + 128); g.lineTo(x, y + 128); g.fill();
+        g.fillStyle = '#4a5a3a'; g.fillRect(x, y + 96, ww, 32); for (let k = 0; k < 500; k++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '40,30,20' : '255,240,220'},${rnd() * 0.12})`; g.fillRect(x + rnd() * ww, y + rnd() * hh, 2 + rnd() * 3, 1 + rnd() * 2); } }
+      // row 6: papers and labels
+      { const [x, y] = cell('env', 0, 6); g.fillStyle = '#f4f2ec'; g.fillRect(x, y, Q, Q); g.fillStyle = '#555'; for (let k = 0; k < 3; k++) g.fillRect(x + 22, y + 30 + k * 6, 26 - k * 4, 2); g.fillStyle = '#c84040'; g.fillRect(x + 50, y + 6, 9, 11); g.fillStyle = '#888'; g.fillRect(x + 4, y + 6, 18, 2); g.fillRect(x + 4, y + 10, 14, 2); }
+      { const [x, y] = cell('envM', 1, 6); g.fillStyle = '#d6b884'; g.fillRect(x, y, Q, Q); noise(x, y, Q, Q, 200, 0.08); g.fillStyle = '#333'; g.font = 'bold 8px Helvetica'; g.textAlign = 'center'; g.fillText('FINAL NOTICE', x + 32, y + 22); g.fillStyle = '#555'; for (let k = 0; k < 3; k++) g.fillRect(x + 18, y + 36 + k * 6, 28 - k * 5, 2); }
+      { const [x, y] = cell('note', 2, 6); g.fillStyle = '#f4e46a'; g.fillRect(x, y, Q, Q); g.strokeStyle = '#2a3a9a'; g.lineWidth = 1.5; for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(x + 6, y + 14 + k * 11); for (let j = 0; j < 10; j++) g.lineTo(x + 8 + j * 5, y + 14 + k * 11 + (rnd() - 0.5) * 4); g.stroke(); } g.lineWidth = 1; }
+      const lab = (name, cx, base, band, word) => { const [x, y] = cell(name, cx, 6); g.fillStyle = base; g.fillRect(x, y, Q, Q); g.fillStyle = band; g.fillRect(x, y + 22, Q, 24); g.fillStyle = '#fff'; g.font = 'bold 10px Helvetica'; g.textAlign = 'center'; g.fillText(word, x + 32, y + 38); noise(x, y, Q, Q, 80, 0.05); };
+      lab('shampoo', 3, '#3a8ac4', '#f4f4f0', ''); { const [x, y] = cell('shampoo', 3, 6); g.fillStyle = '#2a5a9e'; g.font = 'bold 10px Helvetica'; g.fillText('AQUA', x + 32, y + 38); }
+      lab('lotion', 4, '#f2eee4', '#c88a9a', 'SOFT');
+      { const [x, y] = cell('check', 5, 6); for (let yy = 0; yy < 8; yy++) for (let xx = 0; xx < 8; xx++) { g.fillStyle = (xx + yy) % 2 ? '#f2f0ea' : '#c84a4a'; g.fillRect(x + xx * 8, y + yy * 8, 8, 8); } g.fillStyle = 'rgba(255,255,255,0.35)'; for (let k = 0; k < 8; k++) { g.fillRect(x, y + k * 8 + 3, Q, 1); g.fillRect(x + k * 8 + 3, y, 1, Q); } }
+      { const [x, y] = cell('towelP', 6, 6); g.fillStyle = '#f6f6f2'; g.fillRect(x, y, Q, Q); g.strokeStyle = 'rgba(120,160,200,0.5)'; for (let k = 0; k < 4; k++) { g.beginPath(); g.arc(x + 16 + (k % 2) * 32, y + 16 + Math.floor(k / 2) * 32, 8, 0, 7); g.stroke(); } noise(x, y, Q, Q, 200, 0.06); }
+      lab('paste', 7, '#f4f4f4', '#d02a2a', 'FRESH');
+      // row 7
+      { const [x, y] = cell('coffee', 0, 7); g.fillStyle = '#1c1c1e'; g.fillRect(x, y, Q, Q); g.fillStyle = '#3a3a3e'; g.fillRect(x + 6, y + 6, 52, 18); g.fillStyle = '#5adc8a'; g.font = 'bold 9px monospace'; g.textAlign = 'center'; g.fillText('7:42', x + 32, y + 19); g.fillStyle = '#c03030'; g.beginPath(); g.arc(x + 48, y + 34, 3, 0, 7); g.fill(); g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(x, y, 6, Q); }
+      { const [x, y] = cell('bookC', 1, 7); g.fillStyle = '#26384e'; g.fillRect(x, y, Q, Q); g.fillStyle = '#d8b860'; g.font = 'bold 9px Georgia'; g.textAlign = 'center'; g.fillText('THE LONG', x + 32, y + 22); g.fillText('ROAD', x + 32, y + 33); g.fillRect(x + 14, y + 40, 36, 1); noise(x, y, Q, Q, 120, 0.06); }
+      { const [x, y] = cell('sneaker', 2, 7); g.fillStyle = '#eeeeea'; g.fillRect(x, y, Q, Q); g.fillStyle = '#2a5a9e'; g.beginPath(); g.moveTo(x + 10, y + 50); g.quadraticCurveTo(x + 32, y + 20, x + 58, y + 30); g.lineTo(x + 58, y + 38); g.quadraticCurveTo(x + 32, y + 30, x + 14, y + 54); g.fill(); g.fillStyle = '#bbb'; g.fillRect(x, y + 54, Q, 10); noise(x, y, Q, Q, 120, 0.05); }
+      { const [x, y] = cell('detergent', 3, 7); g.fillStyle = '#f08a1a'; g.fillRect(x, y, Q, Q); g.fillStyle = '#1a4aa0'; g.beginPath(); g.arc(x + 32, y + 32, 16, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 9px Helvetica'; g.textAlign = 'center'; g.fillText('TIDY', x + 32, y + 35); }
+      { const [x, y] = cell('photo3', 4, 7); g.fillStyle = '#d8c8a8'; g.fillRect(x, y, Q, Q); g.fillStyle = '#8a6a4a'; g.beginPath(); g.ellipse(x + 32, y + 44, 16, 14, 0, 0, 7); g.fill(); g.beginPath(); g.arc(x + 32, y + 26, 11, 0, 7); g.fill(); g.fillStyle = '#5a3a22'; g.beginPath(); g.ellipse(x + 22, y + 22, 4, 8, -0.4, 0, 7); g.ellipse(x + 42, y + 22, 4, 8, 0.4, 0, 7); g.fill(); g.fillStyle = '#222'; g.fillRect(x + 27, y + 24, 3, 3); g.fillRect(x + 35, y + 24, 3, 3); noise(x, y, Q, Q, 160, 0.06); }
+      { const [x, y] = cell('pizza', 5, 7); g.fillStyle = '#f2ecdc'; g.fillRect(x, y, Q, Q); g.fillStyle = '#c82a20'; g.font = 'bold 11px Helvetica'; g.textAlign = 'center'; g.fillText("TONY'S", x + 32, y + 24); g.fillStyle = '#2a8a3a'; g.fillText('PIZZA', x + 32, y + 38); g.fillStyle = '#444'; g.font = '7px Helvetica'; g.fillText('555-0142', x + 32, y + 50); }
+      { const [x, y] = cell('remote', 6, 7); g.fillStyle = '#232325'; g.fillRect(x, y, Q, Q); g.fillStyle = '#c03030'; g.beginPath(); g.arc(x + 32, y + 8, 3, 0, 7); g.fill(); g.fillStyle = '#5a5a5e'; for (let r2 = 0; r2 < 5; r2++) for (let k = 0; k < 3; k++) { g.beginPath(); g.arc(x + 20 + k * 12, y + 22 + r2 * 9, 2.6, 0, 7); g.fill(); } }
+      { const [x, y] = cell('cardbd', 7, 7); g.fillStyle = '#b08656'; g.fillRect(x, y, Q, Q); noise(x, y, Q, Q, 260, 0.1); g.fillStyle = 'rgba(210,190,150,0.7)'; g.fillRect(x + 26, y, 12, Q); }
+    });
+    tex.anisotropy = 4;
+    const mat = std({ map: tex, roughness: 0.62 });
+    const remap = (geo, r4) => { const g2 = geo.clone(), uv = g2.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, r4[0] + uv.getX(i) * (r4[2] - r4[0]), r4[1] + uv.getY(i) * (r4[3] - r4[1])); return g2; };
+    const G = new Map(), one = (k, fn) => { if (!G.has(k)) G.set(k, fn()); return G.get(k); };
+    const ubox = new THREE.BoxGeometry(1, 1, 1), ucyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
+    // a shower curtain: a pleated sheet (soft waves along its width), printed with pale pebbles on white
+    const curTex = ctex(256, 256, (g, w, h, rnd) => { g.fillStyle = '#eef2f2'; g.fillRect(0, 0, 256, 256); for (let k = 0; k < 70; k++) { g.fillStyle = `rgba(${90 + rnd() * 40},${140 + rnd() * 40},${160 + rnd() * 40},${0.25 + rnd() * 0.3})`; g.beginPath(); g.ellipse(rnd() * 256, rnd() * 256, 4 + rnd() * 7, 3 + rnd() * 5, rnd() * 3, 0, 7); g.fill(); } }, [1.6, 3.6]);
+    const pleat = (() => { const g2 = new THREE.PlaneGeometry(1, 1, 28, 2), p = g2.attributes.position; for (let i = 0; i < p.count; i++) p.setZ(i, Math.sin(p.getX(i) * Math.PI * 14) * 0.022 + Math.sin(p.getX(i) * 9.1 + p.getY(i) * 2) * 0.006); g2.computeVertexNormals(); return g2; })();
+    IKIT = { c, mat, tex,
+      box: (k) => one('b' + k, () => remap(ubox, c[k])),
+      cyl: (k) => one('c' + k, () => remap(ucyl, c[k])),
+      geo: (name, k, fn) => one(name + k, () => remap(fn(), c[k])),
+      pleat, curtain: std({ map: curTex, roughness: 0.55, side: THREE.DoubleSide }),
+      // a (folded) coat hanging off a hook: shoulders, a body that flares a little, two sleeves down the front
+      coat: (() => { const parts = [new THREE.CylinderGeometry(0.15, 0.22, 0.85, 8, 1).scale(1, 1, 0.45).translate(0, -0.47, 0), new THREE.SphereGeometry(0.16, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.4, 0.5).translate(0, -0.06, 0)];
+        for (const s of [-1, 1]) parts.push(new THREE.CylinderGeometry(0.045, 0.055, 0.62, 6).translate(0, -0.33, 0).rotateZ(s * 0.12).translate(s * 0.13, -0.08, 0.05));
+        return mergeGeometries(parts.map(p => p.index ? p.toNonIndexed() : p)); })(),
+      shoe: (() => { const g2 = new RoundedBoxGeometry(0.1, 0.08, 0.27, TX.tier() > 1 ? 1 : 2, 0.035), p = g2.attributes.position; for (let i = 0; i < p.count; i++) { const z = p.getZ(i), y = p.getY(i); if (z < -0.03 && y > 0) p.setY(i, y * 0.45 - 0.01); if (z > 0.05 && y > 0) p.setY(i, y + 0.03); } g2.computeVertexNormals(); return g2.translate(0, 0.04, 0); })(),
+      mug: mergeGeometries([new THREE.CylinderGeometry(0.042, 0.038, 0.095, 12).translate(0, 0.0475, 0).toNonIndexed(), new THREE.TorusGeometry(0.026, 0.008, 5, 10, Math.PI).rotateZ(-Math.PI / 2).translate(0.042, 0.05, 0).toNonIndexed()]),
+      plate: new THREE.CylinderGeometry(0.125, 0.09, 0.022, 16).translate(0, 0.011, 0),
+      bottle: new THREE.LatheGeometry([[0, 0], [0.035, 0], [0.04, 0.01], [0.04, 0.15], [0.03, 0.18], [0.014, 0.2], [0.014, 0.225], [0, 0.225]].map(([x, y]) => new THREE.Vector2(x, y)), 10),
+      ball: new THREE.IcosahedronGeometry(0.11, 1),
+      // clothes dropped on the floor: a lumpy, flattened heap (folds from a little noise on a sphere)
+      pile: (() => { const g2 = new THREE.IcosahedronGeometry(0.22, 2), p = g2.attributes.position, v = new THREE.Vector3(); for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); const n = v.clone().normalize(), d = 1 + 0.22 * Math.sin(n.x * 9 + n.z * 4) * Math.cos(n.z * 7 - n.y * 3) + 0.1 * Math.sin(n.x * 21 + n.z * 17); v.copy(n).multiplyScalar(0.22 * d); p.setXYZ(i, v.x * 1.35, Math.max(-0.02, v.y) * 0.4, v.z); } g2.computeVertexNormals(); return g2; })(),
+    };
+    return IKIT;
   }
   // the attic's materials and shapes (made once, the first time a house needs them)
   let AKIT = null;

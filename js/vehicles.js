@@ -25,17 +25,71 @@ function mats() {
   M.plastic = new THREE.MeshStandardMaterial({ color: 0x1c1d1f, roughness: 0.8 });
   M.chrome = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.15, metalness: 1 });
   M.mirror = new THREE.MeshStandardMaterial({ color: 0xb4bcc4, roughness: 0.02, metalness: 1 });
-  M.tire = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.92 });
+  // [realism] tyres: tread blocks and grooves across the crown, a raised lettering band and moulding rings on the sidewalls
+  // (lathe uvs: u round the tyre, v across the profile — sidewall, shoulder, tread 0.44..0.56, shoulder, sidewall)
+  const tyreT = canvasTex(512, 64, (g, w, h) => {
+    g.fillStyle = '#222'; g.fillRect(0, 0, w, h);
+    const tr0 = h * 0.42, tr1 = h * 0.58;
+    g.fillStyle = '#2b2b2b'; g.fillRect(0, tr0, w, tr1 - tr0);
+    g.fillStyle = '#0c0c0c';
+    for (let i = 0; i < 64; i++) { const x = i * w / 64; g.fillRect(x, tr0, 2.2, tr1 - tr0); g.fillRect(x + 4, h * 0.47, 3, 1.4); g.fillRect(x + 1, h * 0.53, 3, 1.4); }   // sipes and lugs
+    g.fillRect(0, h * 0.495, w, 1.3);   // the centre groove
+    for (const y of [h * 0.2, h * 0.8]) { g.fillStyle = '#2e2e2e'; g.fillRect(0, y - 2, w, 4); g.fillStyle = '#3a3a3a'; for (let x = 0; x < w; x += 6 + (x * 7 % 5)) g.fillRect(x, y - 1.5, 3, 3); }   // raised lettering band
+    g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(0, h * 0.08, w, 1); g.fillRect(0, h * 0.92, w, 1);
+    g.fillStyle = 'rgba(120,110,95,0.10)'; for (let i = 0; i < 160; i++) g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 3, 1);   // road dust
+  });
+  tyreT.repeat.set(2, 1);
+  M.tire = new THREE.MeshStandardMaterial({ color: 0xffffff, map: tyreT, roughness: 0.9, bumpMap: tyreT, bumpScale: 0.6 });
   M.rim = new THREE.MeshStandardMaterial({ color: 0x9a9da2, roughness: 0.35, metalness: 0.9, side: THREE.DoubleSide });
   M.disc = new THREE.MeshStandardMaterial({ color: 0x5a5c60, roughness: 0.55, metalness: 0.8 });
-  M.head = new THREE.MeshStandardMaterial({ color: 0xe8ecf0, roughness: 0.05, metalness: 0.5 });
-  M.tail = new THREE.MeshStandardMaterial({ color: 0xb01010, roughness: 0.15, emissive: 0x400000 });
-  M.amber = new THREE.MeshStandardMaterial({ color: 0xc87a10, roughness: 0.15 });
+  // [realism] lamp lenses: a headlamp's twin chrome reflector bowls behind clear fluted glass; a tail lamp's ribbed red
+  // lens with a darker bezel (one texture each, shared by every car; the lamps' own emissive glow still sits on top)
+  const headT = canvasTex(128, 64, (g, w, h) => {
+    g.fillStyle = '#9aa2aa'; g.fillRect(0, 0, w, h);
+    for (const cx of [w * 0.28, w * 0.72]) {
+      const gr = g.createRadialGradient(cx, h / 2, 2, cx, h / 2, h * 0.42); gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.18, '#e8eef4'); gr.addColorStop(0.5, '#b8c2cc'); gr.addColorStop(0.85, '#eef2f6'); gr.addColorStop(1, '#6a7078');
+      g.fillStyle = gr; g.beginPath(); g.arc(cx, h / 2, h * 0.42, 0, 7); g.fill();
+      g.fillStyle = '#fffbe8'; g.beginPath(); g.arc(cx, h / 2, 4, 0, 7); g.fill();   // the bulb
+    }
+    g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1; for (let x = 3; x < w; x += 5) { g.beginPath(); g.moveTo(x, 2); g.lineTo(x, h - 2); g.stroke(); }   // the glass flutes
+    g.strokeStyle = '#3a3e44'; g.lineWidth = 4; g.strokeRect(1, 1, w - 2, h - 2);
+  });
+  const tailT = canvasTex(128, 64, (g, w, h) => {
+    g.fillStyle = '#c01818'; g.fillRect(0, 0, w, h);
+    for (let y = 4; y < h; y += 6) { g.fillStyle = 'rgba(255,120,110,0.35)'; g.fillRect(0, y, w, 2); g.fillStyle = 'rgba(60,0,0,0.35)'; g.fillRect(0, y + 2, w, 1); }   // ribbed lens
+    for (let x = 0; x < w; x += 16) { g.fillStyle = 'rgba(70,0,0,0.25)'; g.fillRect(x, 0, 1, h); }
+    g.strokeStyle = '#2a0808'; g.lineWidth = 4; g.strokeRect(1, 1, w - 2, h - 2);
+  });
+  M.head = new THREE.MeshStandardMaterial({ color: 0xffffff, map: headT, emissiveMap: headT, roughness: 0.05, metalness: 0.35 });
+  M.tail = new THREE.MeshStandardMaterial({ color: 0xffffff, map: tailT, emissiveMap: tailT, roughness: 0.15, emissive: 0x400000 });
+  const amberT = canvasTex(64, 32, (g, w, h) => { g.fillStyle = '#d88a18'; g.fillRect(0, 0, w, h); for (let x = 2; x < w; x += 5) { g.fillStyle = 'rgba(255,220,140,0.35)'; g.fillRect(x, 0, 2, h); g.fillStyle = 'rgba(90,40,0,0.3)'; g.fillRect(x + 2, 0, 1, h); } g.strokeStyle = '#3a2408'; g.lineWidth = 3; g.strokeRect(1, 1, w - 2, h - 2); });
+  M.amber = new THREE.MeshStandardMaterial({ color: 0xffffff, map: amberT, emissiveMap: amberT, roughness: 0.15 });   // [realism] fluted amber lens
   M.reverse = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.1, metalness: 0.2 });
   M.under = new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 1, side: THREE.DoubleSide });   // underside, liners, carpet
   M.seat = new THREE.MeshStandardMaterial({ color: 0x2a2724, roughness: 0.9 });
-  M.burnt = new THREE.MeshStandardMaterial({ color: 0x2a201a, roughness: 0.9, metalness: 0.4 });
-  M.rust = new THREE.MeshStandardMaterial({ color: 0x4a2c1c, roughness: 0.85, metalness: 0.3 });
+  // [realism] a burnt-out shell: soot-black metal with grey ash, blistered paint flecks and rust bleeding through;
+  // bare rust is mottled orange-brown with dark pitting; rust patches have ragged edges (alpha-tested)
+  const blot = (g, n, col, r0, r1, w, h) => { for (let i = 0; i < n; i++) { g.fillStyle = col(); g.beginPath(); const x = Math.random() * w, y = Math.random() * h, r = r0 + Math.random() * (r1 - r0); for (let a = 0; a < 6.3; a += 0.5) { const rr = r * (0.6 + Math.random() * 0.5); g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.fill(); } };
+  const burntT = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#2a221c'; g.fillRect(0, 0, w, h);
+    blot(g, 22, () => `rgba(${80 + Math.random() * 40 | 0},${40 + Math.random() * 16 | 0},${18 + Math.random() * 8 | 0},${0.12 + Math.random() * 0.22})`, 6, 26, w, h);   // rust bleeding through
+    blot(g, 34, () => `rgba(10,8,7,${0.35 + Math.random() * 0.4})`, 10, 40, w, h);                                                  // soot
+    blot(g, 14, () => `rgba(110,105,98,${0.07 + Math.random() * 0.1})`, 4, 14, w, h);                                           // grey ash
+    for (let i = 0; i < 300; i++) { g.fillStyle = `rgba(${150 + Math.random() * 60 | 0},${130 + Math.random() * 40 | 0},110,${Math.random() * 0.35})`; g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 2); }   // blistered flecks
+    for (let i = 0; i < 25; i++) { g.strokeStyle = `rgba(70,36,16,${0.12 + Math.random() * 0.2})`; g.lineWidth = 1 + Math.random() * 2; const x = Math.random() * w; g.beginPath(); g.moveTo(x, Math.random() * h * 0.5); g.lineTo(x + (Math.random() - 0.5) * 6, h * (0.6 + Math.random() * 0.4)); g.stroke(); }   // rust runs
+  });
+  const rustT = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#3e2416'; g.fillRect(0, 0, w, h);
+    blot(g, 50, () => `rgba(${95 + Math.random() * 40 | 0},${45 + Math.random() * 20 | 0},${18 + Math.random() * 10 | 0},${0.25 + Math.random() * 0.3})`, 4, 20, w, h);
+    blot(g, 40, () => `rgba(25,14,8,${0.3 + Math.random() * 0.4})`, 2, 10, w, h);
+    for (let i = 0; i < 500; i++) { g.fillStyle = `rgba(${Math.random() < 0.6 ? '20,10,5' : '130,70,32'},${Math.random() * 0.45})`; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5); }
+  });
+  M.burnt = new THREE.MeshStandardMaterial({ color: 0xffffff, map: burntT, roughness: 0.92, metalness: 0.35, bumpMap: burntT, bumpScale: 0.8 });
+  M.rust = new THREE.MeshStandardMaterial({ color: 0xffffff, map: rustT, roughness: 0.9, metalness: 0.25, bumpMap: rustT, bumpScale: 1 });
+  M.rustPatch = new THREE.MeshStandardMaterial({ color: 0xffffff, map: rustT, roughness: 0.9, metalness: 0.25, alphaTest: 0.5, alphaMap: canvasTex(128, 128, (g, w, h) => {
+    g.fillStyle = '#000'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.beginPath(); for (let a = 0; a < 6.3; a += 0.25) { const rr = w * (0.3 + Math.random() * 0.17); g.lineTo(w / 2 + Math.cos(a) * rr, h / 2 + Math.sin(a) * rr); } g.fill();
+    for (let i = 0; i < 18; i++) { g.beginPath(); const a = Math.random() * 6.3, d = w * (0.3 + Math.random() * 0.15); g.arc(w / 2 + Math.cos(a) * d, h / 2 + Math.sin(a) * d, 3 + Math.random() * 9, 0, 7); g.fill(); }
+  }) });
   M.white = new THREE.MeshStandardMaterial({ color: 0xe4e4e0, roughness: 0.5 });
   M.star = new THREE.MeshStandardMaterial({ map: canvasTex(128, 128, (g) => {   // the blue Star of Life
     g.translate(64, 64); g.fillStyle = '#1550b8'; for (let k = 0; k < 3; k++) { g.save(); g.rotate(k * Math.PI / 3); g.fillRect(-15, -58, 30, 116); g.restore(); }
@@ -94,8 +148,9 @@ function slabX(shape, x0, x1, bev, curve = 14) {
   const d = Math.max(0.002, x1 - x0 - bev * 2);
   const g = new THREE.ExtrudeGeometry(shape, { depth: d, bevelEnabled: bev > 0, bevelThickness: bev, bevelSize: bev, bevelSegments: bev > 0.03 ? 2 : 1, curveSegments: curve });
   g.rotateY(-Math.PI / 2); g.translate(x1 - bev, 0, 0);   // shape x → car z, extrusion → across the car
-  const p = g.attributes.position, uv = g.attributes.uv;
-  for (let i = 0; i < p.count; i++) uv.setXY(i, (p.getZ(i) + p.getX(i) * 0.3) / 2.2, p.getY(i) / 2.2);
+  const p = g.attributes.position, uv = g.attributes.uv, nm = g.attributes.normal;
+  // [realism] tops (hood, roof, sills) are mapped from above, so paint grime and rust don't streak across them
+  for (let i = 0; i < p.count; i++) { const up = nm && Math.abs(nm.getY(i)) > 0.75; uv.setXY(i, (p.getZ(i) + (up ? 0 : p.getX(i) * 0.3)) / 2.2, (up ? p.getX(i) + 7 : p.getY(i)) / 2.2); }
   return g;
 }
 // the inner skin rides up over each wheel (wheel tubs): lift the tub outline wherever it would cut into an arch
@@ -251,6 +306,8 @@ export function buildCar(type, paint, opts = {}) {
     if (!C.bench && type !== 'van') piece(list, plasticM, rb(0.2, 0.2, 0.55, 0.04), 0, f + 0.1, C.front + 0.3);   // centre console
     const dy = Gp[3][1] - 0.07, dz = C.z1 - 0.14;
     piece(list, plasticM, rb(iw, 0.17, 0.42, 0.06), 0, dy, dz);                                                     // dash
+    if (!burnt) { piece(list, plasticM, rb(0.38, 0.07, 0.14, 0.03), 0.33, dy + 0.09, dz - 0.12); piece(list, K.under, rb(0.36, 0.06, 0.01, 0.004), 0.33, dy + 0.09, dz - 0.205);   // [realism] instrument binnacle and its dark dials
+      for (const vx of [-0.05, 0.05]) piece(list, trimM, rb(0.06, 0.02, 0.012, 0.004), vx, dy + 0.06, dz - 0.215); piece(list, trimM, rb(0.2, 0.1, 0.012, 0.004), 0, dy - 0.02, dz - 0.215); }   // vents, radio
     if (!burnt) {
       piece(swl, K.trim, new THREE.TorusGeometry(0.17, 0.02, 6, 20));                                              // steering wheel (driver on the left; its own little mesh so it can turn)
       bar(list, K.trim, new THREE.Vector3(0.33, dy + 0.04, dz - 0.28), new THREE.Vector3(0.33, dy - 0.02, dz - 0.1), 0.05, 0.05);
@@ -265,6 +322,11 @@ export function buildCar(type, paint, opts = {}) {
   if (wreck) piece(list, plasticM, rb(W + 0.04, 0.2, 0.2, 0.06), (Math.random() - 0.5) * 0.1, by - 0.03, fz + 0.03, (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.15, (Math.random() - 0.5) * 0.25);   // knocked crooked
   else piece(list, type === 'pickup' || type === 'van' ? chromeM : plasticM, rb(W + 0.04, 0.2, 0.2, 0.06), 0, by, fz + 0.03);
   piece(list, type === 'pickup' ? chromeM : plasticM, rb(W + 0.04, 0.2, 0.2, 0.06), 0, by, bz - 0.02);
+  // [realism] rubber rub strips along the plastic bumpers, the rear step pad, and tow-hook slots
+  const sw = (W - 0.1 - 0.5) / 2, strip = z => { for (const sx of [-1, 1]) piece(list, trimM, rb(sw, 0.045, 0.03, 0.012), sx * (0.25 + sw / 2), by + 0.01, z); };   // either side of the plate
+  if (!wreck && type !== 'pickup' && type !== 'van') strip(fz + 0.13);
+  if (type !== 'pickup') { strip(bz - 0.12); piece(list, K.under, rb(W * 0.45, 0.012, 0.12, 0.004), 0, by + 0.1, bz - 0.04); }
+  piece(list, K.under, rb(0.06, 0.05, 0.02, 0.008), -(hw - 0.42), by - 0.04, bz - 0.12);
   piece(list, trimM, rb(W * 0.42, 0.18, 0.04, 0.02), 0, by + 0.24, fz);
   for (let k = 0; k < 3; k++) piece(list, chromeM, new THREE.BoxGeometry(W * 0.4, 0.012, 0.012), 0, by + 0.18 + k * 0.05, fz + 0.025);
   const lost = wreck ? (Math.random() < 0.5 ? -1 : 1) : 0;   // a wreck has lost one headlight
@@ -302,6 +364,13 @@ export function buildCar(type, paint, opts = {}) {
   }
   { const fzz = P.wheelZ[1] - (type === 'pickup' ? 0.0 : 0.3), fy = 2 * P.r + 0.3;   // fuel door on the left rear quarter
     piece(list, trimM, new THREE.BoxGeometry(0.006, 0.17, 0.17), hw + 0.001, fy, fzz); piece(list, paintM, rb(0.012, 0.15, 0.15, 0.02), hw + 0.006, fy, fzz); }
+  // [realism] the hood's shut lines: a gap across the cowl below the windshield and down both sides of the hood to the nose
+  { const hood = P.side.slice(0, -1).filter(p => p[0] >= Gp[3][0] - 0.02), cz = Gp[3][0] + 0.07, cy = lerpY(hood[0], hood[1], cz) + 0.043;
+    if (hood.length >= 2) {
+      bar(list, trimM, new THREE.Vector3(-(hw - 0.11), cy, cz), new THREE.Vector3(hw - 0.11, cy, cz), 0.009, 0.009, 0.003);
+      for (const sx of [-1, 1]) for (let i = 0; i < hood.length - 1; i++) { const a = hood[i], b = hood[i + 1], za = Math.max(a[0], cz); if (b[0] - za < 0.05) continue;
+        bar(list, trimM, new THREE.Vector3(sx * (hw - 0.105), lerpY(a, b, za) + 0.043, za), new THREE.Vector3(sx * (hw - 0.105), b[1] + 0.041, b[0] - 0.02), 0.009, 0.009, 0.003); }
+    } }
   if (type === 'sedan' || type === 'pickup') piece(list, trimM, new THREE.CylinderGeometry(0.003, 0.005, 0.75, 5), -(hw - 0.06), lerpY(P.side[4], P.side[5], fz - 0.9) + 0.4, fz - 0.9);   // aerial on the fender
 
   // ---- wheels: tyre + dished rim + brake disc; flat on a wreck; none left on a burnt car, just rusty rims
@@ -318,9 +387,9 @@ export function buildCar(type, paint, opts = {}) {
   if (burnt) {
     const sl = P.side, hi = sl.length - 3;   // a patch on the hood, two on the roof
     const hz = (sl[hi][0] + sl[hi + 1][0]) / 2, hy = lerpY(sl[hi], sl[hi + 1], hz) + 0.045, slope = Math.atan2(sl[hi + 1][1] - sl[hi][1], sl[hi + 1][0] - sl[hi][0]);
-    piece(list, K.rust, rb(0.6, 0.008, 0.45, 0.003), (Math.random() - 0.5) * 0.4, hy - 0.008, hz, -slope, Math.random() - 0.5, 0);
+    piece(list, K.rustPatch, rb(0.6, 0.008, 0.45, 0.003), (Math.random() - 0.5) * 0.4, hy - 0.008, hz, -slope, Math.random() - 0.5, 0);
     const rs = Math.atan2(Gp[2][1] - Gp[1][1], Gp[2][0] - Gp[1][0]);
-    for (let k = 0; k < 2; k++) { const rz = Gp[1][0] + (Gp[2][0] - Gp[1][0]) * (0.25 + k * 0.45); piece(list, K.rust, rb(0.35 + Math.random() * 0.3, 0.008, 0.3 + Math.random() * 0.3, 0.003), (Math.random() - 0.5) * 0.6, lerpY(Gp[1], Gp[2], rz) + 0.064, rz, -rs, Math.random() - 0.5, 0); }
+    for (let k = 0; k < 2; k++) { const rz = Gp[1][0] + (Gp[2][0] - Gp[1][0]) * (0.25 + k * 0.45); piece(list, K.rustPatch, rb(0.35 + Math.random() * 0.3, 0.008, 0.3 + Math.random() * 0.3, 0.003), (Math.random() - 0.5) * 0.6, lerpY(Gp[1], Gp[2], rz) + 0.064, rz, -rs, Math.random() - 0.5, 0); }
   }
 
   // police: white doors, a light bar base; ambulance: red stripe, roof panel and the blue Star of Life

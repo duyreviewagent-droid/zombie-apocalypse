@@ -28,8 +28,10 @@ export const ZLOOKS = 12;
 const SLOTN = { skin: 0, cloth: 1, eye: 2, teeth: 3, hair: 4, mixed: 5 };
 // amt: a {value} uniform 0..1 for a body still turning (the colour drains out of them as they lie there)
 function zombify(src, slot, variant, mouthY = 1.57, amt = null) {
+  // [zReal] variant 100+: a boss's look (more rotten: more wounds, more blood, filthier) — the same look underneath
+  const boss = variant >= 100; variant %= 100;
   if (tier() > 1) variant %= 4;   // phones: 4 looks per body, not 12 (a third of the materials to keep and switch between)
-  const key = src.uuid + ':' + variant + ':' + slot;
+  const key = src.uuid + ':' + (boss ? 'b' : '') + variant + ':' + slot;
   if (!amt && ZMATS.has(key)) return ZMATS.get(key);
   const m = src.clone();
   const LK = lkOf(src);   // a look's dye (looks.js): the dead wear the same clothes and skin, dyed the same way first
@@ -39,9 +41,13 @@ function zombify(src, slot, variant, mouthY = 1.57, amt = null) {
   const U = {
     zSlot: { value: SLOTN[slot] }, zSeed: { value: v * 7.31 + 1.7 },
     zTint: { value: new THREE.Color([0x9aa48a, 0xa8a090, 0x8c9a90, 0xb0a890][v % 4]) },
-    zHue: { value: (vr(v, 1) - 0.5) * 0.7 }, zDirt: { value: 0.3 + vr(v, 2) * 0.7 }, zBlood: { value: 0.3 + vr(v, 3) * 0.8 },
+    zHue: { value: (vr(v, 1) - 0.5) * 0.7 }, zDirt: { value: boss ? 1 : 0.3 + vr(v, 2) * 0.7 }, zBlood: { value: boss ? 1.15 : 0.3 + vr(v, 3) * 0.8 },
     zPale: { value: 0.85 + vr(v, 4) * 0.3 }, zDry: { value: vr(v, 5) < 0.5 ? 1 : 0 }, zMouthY: { value: mouthY }, zAmt: amt || { value: 1 },
+    zBoss: { value: boss ? 1 : 0 },   // [zReal]
   };
+  // [zReal] desktop: real relief (wounds sunk in, swollen rims, raised veins, pores, cloth creases) through the
+  // lighting normal; phones keep the flat (cheaper) version
+  if (tier() <= 1 && !C.mobile) m.defines = Object.assign({}, m.defines, { ZHI: 1 });
   m.userData.zU = U;
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, U); if (LK) Object.assign(sh.uniforms, LK.U);
@@ -50,7 +56,7 @@ function zombify(src, slot, variant, mouthY = 1.57, amt = null) {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 ${LK ? LK.decl : ''}
-        uniform float zSlot, zSeed, zHue, zDirt, zBlood, zPale, zDry, zMouthY, zAmt; uniform vec3 zTint; varying vec3 vBind;
+        uniform float zSlot, zSeed, zHue, zDirt, zBlood, zPale, zDry, zMouthY, zAmt, zBoss; uniform vec3 zTint; varying vec3 vBind;
         float zh(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
         float zn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
           return mix(mix(mix(zh(i), zh(i + vec3(1,0,0)), f.x), mix(zh(i + vec3(0,1,0)), zh(i + vec3(1,1,0)), f.x), f.y),
@@ -86,21 +92,46 @@ ${LK ? LK.decl : ''}
         float bruise = smoothstep(0.55, 0.75, zf(P * 0.5 + 5.0));
         cs = mix(cs, vec3(0.35, 0.28, 0.3), bruise * 0.45);
         cs *= 0.85 + zf(P * 3.0) * 0.25;
+        // [zReal] lividity: the blood has settled low in the body — legs and hands mottled purple-grey
+        cs = mix(cs, cs * vec3(0.8, 0.62, 0.74), smoothstep(0.9, 0.15, vBind.y) * 0.45 * (0.55 + 0.45 * zf(P * 0.7 + 13.0)));
+        // [zReal] open wounds: ragged gashes (torn along the body, not round), wet dark meat inside, a raw red edge
+        // with yellow fat showing, and a swollen bruise round them. Bosses are far more torn up.
+        float wn = zf(vec3(P.x * 0.9, P.y * 0.42, P.z * 0.9) + 31.0) + (zn(P * 6.0) - 0.5) * 0.06;
+        float wT = 0.715 - zBoss * 0.05 - zBlood * 0.015;
+        float wound = smoothstep(wT, wT + 0.025, wn) * (1.0 - mouth);
+        float wRim = smoothstep(wT - 0.08, wT, wn) * (1.0 - wound);
+        cs = mix(cs, vec3(0.3, 0.17, 0.22), wRim * 0.65);
+        vec3 meat = mix(vec3(0.36, 0.05, 0.035), vec3(0.07, 0.008, 0.006), smoothstep(wT + 0.02, wT + 0.09, wn));
+        meat = mix(meat, vec3(0.62, 0.48, 0.3), smoothstep(wT + 0.01, wT + 0.025, wn) * (1.0 - smoothstep(wT + 0.025, wT + 0.045, wn)) * 0.55);
+        cs = mix(cs, meat, wound);
+        float zRS = (-wound * smoothstep(wT, wT + 0.1, wn) * 0.006 + wRim * 0.0018 + vein * 0.0007) * (1.0 - mouth);
         float bs = max(mouth * 1.2, max(drip * 0.8 * zBlood, splat * 0.6));
         // --- clothes: another colour, filthy, torn, whites gone yellow-grey, soaked down the front, mud on the shoes
         vec3 cc = zhue(c, zHue);
         cc = mix(cc, cc * vec3(0.78, 0.74, 0.62), smoothstep(0.6, 0.9, L));
+        cc = mix(cc, cc * vec3(0.7, 0.62, 0.46), smoothstep(0.35, 0.8, L) * (0.5 + 0.5 * zf(P * 1.2 + 50.0)));   // [zReal] whites gone sweat-yellow and grimy
         cc = mix(cc, vec3(dot(cc, vec3(0.3, 0.59, 0.11))), 0.4) * 0.8;
         float dirt = smoothstep(0.45, 0.8, zf(P * 0.9 + 2.0)) * zDirt;
         cc = mix(cc, vec3(0.28, 0.22, 0.15), dirt * 0.6);
-        float tear = smoothstep(0.78, 0.82, zf(P * 1.4 + 9.0)) * (0.5 + zDirt * 0.5);
-        cc *= 1.0 - tear * 0.55;
+        // [zReal] torn clothes: long ragged rips with a frayed dark edge, the grey, scratched-up skin showing through
+        float tn = zf(vec3(P.x * 1.3, P.y * 0.5, P.z * 1.3) + 9.0) + (zn(P * 7.0) - 0.5) * 0.1;
+        float tK = (0.55 + zDirt * 0.45) * step(0.2, vBind.y);
+        float tear = smoothstep(0.73, 0.745, tn - zBoss * 0.04) * tK;
+        float tearE = smoothstep(0.67, 0.73, tn - zBoss * 0.04) * tK - tear;
+        cc *= 1.0 - tearE * 0.5;
+        vec3 thru = mix(vec3(L), vec3(0.45), 0.6) * zTint * 0.95 * zPale * (0.8 + zf(P * 3.0) * 0.3);
+        thru = mix(thru, vec3(0.32, 0.05, 0.04), smoothstep(0.55, 0.8, zf(vec3(P.x * 2.0, P.y * 6.0, P.z * 2.0) + 17.0)) * 0.7);
+        cc = mix(cc, thru, tear);
+        // [zReal] mud and road filth splashed up the trouser legs from the feet
+        cc = mix(cc, vec3(0.17, 0.13, 0.09), smoothstep(0.6, 0.05, vBind.y + (zf(P * 1.5 + 40.0) - 0.5) * 0.4) * 0.6 * zDirt);
         cc = mix(cc, vec3(0.12, 0.09, 0.06), smoothstep(0.12, 0.0, vBind.y) * 0.55);
+        float zRC = (zf(vec3(P.x * 2.5, P.y * 0.9, P.z * 2.5)) - 0.5) * 0.004 + tearE * 0.0015 - tear * 0.0025;
         float bc = max(drip * zBlood, smoothstep(0.6, 0.68, zf(vec3(P.x * 0.55, P.y * 0.2, P.z * 0.55) + 21.0)) * 0.85 * zBlood);
         // --- hair: matted, greyed, dull
         vec3 ch = mix(c, vec3(L) * 0.7, 0.6);
-        if (zSlot < 0.5) { c = cs; blood = bs; }
-        else if (zSlot < 1.5) { c = cc; blood = bc; }
+        float zRel = 0.0, zWet = 0.0;   // [zReal] relief height (m) and wet flesh
+        if (zSlot < 0.5) { c = cs; blood = bs; zRel = zRS; zWet = wound; }
+        else if (zSlot < 1.5) { c = cc; blood = bc; zRel = zRC; }
         else if (zSlot < 2.5) { c = mix(c, vec3(0.78, 0.76, 0.66), 0.85); }      // eyes: milky, clouded over
         else if (zSlot < 3.5) { c = c * vec3(0.8, 0.68, 0.45); blood = 0.5; }     // teeth: yellow-brown, bloody
         else if (zSlot < 4.5) { c = ch; hairW = 1.0; }
@@ -113,20 +144,37 @@ ${LK ? LK.decl : ''}
           c = cs * skinM + cc * clothM + ch * hairM;
           blood = bs * skinM + bc * clothM;
           hairW = hairM;
+          zRel = zRS * skinM + zRC * clothM; zWet = wound * skinM;
         }
         // old blood is near black-red; dried brown on some of them (never round the mouth: that's fresh)
         vec3 bcol = mix(vec3(0.045, 0.006, 0.004), vec3(0.11, 0.013, 0.008), zf(P * 4.0));
         bcol = mix(bcol, vec3(0.11, 0.05, 0.03), zDry * (0.6 + 0.4 * zf(P * 2.0)) * (1.0 - mouth));
         blood = clamp(blood, 0.0, 1.0);
+        // [zReal] a stain dries from the edge in: a brown crust round the rim, still wet and dark in the middle
+        bcol = mix(bcol, vec3(0.13, 0.055, 0.03), (1.0 - smoothstep(0.3, 0.85, blood)) * 0.55 * (1.0 - mouth));
+        zWet = max(zWet, smoothstep(0.5, 0.95, blood) * (1.0 - zDry * 0.7));
         c = mix(c, bcol, blood * 0.9);
         c = mix(c0, c, zAmt);
         diffuseColor.rgb *= c;
         diffuseColor.a *= texel.a;`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, 0.32, blood * 0.8 * (1.0 - zDry * 0.7) * zAmt);   // fresh blood is wet
-        roughnessFactor = mix(roughnessFactor, 0.9, hairW * zAmt);`);
+        roughnessFactor = mix(roughnessFactor, 0.22, zWet * zAmt);   // [zReal] wet blood and open flesh glisten
+        roughnessFactor = mix(roughnessFactor, 0.9, hairW * zAmt);`)
+      // [zReal] relief: the height above (metres) tilts the lighting normal (screen-space bump, scale-independent)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        #ifdef ZHI
+        {
+          float zh0 = (zRel + (zn(P * 14.0) - 0.5) * 0.0006 * (1.0 - hairW) * step(zSlot, 0.5)) * zAmt * (1.0 - smoothstep(4.0, 12.0, length(vViewPosition)));
+          vec3 zdx = dFdx(-vViewPosition), zdy = dFdy(-vViewPosition);
+          vec3 zr1 = cross(zdy, normal), zr2 = cross(normal, zdx);
+          float zdet = dot(zdx, zr1);
+          vec3 zgr = sign(zdet) * (dFdx(zh0) * zr1 + dFdy(zh0) * zr2);
+          normal = normalize(abs(zdet) * normal - zgr * 1.4);
+        }
+        #endif`);
   };
-  m.customProgramCacheKey = () => 'zombie-v3' + (LK ? LK.key : '');
+  m.customProgramCacheKey = () => 'zombie-v4' + (LK ? LK.key : '');
   m.needsUpdate = true;
   if (!amt) ZMATS.set(key, m);
   return m;
@@ -137,6 +185,7 @@ export function slotOf(o) {
   if (n.includes('eye')) return 'eye';
   if (n.includes('teeth')) return 'teeth';
   if (n.includes('hair') || n.includes('beard')) return 'hair';
+  if (/headwear|hat|cap\b|helmet/.test(n)) return 'cloth';   // [zReal] ("headwear" has "head" in it: hats were getting skin, veins and wounds)
   if (n.includes('skin') || n.includes('body') || n.includes('head')) return 'skin';
   return 'cloth';
 }
@@ -156,7 +205,7 @@ export function dressZombie(s, variant, amt = null) {
     if (o.userData.hair) { if (amt) o.material = hairDead(o, amt); else if (o.userData.zDressed !== -1) o.material = hairDead(o); o.userData.zDressed = variant; return; }
     const slot = o.userData.lkSlot || slotOf(o), nm = (o.name + o.material.name).toLowerCase();
     // every one of them different: caps on some, the beard or hair gone on others (a look from looks.js already is)
-    if (!s.keepLook && !s.lookL) {
+    if (!s.keepLook && !s.lookL && o.userData.zDressed == null) {   // ([zReal] only the first time: a boss re-dress keeps its cap)
       if (nm.includes('headwear')) o.visible = Math.random() < 0.3;
       else if (nm.includes('beard')) o.visible = Math.random() < 0.7;
       else if (nm.includes('hair')) o.visible = Math.random() < 0.9;
@@ -229,6 +278,8 @@ function applyBoss(u, type) {
   u.dmgK = T.dmg; u.vpK = T.vp; u.massK = T.mass; u.kdK = T.kd; u.atkRate = T.atkRate; u.heavy = !!T.heavy;
   u.atkR = type === 'giant' ? 5.5 : null; u.bossDone = false; u.bossKid = false;
   if (S._onStep0 !== undefined) { S.onStep = S._onStep0; delete S._onStep0; }
+  // [zReal] a boss wears the rotten version of its look (more wounds, blood and rips); put back when the body's reused
+  if (!u.turned && !S.zTurn && u.variant != null) { const want = u.bossT ? 100 + u.variant : u.variant; if (u.zLookV !== want && (u.bossT || u.zLookV != null)) { dressZombie(S, want); u.zLookV = want; } }
   if (!u.bossT) { S.strideK = 1; S.big = !!u.big; return; }
   u.big = false; u.bigK = 1; u.base = { walk: u.walkSpeed, run: u.runSpeed, runner: u.runner };   // (tests: what an ordinary one would have been)
   const sc = rnd(0.97, 1.03) * T.size;
@@ -305,6 +356,10 @@ export function wake(u, x, z, opts = {}) {
   u.runSpeed = Math.min(10.5, u.runner ? rnd(3.3, 4.1) * D.run * (u.big ? 0.85 : 1) : u.walkSpeed * rnd(1.25, 1.5));
   u.z = { state: opts.state || 'idle', t: rnd(1, 6), goal: null, seen: 0, lastSeen: V(), heard: null, atkT: rnd(0, 1), groanT: rnd(2, 12), losT: 0, lostT: 0, wander: rnd(-3, 3), stuckT: 0, lastP: V(x, 0, z), grab: null, tgt: null, feedOn: null, down: 0, doorT: 0, tilt: rnd(-0.25, 0.25), lean: rnd(0, 0.18), sway: rnd(0, 6), indoor: !!opts.indoor, path: null, pathI: 0, pathAt: -9, pathGoal: null, doorHit: null, biteT: 0, bites: 0, dipT: -1, flinchF: 0 };
   u.legDmg = 0; u.limp = false; u.crawl = false;
+  // [zReal] its own way of moving: 0 a plain shamble, 1 a lurch (rolling side to side), 2 dragging a bad leg,
+  // 3 hunched over with its head craned out; one arm may hang dead or stay half raised; the odd twitch of the head
+  { const Zb = u.z, r = Math.random(); Zb.gait = r < 0.3 ? 0 : r < 0.55 ? 1 : r < 0.8 ? 2 : 3; Zb.gSide = Math.random() < 0.5 ? 1 : -1;
+    Zb.arm = Math.random() < 0.35 ? (Math.random() < 0.5 ? 1 : 2) : 0; Zb.twT = rnd(1, 6); Zb.tw = 0; Zb.twA = 0; Zb.twB = 0; Zb.headJ = 0; Zb.gP = Math.random() * 6; }
   if (u.s.zTurn && u.s.zTurn.value < 1) u.z.turnFrom = u.s.zTurn.value;
   if (opts.lying) { u.s.play('Death_D', { hold: true, snap: true, from: 3 }); u.z.down = 999; u.z.lying = true; }
   // [boss] 8% of them a mini boss, 3% a boss — outdoors, after the outbreak, never a turned neighbour, Dale, one
@@ -678,7 +733,7 @@ function handReaches(u, T) {
   return best < 0.25 * u.sizeK;
 }
 // arms out toward you, head lolling, the hunch: on top of the captured walk
-const fwd = V(), lft = V();
+const fwd = V(), lft = V(), UPV = V(0, 1, 0);   // ([zReal] UPV)
 export function zombiePose(u, P, dt) {
   const S = u.s, Zb = u.z, B = S.B;
   if (!u.alive || S.frozen) return;
@@ -759,6 +814,40 @@ export function zombiePose(u, P, dt) {
     }
     S.curlFingers(1, 0.45, Zb.reachW); S.curlFingers(-1, 0.45, Zb.reachW);
   }
+  // [zReal] its own gait on top of the captured walk (never The Zombie: it has its own long strides)
+  if (!u.giant) {
+    const walkW = clamp(S.speed / Math.max(0.3, S.vw || 1), 0, 1) * (1 - runW), ph = (S.phase || 0) * Math.PI * 2, gs = Zb.gSide || 1, sn = Math.sin(ph);
+    if (Zb.gait === 3) { addTurn(B.Spine2, lft, 0.2 * (1 - runW)); addTurn(B.Neck, lft, -0.22 * (1 - runW)); }   // hunched, head craned out
+    if (walkW > 0.02) {
+      if (Zb.gait === 1) {   // a lurch: the whole body rolls over onto each foot in turn, the head lagging behind
+        addTurn(B.Spine1, tv2, sn * 0.13 * walkW); if (B.Hips) addTurn(B.Hips, tv2, -sn * 0.05 * walkW);
+        addTurn(B.Neck, tv2, -Math.sin(ph - 0.7) * 0.1 * walkW);
+      } else if (Zb.gait === 2) {   // a bad leg: toes turned out and dragged, the hip drops and it pitches onto the good one
+        addTurn(B[(gs > 0 ? 'Left' : 'Right') + 'UpLeg'], UPV, gs * 0.3 * walkW);
+        if (B.Hips) addTurn(B.Hips, tv2, sn * 0.08 * gs * walkW);
+        addTurn(B.Spine1, tv2, -sn * 0.1 * gs * walkW); addTurn(B.Spine1, lft, Math.max(0, sn * gs) * 0.1 * walkW);
+      }
+    }
+    // one arm hanging dead at its side, or held half up in front of it (not while it reaches for you or runs)
+    const aW = (1 - (Zb.reachW || 0)) * (1 - runW), side = gs > 0 ? 'Right' : 'Left';
+    if (Zb.arm && aW > 0.02 && B[side + 'Arm']) {
+      if (Zb.arm === 1) { fwd.set(tv2.x * 0.12 + lft.x * (gs > 0 ? -0.08 : 0.08), -1, tv2.z * 0.12 + lft.z * (gs > 0 ? -0.08 : 0.08)); aimBone(B[side + 'Arm'], B[side + 'ForeArm'], fwd, 0.6 * aW, true); aimBone(B[side + 'ForeArm'], B[side + 'Hand'], fwd, 0.5 * aW, true); }
+      else { fwd.set(tv2.x * 0.85 + lft.x * (gs > 0 ? -0.15 : 0.15), -0.4 + Math.sin(Zb.sway * 1.7) * 0.06, tv2.z * 0.85 + lft.z * (gs > 0 ? -0.15 : 0.15)); aimBone(B[side + 'Arm'], B[side + 'ForeArm'], fwd, 0.65 * aW, true); fwd.y += 0.15; aimBone(B[side + 'ForeArm'], B[side + 'Hand'], fwd, 0.5 * aW, true); S.curlFingers(gs > 0 ? 1 : -1, 0.5, aW); }
+    }
+    // a sudden twitch of the head: a jerk to one side, held, then it slowly sags back
+    Zb.twT = (Zb.twT ?? 3) - dt;
+    if (Zb.twT <= 0) { Zb.twT = rnd(1.5, 7); Zb.tw = 1; Zb.twA = rnd(-1, 1); Zb.twB = rnd(-0.7, 0.7); }
+    if (Zb.tw > 0) {
+      Zb.tw = Math.max(0, Zb.tw - dt * 2.2);
+      const e = 1 - Zb.tw, j = (e < 0.08 ? e / 0.08 : Math.min(1, Zb.tw / 0.6)) * (1 + Math.sin(e * 70) * 0.12 * Zb.tw);
+      addTurn(B.Head, UPV, Zb.twA * 0.4 * j); addTurn(B.Head, tv2, Zb.twB * 0.45 * j);
+    }
+  } else {   // The Zombie: the whole weight of it rolls over onto each foot as it comes down, the head swinging after
+    const gw = clamp(S.speed / Math.max(0.3, S.vw || 1), 0, 1), sn = Math.sin((S.phase || 0) * Math.PI * 2);
+    if (gw > 0.02) { addTurn(B.Spine1, tv2, sn * 0.09 * gw); addTurn(B.Neck, tv2, -Math.sin((S.phase || 0) * Math.PI * 2 - 0.9) * 0.08 * gw); addTurn(B.Spine2, lft, 0.12); }
+  }
+  // [zReal] shot in the head: it snaps back on its neck, then the head swings forward again
+  if (Zb.headJ > 0) { Zb.headJ = Math.max(0, Zb.headJ - dt * 3); const j = Zb.headJ * Zb.headJ; addTurn(B.Neck, lft, -0.45 * j); addTurn(B.Head, lft, -0.35 * j); addTurn(B.Head, UPV, (Zb.headJS || 0) * 0.3 * j); }
   // the head lolls to one side
   Zb.sway += dt * 0.7;
   const roll = Zb.tilt + Math.sin(Zb.sway) * 0.05;
@@ -774,6 +863,7 @@ export function zombieHurt(u, dmg, by, info) {
   const knock = (info.knock || 0) * (u.big ? 0.35 / u.bigK : 1) / (u.bossT ? u.sizeK * u.sizeK : 1);   // the big ones barely stagger ([boss] the special ones less still)
   const dir = info.dir || V(Math.sin(S.yaw + Math.PI), 0, Math.cos(S.yaw + Math.PI));
   Zb.doorHit = null;
+  if (info.part === 'head' && dmg > 0 && !u.giant) { Zb.headJ = Math.min(1, 0.6 + dmg / 80); Zb.headJS = Math.random() < 0.5 ? 1 : -1; }   // [zReal] the head snaps back
   // shot in the legs: a limp, then it can't stand at all
   if (info.part === 'legs' && dmg > 0 && !u.heavy) {   // ([boss] a boss or The Zombie never goes down on its belly)
     u.legDmg = (u.legDmg || 0) + dmg / (u.bossT ? 2 : 1);

@@ -510,6 +510,18 @@ export class Soldier {
       const p = this.pitchNow * (1 - this.upW);
       addTurn(B.Spine1, this.left, -p * 0.3 + 0.06 * cw); addTurn(B.Spine2, this.left, -p * 0.35 + 0.05 * cw);
     }
+    // ---- breathing: the chest rises and falls (faster and deeper after a run), the shoulders ride on it and the neck
+    // takes it back out so the head stays steady  [chars]
+    const alive = !this.dead && !lying && !this.kind.zombie;
+    if (alive && B.Spine2 && B.Neck) {
+      const ex = this.exertion, bw = 1 - actTotal * 0.7;
+      this.brT = (this.brT ?? Math.random() * 6) + dt * lerp(1.45, 3.8, ex);   // ~0.23 Hz calm .. ~0.6 Hz out of breath
+      const br = Math.sin(this.brT), inh = br > 0 ? br : br * 0.7, amp = lerp(0.016, 0.045, ex) * bw;
+      this.left.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw)); this.fwd.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+      addTurn(B.Spine2, this.left, -inh * amp); addTurn(B.Neck, this.left, inh * amp * 0.85);
+      const sh = inh * amp * 0.9;
+      if (B.LeftShoulder) addTurn(B.LeftShoulder, this.fwd, sh); if (B.RightShoulder) addTurn(B.RightShoulder, this.fwd, -sh);
+    }
     // ---- head ----
     let lookT = 0, lookP = 0;
     if (cw > 0.3) { lookT = clamp(wrapPi(this.aimYaw - this.yaw) - this.twist * 0.85, -0.6, 0.6); lookP = this.pitchNow * 0.45; }
@@ -518,6 +530,12 @@ export class Soldier {
       lookT = clamp(wrapPi(Math.atan2(dx, dz) - this.yaw), -1.1, 1.1);
       lookP = clamp(Math.atan2((this.lookAt.y ?? 1.6) - 1.6, Math.max(0.5, Math.hypot(dx, dz))), -0.45, 0.4);
     } else if (this.speed > 0.3) lookT = clamp(wrapPi(this.moveA - this.yaw) * 0.5, -0.6, 0.6) * (this.dir > 0 ? 1 : 0);
+    else if (alive) {   // standing about: the head never holds dead still — slow small glances and nods  [chars]
+      this.idleHT = (this.idleHT ?? Math.random() * 50) + dt;
+      const t = this.idleHT;
+      lookT = (Math.sin(t * 0.31) * 0.6 + Math.sin(t * 0.73 + 1.3) * 0.4) * 0.13;
+      lookP = (Math.sin(t * 0.47 + 2.1) * 0.6 + Math.sin(t * 1.1) * 0.4) * 0.045;
+    }
     const headFree = 1 - actTotal * 0.8;
     this.look = damp(this.look, lookT * headFree, 6, dt);
     this.lookP = damp(this.lookP, lookP * headFree, 6, dt);

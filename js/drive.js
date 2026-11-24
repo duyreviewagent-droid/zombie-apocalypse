@@ -388,6 +388,8 @@ export function cameraTarget() {
   else { camT.pos.set(V.x, V.y + 1.35, V.z); camT.dist = 3.6; camT.height = 0.5; camT.fov = 56 + Math.abs(V.v) * 0.6; }
   // reversing: the camera stays put a moment, then swings slowly round behind again (so a long reverse turn doesn't leave you looking sideways)
   camT.yaw = V.v < -0.5 && V.kind === 'car' ? dampAngle(camT.yaw, V.yaw, 0.8, 1 / 60) : V.yaw;
+  // [realism] in a slide the camera looks part-way along where the car is actually going, not where its nose points
+  if (V.kind === 'car' && V.v > 3 && Math.abs(V.vs || 0) > 0.3) { const s = Math.sin(V.yaw), c = Math.cos(V.yaw); camT.yaw = wrapPi(V.yaw + 0.55 * wrapPi(Math.atan2(s * V.v + c * V.vs, c * V.v - s * V.vs) - V.yaw)); }
   camT.speed = Math.abs(V.v);
   return camT;
 }

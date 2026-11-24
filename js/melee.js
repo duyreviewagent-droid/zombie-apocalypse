@@ -35,7 +35,38 @@ function mats() {
   M.bloody = new THREE.MeshStandardMaterial({ color: 0x8a8c8e, roughness: 0.3, metalness: 0.9 });
   M.rivet = new THREE.MeshStandardMaterial({ color: 0xb89a5a, roughness: 0.35, metalness: 1 });
   M.tape = new THREE.MeshStandardMaterial({ color: 0x2a2a2c, roughness: 0.95 });
+  // [realism] brushed, scuffed steel; chipped paint; a dark coated blade; the bright ground edge
+  const cb = document.createElement('canvas'); cb.width = cb.height = 256; const gb = cb.getContext('2d');
+  gb.fillStyle = '#dcdcdc'; gb.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 300; i++) { const x = Math.random() * 256; gb.strokeStyle = `rgba(${Math.random() < 0.5 ? '255,255,255' : '80,80,80'},${0.05 + Math.random() * 0.09})`; gb.lineWidth = 0.5 + Math.random(); gb.beginPath(); gb.moveTo(x, Math.random() * 40); gb.lineTo(x + (Math.random() - 0.5) * 3, 256 - Math.random() * 40); gb.stroke(); }
+  for (let i = 0; i < 30; i++) { gb.fillStyle = `rgba(${90 + Math.random() * 30},${50 + Math.random() * 20},30,${0.05 + Math.random() * 0.08})`; gb.beginPath(); gb.arc(Math.random() * 256, Math.random() * 256, 2 + Math.random() * 8, 0, 7); gb.fill(); }   // rust and grime
+  for (let i = 0; i < 14; i++) { gb.fillStyle = `rgba(90,8,4,${0.35 + Math.random() * 0.4})`; gb.beginPath(); gb.arc(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 4, 0, 7); gb.fill(); }   // dried blood
+  const brushed = new THREE.CanvasTexture(cb); brushed.colorSpace = THREE.SRGBColorSpace; brushed.wrapS = brushed.wrapT = THREE.RepeatWrapping;
+  const cp = document.createElement('canvas'); cp.width = cp.height = 256; const gp = cp.getContext('2d');
+  gp.fillStyle = '#741610'; gp.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 70; i++) { gp.fillStyle = `rgba(${150 + Math.random() * 40},${150 + Math.random() * 30},${150 + Math.random() * 30},${0.5 + Math.random() * 0.4})`; gp.beginPath(); const x = Math.random() * 256, y = Math.random() * 256; gp.moveTo(x, y); for (let k = 0; k < 5; k++) gp.lineTo(x + (Math.random() - 0.5) * 12, y + (Math.random() - 0.5) * 12); gp.fill(); }   // chips through to bare steel
+  for (let i = 0; i < 40; i++) { gp.fillStyle = `rgba(30,10,6,${0.1 + Math.random() * 0.2})`; gp.beginPath(); gp.arc(Math.random() * 256, Math.random() * 256, 2 + Math.random() * 10, 0, 7); gp.fill(); }
+  const paint = new THREE.CanvasTexture(cp); paint.colorSpace = THREE.SRGBColorSpace; paint.wrapS = paint.wrapT = THREE.RepeatWrapping;
+  M.steel.map = brushed; M.blade.map = brushed; M.blade.roughness = 0.28; M.blade.color.setHex(0xd2d4d6);
+  M.paint = new THREE.MeshStandardMaterial({ map: paint, roughness: 0.5, metalness: 0.35 });
+  M.worn = new THREE.MeshStandardMaterial({ color: 0x8a8a88, map: brushed, roughness: 0.42, metalness: 0.9 });
+  M.coated = new THREE.MeshStandardMaterial({ color: 0x2c2d2e, map: brushed, roughness: 0.6, metalness: 0.5 });
+  M.edge = new THREE.MeshStandardMaterial({ color: 0xe8eaec, roughness: 0.16, metalness: 1 });
   return M;
+}
+// [realism] a flat part cut from its side profile (z towards the edge, y along the handle), `w` thick, edges rounded
+function ext(add, pts, w, bev, m) {
+  const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts.map(([z, y]) => new THREE.Vector2(z, y))), { depth: Math.max(0.0004, w - bev * 2), bevelEnabled: true, bevelThickness: bev, bevelSize: bev * 0.8, bevelSegments: 1, curveSegments: 3 });
+  geo.rotateY(-Math.PI / 2).translate(w / 2 - bev, 0, 0);
+  // UVs: the profile in metres, stretched so the brushing runs along the blade
+  const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 4, uv.getY(i) * 2);
+  return add(geo, m, 0, 0, 0);
+}
+// a blade: the flat in one material and a thinner, brighter ground edge sticking out along `edge` (z towards the edge)
+function blade(add, spine, edge, w, bodyM, edgeM, grind) {
+  const inner = edge.map(([z, y]) => [z - grind, y]);
+  ext(add, [...spine, ...inner], w, w * 0.3, bodyM);
+  ext(add, [...edge.map(([z, y]) => [z, y]), ...inner.map(([z, y]) => [z - grind * 0.5, y]).reverse()].reverse(), w * 0.55, w * 0.2, edgeM);
 }
 function build(id) {
   const K = mats(), g = new THREE.Group();
@@ -49,36 +80,43 @@ function build(id) {
     for (let i = 0; i < 5; i++) add(new THREE.TorusGeometry(0.0178, 0.0016, 4, 12), K.tape, 0, -0.09 + i * 0.034, 0, Math.PI / 2 + 0.25, 0, 0);   // the tape's wound edges
     tip = 0.68;
   } else if (id === 'crowbar') {
-    add(new THREE.CylinderGeometry(0.011, 0.011, 0.62, 8), K.red, 0, 0.21, 0);
-    add(new THREE.TorusGeometry(0.05, 0.011, 6, 12, Math.PI), K.red, 0.05, 0.52, 0, 0, 0, 0);
-    add(new THREE.BoxGeometry(0.03, 0.06, 0.008), K.steel, 0.1, 0.5, 0, 0, 0, 0.4);
-    add(new THREE.BoxGeometry(0.026, 0.05, 0.008), K.steel, 0, -0.12, 0.012, 0.6, 0, 0);
+    // [realism] a 24-inch hex-bar wrecking bar: chipped red paint, bare steel worn through at both working ends,
+    // a split claw on the hook and a bent chisel at the foot
+    add(new THREE.CylinderGeometry(0.0095, 0.0095, 0.6, 6), K.paint, 0, 0.22, 0);
+    add(new THREE.TorusGeometry(0.05, 0.0095, 6, 14, Math.PI), K.paint, 0.05, 0.52, 0, 0, 0, 0);
+    for (const z of [-0.0045, 0.0045]) add(new THREE.BoxGeometry(0.026, 0.06, 0.007), K.worn, 0.103, 0.497, z, 0, 0, 0.35).geometry.translate(0, -0.005, 0);   // claw tines
+    add(new THREE.CylinderGeometry(0.0096, 0.0096, 0.05, 6), K.worn, 0, -0.06, 0);
+    add(new THREE.BoxGeometry(0.019, 0.055, 0.007), K.worn, 0, -0.1, 0.008, 0.45, 0, 0);   // chisel
     tip = 0.55;
   } else if (id === 'machete') {
-    add(new RoundedBoxGeometry(0.03, 0.13, 0.024, 2, 0.008), K.grip, 0, 0.0, 0);
+    // [realism] a 45 cm field machete: black-coated carbon steel with a bright ground edge, riveted black grip
+    add(new RoundedBoxGeometry(0.03, 0.13, 0.026, 2, 0.009), K.grip, 0, 0.0, 0);
+    add(new RoundedBoxGeometry(0.034, 0.012, 0.03, 2, 0.004), K.grip, 0, 0.068, 0);   // guard swell
     for (const y of [-0.035, 0.02]) for (const sx of [1, -1]) add(new THREE.CylinderGeometry(0.0045, 0.0045, 0.003, 8), K.rivet, sx * 0.0152, y, 0, 0, 0, Math.PI / 2);
-    const s = new THREE.Shape(); s.moveTo(-0.018, 0); s.lineTo(0.022, 0); s.lineTo(0.03, 0.38); s.quadraticCurveTo(0.03, 0.46, -0.02, 0.48); s.lineTo(-0.018, 0);
-    const bl = add(new THREE.ExtrudeGeometry(s, { depth: 0.003, bevelEnabled: false }), K.blade, 0, 0.065, -0.0015);
-    bl.rotation.y = Math.PI / 2;
+    blade(add, [[-0.016, 0.06], [-0.017, 0.43], [-0.01, 0.5]], [[0.006, 0.515], [0.03, 0.47], [0.036, 0.38], [0.03, 0.2], [0.022, 0.06]], 0.0026, K.coated, K.blade, 0.008);
     tip = 0.52;
   } else if (id === 'axe') {
+    // [realism] a fire axe: a hickory handle, a forged head painted red with the bit ground back to bright steel,
+    // a pick on the back
     add(new THREE.CylinderGeometry(0.016, 0.02, 0.86, 10), K.wood, 0, 0.28, 0);
-    add(new RoundedBoxGeometry(0.03, 0.08, 0.2, 2, 0.008), K.red, 0, 0.66, 0.04);
-    const s = new THREE.Shape(); s.moveTo(0, -0.05); s.lineTo(0.11, -0.08); s.quadraticCurveTo(0.13, 0, 0.11, 0.08); s.lineTo(0, 0.05);
-    const head = add(new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: false }), K.blade, 0, 0.66, 0.12); head.rotation.set(0, -Math.PI / 2, Math.PI / 2); head.position.set(-0.006, 0.66, 0.13);
-    add(new THREE.ConeGeometry(0.02, 0.1, 6), K.red, 0, 0.66, -0.1, -Math.PI / 2, 0, 0);
+    add(new THREE.CylinderGeometry(0.0175, 0.0175, 0.12, 10), K.tape, 0, -0.06, 0);    // the grip end, taped
+    ext(add, [[-0.17, 0.678], [-0.03, 0.715], [0.06, 0.71], [0.125, 0.742], [0.125, 0.592], [0.06, 0.612], [-0.03, 0.615], [-0.17, 0.67]], 0.016, 0.006, K.paint);
+    ext(add, [[0.115, 0.736], [0.15, 0.765], [0.161, 0.7], [0.157, 0.63], [0.145, 0.565], [0.115, 0.597]], 0.006, 0.004, K.blade);
     tip = 0.72;
   } else if (id === 'knife') {
-    add(new RoundedBoxGeometry(0.022, 0.11, 0.018, 2, 0.006), K.dark, 0, 0, 0);
+    // [realism] a 20 cm chef's knife: black riveted handle, a steel bolster, a satin blade with a curved belly
+    add(new RoundedBoxGeometry(0.022, 0.11, 0.02, 2, 0.007), K.dark, 0, 0, 0);
+    add(new RoundedBoxGeometry(0.008, 0.012, 0.03, 2, 0.003), K.steel, 0, 0.058, 0.004);   // bolster
     for (const y of [-0.03, 0.0, 0.03]) for (const sx of [1, -1]) add(new THREE.CylinderGeometry(0.0032, 0.0032, 0.003, 8), K.rivet, sx * 0.0113, y, 0, 0, 0, Math.PI / 2);
-    const s = new THREE.Shape(); s.moveTo(-0.012, 0); s.lineTo(0.016, 0); s.lineTo(0.004, 0.19); s.lineTo(-0.012, 0);
-    const bl = add(new THREE.ExtrudeGeometry(s, { depth: 0.002, bevelEnabled: false }), K.blade, 0, 0.055, -0.001); bl.rotation.y = Math.PI / 2;
-    tip = 0.24;
+    blade(add, [[-0.008, 0.062], [-0.008, 0.2], [-0.004, 0.245], [0.0, 0.262]], [[0.004, 0.258], [0.014, 0.232], [0.023, 0.185], [0.027, 0.12], [0.027, 0.068]], 0.0018, K.blade, K.edge, 0.006);
+    tip = 0.26;
   }
   g.userData.tip = tip;
   return g;
 }
-export function makeMeleeMesh(id) { return build(id); }
+// [realism] built once per kind and cloned (shared geometry and materials: no rebuilding for the pack's straps)
+const BUILT = {};
+export function makeMeleeMesh(id) { const src = BUILT[id] || (BUILT[id] = build(id)); const m = src.clone(true); m.userData = { ...src.userData }; return m; }
 
 // ---------------------------------------------------------------- when does a swing land? (the captured hand's fastest moment)
 export function analyseSwings(kind) {

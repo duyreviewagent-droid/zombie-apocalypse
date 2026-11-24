@@ -4,6 +4,7 @@
 // (shouldered, low ready, sprinting, reloading, recoiling) and the two hands are solved onto its grips.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, lerp, smooth, damp } from './soldier.js';
 import { C } from './state.js';
 
@@ -29,6 +30,21 @@ function mats() {
   g2.fillStyle = '#808080'; g2.fillRect(0, 0, 128, 128);
   const d = g2.getImageData(0, 0, 128, 128); for (let i = 0; i < d.data.length; i += 4) { const n = 128 + (Math.random() - 0.5) * 70; d.data[i] = d.data[i + 1] = d.data[i + 2] = n; } g2.putImageData(d, 0, 0);
   const grain = new THREE.CanvasTexture(c2); grain.wrapS = grain.wrapT = THREE.RepeatWrapping; grain.repeat.set(4, 4);
+  // [realism] oiled walnut for the hunting rifle and the shotgun: flowing figure, dark streaks and open pores
+  // (UVs of the stock profiles are in metres, so one tile covers 0.5 m of stock)
+  const cw = document.createElement('canvas'); cw.width = 512; cw.height = 256; const gw = cw.getContext('2d');
+  const wg = gw.createLinearGradient(0, 0, 0, 256); wg.addColorStop(0, '#4a2712'); wg.addColorStop(0.5, '#6a3a1a'); wg.addColorStop(1, '#4d2a14'); gw.fillStyle = wg; gw.fillRect(0, 0, 512, 256);
+  for (let i = 0; i < 120; i++) { const y0 = Math.random() * 256, amp = 3 + Math.random() * 10, f = 0.004 + Math.random() * 0.01, ph = Math.random() * 6.28; gw.strokeStyle = Math.random() < 0.7 ? `rgba(${28 + Math.random() * 30},${12 + Math.random() * 12},4,${0.18 + Math.random() * 0.35})` : `rgba(150,90,45,${0.1 + Math.random() * 0.15})`; gw.lineWidth = 0.6 + Math.random() * 2.4; gw.beginPath(); for (let x = 0; x <= 512; x += 8) { const y = y0 + Math.sin(x * f + ph) * amp + Math.sin(x * f * 3.1 + ph) * amp * 0.25; x ? gw.lineTo(x, y) : gw.moveTo(x, y); } gw.stroke(); }
+  for (let i = 0; i < 900; i++) { gw.fillStyle = `rgba(20,8,2,${0.2 + Math.random() * 0.3})`; gw.fillRect(Math.random() * 512, Math.random() * 256, 1 + Math.random() * 3, 1); }
+  for (let i = 0; i < 18; i++) { gw.fillStyle = `rgba(200,170,130,${0.05 + Math.random() * 0.07})`; gw.beginPath(); gw.ellipse(Math.random() * 512, Math.random() * 256, 10 + Math.random() * 40, 2 + Math.random() * 5, 0, 0, 7); gw.fill(); }   // handling wear
+  const walnut = new THREE.CanvasTexture(cw); walnut.colorSpace = THREE.SRGBColorSpace; walnut.wrapS = walnut.wrapT = THREE.RepeatWrapping; walnut.repeat.set(2, 3); walnut.anisotropy = 4;
+  // [realism] worn gun metal: fine brushed lines, scuffs where hands and holsters rub, a few bright nicks (colour map)
+  const cm = document.createElement('canvas'); cm.width = cm.height = 256; const gm = cm.getContext('2d');
+  gm.fillStyle = '#d8d8d8'; gm.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 260; i++) { const y = Math.random() * 256; gm.strokeStyle = `rgba(${Math.random() < 0.5 ? '255,255,255' : '90,90,90'},${0.05 + Math.random() * 0.08})`; gm.lineWidth = 0.5 + Math.random(); gm.beginPath(); gm.moveTo(Math.random() * 60, y); gm.lineTo(256 - Math.random() * 60, y + (Math.random() - 0.5) * 3); gm.stroke(); }
+  for (let i = 0; i < 40; i++) { gm.fillStyle = `rgba(60,55,50,${0.08 + Math.random() * 0.14})`; gm.beginPath(); gm.arc(Math.random() * 256, Math.random() * 256, 4 + Math.random() * 18, 0, 7); gm.fill(); }
+  for (let i = 0; i < 50; i++) { gm.strokeStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.35})`; gm.lineWidth = 0.6; gm.beginPath(); const x = Math.random() * 256, y = Math.random() * 256; gm.moveTo(x, y); gm.lineTo(x + (Math.random() - 0.5) * 14, y + (Math.random() - 0.5) * 6); gm.stroke(); }
+  const wear = new THREE.CanvasTexture(cm); wear.colorSpace = THREE.SRGBColorSpace; wear.wrapS = wear.wrapT = THREE.RepeatWrapping;
   M = {
     steel: new THREE.MeshStandardMaterial({ color: 0x23252a, roughness: 0.38, metalness: 0.85, roughnessMap: grain }),
     blued: new THREE.MeshStandardMaterial({ color: 0x15171c, roughness: 0.3, metalness: 0.9 }),
@@ -42,11 +58,45 @@ function mats() {
     green: new THREE.MeshStandardMaterial({ color: 0x3e4a2e, roughness: 0.55, metalness: 0.2 }),
     warhead: new THREE.MeshStandardMaterial({ color: 0x4d5536, roughness: 0.45, metalness: 0.5 }),
     pin: new THREE.MeshStandardMaterial({ color: 0xb9bcc2, roughness: 0.25, metalness: 1 }),
+    // [realism] the hunting rifle, the shotgun and the pistol
+    walnut: new THREE.MeshStandardMaterial({ map: walnut, roughness: 0.42, metalness: 0, roughnessMap: grain }),
+    gunmetal: new THREE.MeshStandardMaterial({ color: 0x3a3d42, map: wear, roughness: 0.34, metalness: 0.88, roughnessMap: grain }),
+    bluedW: new THREE.MeshStandardMaterial({ color: 0x24282f, map: wear, roughness: 0.26, metalness: 0.92 }),
+    matte: new THREE.MeshStandardMaterial({ color: 0x141516, roughness: 0.55, metalness: 0.35, roughnessMap: grain }),
+    rubber: new THREE.MeshStandardMaterial({ color: 0x1b1715, roughness: 0.95, metalness: 0 }),
+    hole: new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.9, metalness: 0.2 }),
+    frame: new THREE.MeshStandardMaterial({ color: 0x18191b, roughness: 0.78, metalness: 0.04 }),
+    lens: new THREE.MeshStandardMaterial({ color: 0x0c1a26, roughness: 0.02, metalness: 0.9, emissive: 0x0b2236, emissiveIntensity: 0.35 }),
   };
   return M;
 }
 const box = (w, h, d, m, x, y, z, r = 0.004) => { const o = new THREE.Mesh(r > 0 ? new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2.1, h / 2.1, d / 2.1)) : new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); return o; };
 const cyl = (r1, r2, l, m, x, y, z, seg = 14) => { const o = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, l, seg).rotateX(Math.PI / 2), m); o.position.set(x, y, z); return o; };
+// [realism] a part cut from a side profile (z forward, y up, in metres), `w` thick across the gun, edges rounded off
+const prof = (pts, w, m, bev = 0.005, holes = null) => {
+  const s = new THREE.Shape(pts.map(([z, y]) => new THREE.Vector2(z, y)));
+  if (holes) for (const h of holes) s.holes.push(new THREE.Path(h.map(([z, y]) => new THREE.Vector2(z, y))));
+  const geo = new THREE.ExtrudeGeometry(s, { depth: w - bev * 2, bevelEnabled: true, bevelThickness: bev, bevelSize: bev * 0.9, bevelSegments: 2, curveSegments: 4 });
+  geo.rotateY(-Math.PI / 2).translate(w / 2 - bev, 0, 0);
+  return new THREE.Mesh(geo, m);
+};
+// a trigger guard: a bent strip hanging under the gun, its ends at z0 and z1
+const guard = (z0, z1, y, m, depth = 0.016) => { const r = (z1 - z0) / 2, o = new THREE.Mesh(new THREE.TorusGeometry(r, 0.0028, 5, 12, Math.PI).scale(1, depth / r, 1).rotateZ(Math.PI).rotateY(Math.PI / 2), m); o.position.set(0, y, (z0 + z1) / 2); return o; };
+// the parts that never move are welded into one mesh per material (a hunting rifle: ~30 parts → 7 draw calls)
+function weld(g, keep) {
+  const by = new Map();
+  for (const o of [...g.children]) {
+    if (!o.isMesh || keep.includes(o) || o.userData.pump || o.children.length || o.material.transparent) continue;
+    o.updateMatrix();
+    let geo = o.geometry.clone().applyMatrix4(o.matrix); if (geo.index) geo = geo.toNonIndexed();
+    for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') geo.deleteAttribute(k);
+    if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
+    geo.morphAttributes = {};
+    if (!by.has(o.material)) by.set(o.material, []);
+    by.get(o.material).push(geo); g.remove(o);
+  }
+  for (const [m, list] of by) { const geo = mergeGeometries(list); if (geo) g.add(new THREE.Mesh(geo, m)); else console.warn('weld failed'); }
+}
 // a 12-gauge shell for the loading hand: red ribbed plastic hull, brass head (lying along the gun's barrel)
 function makeShell(scene) {
   const K = mats(), g = new THREE.Group();
@@ -106,50 +156,77 @@ function buildModel(id) {
     d.grips.L = new THREE.Vector3(0, 0.01, 0.3);
     d.chargeLocal = new THREE.Vector3(-0.03, 0.06, 0.12);
   } else if (id === 'shotgun') {
-    add(box(0.04, 0.06, 0.24, K.steel, 0, 0.04, 0.03));
-    add(box(0.03, 0.1, 0.04, K.poly, 0, -0.035, -0.012)).rotation.x = 0.3;
-    add(box(0.008, 0.03, 0.05, K.steel, 0, -0.01, 0.03));
-    add(cyl(0.011, 0.011, 0.55, K.blued, 0, 0.065, 0.42));                       // barrel
-    add(cyl(0.01, 0.01, 0.45, K.blued, 0, 0.035, 0.37));                         // magazine tube
-    const pump = add(box(0.05, 0.045, 0.15, K.poly, 0, 0.035, 0.34)); d.pumpMesh = pump; d.pumpZ = 0.34;
-    for (let i = 0; i < 7; i++) add(box(0.052, 0.004, 0.008, K.steel, 0, 0.058, 0.28 + i * 0.02, 0)).userData.pump = true;
-    add(box(0.035, 0.055, 0.25, K.poly, 0, 0.03, -0.2)).rotation.x = 0.1;
-    add(box(0.038, 0.1, 0.03, K.poly, 0, 0.0, -0.32));
-    add(new THREE.Mesh(new THREE.SphereGeometry(0.004, 8, 6), K.brass)).position.set(0, 0.08, 0.69);
-    d.muzzle.set(0, 0.065, 0.7); d.eject.set(-0.025, 0.05, 0.05); d.stock = 0.33;
+    // [realism] a pump-action 12-gauge (an old 870-style farm gun): blued receiver with its ejection port, a long barrel
+    // with a vent rib and a brass bead, the magazine tube and its cap, an oiled walnut stock and a grooved walnut pump
+    add(box(0.038, 0.064, 0.2, K.bluedW, 0, 0.045, 0.065, 0.006));                 // receiver
+    add(box(0.002, 0.022, 0.055, K.hole, -0.0195, 0.056, 0.07, 0));               // ejection port (right side)
+    add(box(0.026, 0.004, 0.06, K.hole, 0, 0.0125, 0.1, 0));                       // loading port (underneath)
+    add(box(0.03, 0.02, 0.1, K.gunmetal, 0, 0.008, 0.03, 0.004));                 // trigger plate
+    add(guard(0.012, 0.062, 0.0, K.gunmetal, 0.018)); add(box(0.004, 0.02, 0.006, K.gunmetal, 0, -0.004, 0.04, 0.0015));   // guard, trigger
+    add(cyl(0.0115, 0.0115, 0.55, K.bluedW, 0, 0.068, 0.44, 16));                  // barrel
+    add(cyl(0.0085, 0.0085, 0.004, K.hole, 0, 0.068, 0.7155, 12));                 // the bore
+    add(box(0.007, 0.004, 0.52, K.bluedW, 0, 0.0815, 0.43, 0.001));                // vent rib
+    for (let i = 0; i < 13; i++) add(box(0.004, 0.003, 0.006, K.bluedW, 0, 0.0785, 0.19 + i * 0.04, 0));
+    add(cyl(0.0105, 0.0105, 0.44, K.bluedW, 0, 0.031, 0.385, 14));                 // magazine tube
+    add(cyl(0.0125, 0.0115, 0.035, K.gunmetal, 0, 0.031, 0.62, 14));               // magazine cap
+    add(box(0.016, 0.05, 0.016, K.bluedW, 0, 0.05, 0.585, 0.004));                 // barrel ring
+    const pump = add(box(0.05, 0.046, 0.17, K.walnut, 0, 0.032, 0.34, 0.016)); d.pumpMesh = pump; d.pumpZ = 0.34;
+    for (let i = 0; i < 7; i++) add(box(0.0515, 0.0475, 0.0035, K.matte, 0, 0.032, 0.28 + i * 0.02, 0.003)).userData.pump = true;   // its grooves
+    add(prof([[-0.352, -0.082], [-0.352, 0.064], [-0.2, 0.069], [-0.035, 0.076], [-0.035, 0.022], [0.002, 0.016], [0.012, 0.0], [0.002, -0.036], [-0.014, -0.068], [-0.026, -0.078], [-0.05, -0.078], [-0.06, -0.064], [-0.068, -0.042], [-0.085, -0.032], [-0.2, -0.054]], 0.04, K.walnut, 0.007));
+    add(box(0.044, 0.15, 0.018, K.rubber, 0, -0.008, -0.36, 0.005));              // recoil pad
+    add(new THREE.Mesh(new THREE.SphereGeometry(0.0035, 8, 6), K.brass)).position.set(0, 0.086, 0.69);
+    d.muzzle.set(0, 0.068, 0.72); d.eject.set(-0.025, 0.056, 0.07); d.stock = 0.33;
     d.grips.L = new THREE.Vector3(0, 0.01, 0.34);
-    d.portLocal = new THREE.Vector3(0, 0.0, 0.08);
+    d.portLocal = new THREE.Vector3(0, 0.0, 0.1);
   } else if (id === 'sniper') {
-    add(box(0.04, 0.055, 0.28, K.steel, 0, 0.05, 0.05));
-    add(box(0.06, 0.07, 0.5, K.green, 0, 0.02, 0.2, 0.012));                     // stock body / forend
-    add(box(0.04, 0.1, 0.05, K.green, 0, -0.03, -0.01)).rotation.x = 0.35;
-    add(box(0.05, 0.08, 0.3, K.green, 0, 0.02, -0.2, 0.012)).rotation.x = 0.04;
-    add(box(0.052, 0.13, 0.03, K.poly, 0, 0.0, -0.36));
-    add(box(0.03, 0.03, 0.12, K.green, 0, 0.075, -0.17));                        // cheek rest
-    add(cyl(0.011, 0.01, 0.55, K.blued, 0, 0.055, 0.68));
-    add(cyl(0.017, 0.017, 0.08, K.blued, 0, 0.055, 0.98));                       // suppressor/brake
-    add(cyl(0.022, 0.022, 0.28, K.poly, 0, 0.12, 0.07, 18));                     // scope
-    add(cyl(0.027, 0.022, 0.06, K.poly, 0, 0.12, 0.24, 18)); add(cyl(0.024, 0.022, 0.05, K.poly, 0, 0.12, -0.09, 18));
-    const lens = add(new THREE.Mesh(new THREE.CircleGeometry(0.025, 18), K.glass)); lens.position.set(0, 0.12, 0.271);
-    add(box(0.014, 0.03, 0.03, K.blued, 0, 0.09, 0.0)); add(box(0.014, 0.03, 0.03, K.blued, 0, 0.09, 0.14));
+    // [realism] a scoped bolt-action deer rifle: round blued receiver, a long tapered barrel, a walnut stock with a
+    // pistol grip and a rubber pad, a 1-inch scope in rings, sling studs
+    add(prof([[-0.37, -0.088], [-0.37, 0.06], [-0.2, 0.068], [-0.095, 0.058], [-0.055, 0.037], [0.17, 0.037], [0.5, 0.034], [0.555, 0.03], [0.572, 0.016], [0.56, 0.002], [0.3, -0.012], [0.14, -0.018], [0.05, -0.022], [0.022, -0.026], [0.006, -0.05], [-0.012, -0.076], [-0.026, -0.094], [-0.062, -0.096], [-0.072, -0.076], [-0.074, -0.056], [-0.09, -0.046], [-0.2, -0.07]], 0.044, K.walnut, 0.008));
+    add(box(0.05, 0.158, 0.02, K.rubber, 0, -0.014, -0.378, 0.006));             // recoil pad
+    add(box(0.046, 0.006, 0.05, K.matte, 0, -0.093, -0.046, 0.002)).rotation.x = 0.35;   // grip cap
+    add(cyl(0.016, 0.016, 0.21, K.bluedW, 0, 0.055, 0.065, 16));                   // receiver
+    add(box(0.002, 0.014, 0.06, K.hole, -0.0162, 0.06, 0.04, 0));                  // ejection port
+    add(cyl(0.012, 0.014, 0.035, K.gunmetal, 0, 0.055, -0.058, 14));               // bolt shroud
+    add(cyl(0.0095, 0.0128, 0.83, K.bluedW, 0, 0.055, 0.585, 16));                 // barrel, tapering to the muzzle
+    add(cyl(0.006, 0.006, 0.004, K.hole, 0, 0.055, 1.0005, 10));                   // the bore
+    add(box(0.032, 0.006, 0.09, K.gunmetal, 0, -0.023, 0.1, 0.002));              // floorplate
+    add(guard(0.02, 0.07, -0.02, K.gunmetal, 0.02)); add(box(0.004, 0.02, 0.006, K.gunmetal, 0, -0.024, 0.045, 0.0015));
+    // the scope: tube, objective bell, eyepiece, turrets, rings and bases, glass both ends
+    const SY = 0.115;
+    add(cyl(0.0127, 0.0127, 0.22, K.matte, 0, SY, 0.06, 16));
+    add(cyl(0.024, 0.0127, 0.06, K.matte, 0, SY, 0.2, 18)); add(cyl(0.024, 0.024, 0.03, K.matte, 0, SY, 0.245, 18));
+    add(cyl(0.0145, 0.019, 0.05, K.matte, 0, SY, -0.075, 16)); add(cyl(0.019, 0.019, 0.03, K.rubber, 0, SY, -0.112, 16));
+    add(cyl(0.017, 0.017, 0.03, K.matte, 0, SY, 0.06, 16));
+    { const t = add(new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.018, 12), K.matte)); t.position.set(0, SY + 0.02, 0.06); }
+    { const t = add(new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.018, 12).rotateZ(Math.PI / 2), K.matte)); t.position.set(-0.02, SY, 0.06); }
+    for (const z of [-0.01, 0.13]) { add(cyl(0.0152, 0.0152, 0.012, K.gunmetal, 0, SY, z, 16)); add(box(0.014, SY - 0.07, 0.012, K.gunmetal, 0, (SY + 0.07) / 2 - 0.006, z, 0.002)); }
+    const lens = add(new THREE.Mesh(new THREE.CircleGeometry(0.0225, 18), K.lens)); lens.position.set(0, SY, 0.2605);
+    const lensR = add(new THREE.Mesh(new THREE.CircleGeometry(0.017, 16), K.lens)); lensR.position.set(0, SY, -0.1275); lensR.rotation.y = Math.PI;
+    for (const [z, y] of [[0.44, -0.012], [-0.25, -0.083]]) { const s = add(new THREE.Mesh(new THREE.TorusGeometry(0.007, 0.0018, 5, 10), K.gunmetal)); s.position.set(0, y - 0.008, z); s.rotation.y = Math.PI / 2; }
     const bolt = add(new THREE.Group()); bolt.position.set(-0.03, 0.06, -0.02); d.boltMesh = bolt;
-    bolt.add(cyl(0.004, 0.004, 0.05, K.steel, 0, 0, 0).rotateY(Math.PI / 2)); bolt.children[0].position.x = -0.02;
-    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 6), K.blued); knob.position.set(-0.045, -0.01, 0); bolt.add(knob);
-    const mag = add(box(0.03, 0.06, 0.07, K.blued, 0, -0.02, 0.1)); d.magMesh = mag; d.magLocal = new THREE.Vector3(0, -0.04, 0.1);
-    d.muzzle.set(0, 0.055, 1.02); d.eject.set(-0.025, 0.06, 0.04); d.stock = 0.37;
+    bolt.add(cyl(0.0035, 0.0035, 0.05, K.gunmetal, 0, 0, 0).rotateY(Math.PI / 2)); bolt.children[0].position.x = -0.02;
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.0085, 10, 8), K.bluedW); knob.position.set(-0.045, -0.01, 0); bolt.add(knob);
+    const mag = add(box(0.026, 0.03, 0.07, K.bluedW, 0, -0.008, 0.1)); d.magMesh = mag; d.magLocal = new THREE.Vector3(0, -0.04, 0.1);
+    d.muzzle.set(0, 0.055, 1.0); d.eject.set(-0.025, 0.06, 0.04); d.stock = 0.37;
     d.grips.L = new THREE.Vector3(0, 0.0, 0.3);
     d.boltLocal = new THREE.Vector3(-0.075, 0.05, -0.02);
     d.chargeLocal = d.boltLocal.clone();   // after a fresh magazine the hand works the bolt to chamber a round
   } else if (id === 'pistol') {
-    d.slideMesh = add(box(0.028, 0.032, 0.19, K.steel, 0, 0.055, 0.06, 0.004)); d.slideZ = 0.06;   // slide (cycles on each shot, locks back empty)
-    for (let i = 0; i < 6; i++) d.slideMesh.add(box(0.03, 0.026, 0.004, K.blued, 0, -0.001, -0.075 + i * 0.008, 0));   // rear serrations ride with it
-    add(box(0.026, 0.03, 0.16, K.poly, 0, 0.028, 0.05));                         // frame
-    add(box(0.028, 0.105, 0.045, K.poly, 0, -0.02, -0.005)).rotation.x = 0.22;   // grip
-    add(box(0.006, 0.025, 0.04, K.poly, 0, 0.005, 0.045));
-    add(cyl(0.006, 0.006, 0.02, K.blued, 0, 0.055, 0.16));
-    add(box(0.006, 0.008, 0.006, K.blued, 0, 0.074, 0.14, 0)); add(box(0.016, 0.008, 0.006, K.blued, 0, 0.074, -0.02, 0));
-    const mag = add(box(0.022, 0.03, 0.035, K.steel, 0, -0.075, -0.015, 0.002)); d.magMesh = mag; d.magLocal = new THREE.Vector3(0, -0.08, -0.015);
-    d.muzzle.set(0, 0.055, 0.17); d.eject.set(-0.016, 0.065, 0.06); d.stock = 0;
+    // [realism] a 9 mm service pistol: a polymer frame cut from its real side profile (grip, trigger guard, dust cover,
+    // beavertail), a worn steel slide with cocking serrations, an ejection port, a barrel hood and three-dot sights
+    d.slideMesh = add(box(0.026, 0.03, 0.188, K.gunmetal, 0, 0.055, 0.06, 0.005)); d.slideZ = 0.06;   // slide (cycles on each shot, locks back empty)
+    for (let i = 0; i < 7; i++) d.slideMesh.add(box(0.0275, 0.022, 0.0025, K.matte, 0, -0.002, -0.08 + i * 0.006, 0));   // rear serrations ride with it
+    d.slideMesh.add(box(0.0015, 0.012, 0.036, K.hole, -0.0128, 0.006, 0.02, 0));          // ejection port
+    d.slideMesh.add(box(0.012, 0.004, 0.034, K.gunmetal, 0, 0.0142, 0.02, 0.0015));       // barrel hood in the port
+    d.slideMesh.add(box(0.006, 0.007, 0.006, K.matte, 0, 0.018, 0.082, 0.001)); d.slideMesh.add(box(0.017, 0.007, 0.007, K.matte, 0, 0.018, -0.083, 0.001));
+    for (const [x, z] of [[0, 0.0785], [-0.0055, -0.0871], [0.0055, -0.0871]]) { const dt = new THREE.Mesh(new THREE.CircleGeometry(0.0013, 6), K.pin); dt.position.set(x, 0.0195, z); dt.rotation.y = Math.PI; d.slideMesh.add(dt); }
+    add(prof([[0.152, 0.042], [0.152, 0.026], [0.07, 0.022], [0.064, 0.0], [0.05, -0.012], [0.022, -0.012], [0.02, -0.004], [0.002, -0.07], [-0.002, -0.083], [-0.044, -0.083], [-0.044, -0.06], [-0.028, -0.004], [-0.04, 0.024], [-0.036, 0.034], [-0.032, 0.042]], 0.0245, K.frame, 0.003,
+      [[[0.028, 0.013], [0.058, 0.013], [0.056, -0.002], [0.046, -0.007], [0.028, -0.007]]]));
+    add(box(0.005, 0.02, 0.006, K.frame, 0, 0.004, 0.04, 0.0015)).rotation.x = -0.2;   // trigger
+    for (let i = 0; i < 4; i++) add(box(0.0255, 0.002, 0.003, K.matte, 0, 0.026, 0.1 + i * 0.012, 0));   // accessory rail
+    add(cyl(0.0058, 0.0058, 0.004, K.hole, 0, 0.055, 0.1545, 10));               // the muzzle
+    const mag = add(box(0.024, 0.012, 0.036, K.matte, 0, -0.088, -0.022, 0.003)); d.magMesh = mag; d.magLocal = new THREE.Vector3(0, -0.08, -0.015);
+    d.muzzle.set(0, 0.055, 0.16); d.eject.set(-0.016, 0.065, 0.06); d.stock = 0;
     d.grips.L = new THREE.Vector3(0.022, -0.022, -0.005);
     d.chargeLocal = new THREE.Vector3(0, 0.06, -0.02);
   } else if (id === 'rpg') {
@@ -188,6 +265,7 @@ function buildModel(id) {
     const ring = add(new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.0022, 6, 14), K.pin)); ring.position.set(-0.02, 0.05, 0); ring.rotation.y = Math.PI / 2;
     d.ring = ring; d.spoon = spoon;
   }
+  if (id !== 'bottle' && id !== 'molotov') weld(g, [d.magMesh, d.pumpMesh, d.boltMesh, d.slideMesh, d.rocketMesh, d.ring, d.spoon].filter(Boolean));   // [realism] fewer draw calls
   g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } });
   return { g, d };
 }

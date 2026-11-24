@@ -86,7 +86,67 @@ function caveRockTex(seed) {
     for (let k = 0; k < 30; k++) { const x = r() * W, y = r() * H; const gr = g.createLinearGradient(0, y, 0, y + 120); gr.addColorStop(0, 'rgba(160,150,120,0.3)'); gr.addColorStop(1, 'rgba(160,150,120,0)'); g.fillStyle = gr; g.fillRect(x, y, 3 + r() * 6, 120); }
     for (let k = 0; k < 5000; k++) { g.fillStyle = r() < 0.5 ? 'rgba(10,10,8,0.25)' : 'rgba(150,140,120,0.15)'; g.fillRect(r() * W, r() * H, 1.5, 1.5); }
   });
-  return { map, ...(tier() ? {} : { normalMap: normalFrom(hc, 4), normalScale: new THREE.Vector2(1.5, 1.5) }) };
+  // [realism] seeping water: glossy wet runs down the rock and damp patches (a roughness map: dark = wet sheen)
+  const rough = tier() ? null : canvas(256, 256, (g, w, h) => {
+    g.fillStyle = '#d8d8d8'; g.fillRect(0, 0, w, h);
+    blot(g, w, h, 40, 'rgba(60,60,60,0.55)', 8, 34, r);
+    for (let k = 0; k < 46; k++) { const x = r() * w, y = r() * h, L = 40 + r() * 140, gr = g.createLinearGradient(0, y, 0, y + L); gr.addColorStop(0, 'rgba(40,40,40,0.9)'); gr.addColorStop(1, 'rgba(40,40,40,0)'); g.fillStyle = gr; g.fillRect(x, y, 1.5 + r() * 4, L); if (y + L > h) g.fillRect(x, y - h, 1.5 + r() * 4, L); }
+  }, false);
+  return { map, ...(tier() ? {} : { normalMap: normalFrom(hc, 4), normalScale: new THREE.Vector2(1.5, 1.5), roughnessMap: rough }) };
+}
+// [realism] rainforest bark: the plain bark under a damp skin of moss cushions, pale lichen rosettes and dark runs
+// where the rain streams down the trunk (drawn over the world's bark canvas; its relief normal map is kept)
+function mossyBark(src, seed) {
+  const r = rng(seed), img = src.image, W = img.width || 512, H = img.height || 1024;
+  return canvas(W, H, (g) => {
+    g.drawImage(img, 0, 0, W, H);
+    g.fillStyle = 'rgba(34,44,26,0.22)'; g.fillRect(0, 0, W, H);
+    blot(g, W, H, 46, 'rgba(38,62,20,0.55)', 26, 80, r);
+    blot(g, W, H, 110, 'rgba(70,98,32,0.5)', 6, 26, r);
+    for (let k = 0; k < 5000; k++) { const v = r(); g.fillStyle = `rgba(${60 + v * 50 | 0},${88 + v * 60 | 0},${26 + v * 22 | 0},${0.12 + r() * 0.25})`; g.fillRect(r() * W, r() * H, 1 + r() * 2, 1 + r() * 2); }
+    blot(g, W, H, 26, 'rgba(176,182,156,0.4)', 5, 18, r);
+    for (let k = 0; k < 60; k++) { const x = r() * W, y = r() * H, L = 120 + r() * 360, gr = g.createLinearGradient(0, y, 0, y + L); gr.addColorStop(0, 'rgba(14,16,10,0.4)'); gr.addColorStop(1, 'rgba(14,16,10,0)'); g.fillStyle = gr; g.fillRect(x, y, 2 + r() * 7, L); if (y + L > H) g.fillRect(x, y - H, 2 + r() * 7, L); }
+  });
+}
+// [realism] the glow under the cave lake: brighter in the deep middle, dark at the shallow rim, mottled like
+// light through water (an emissive map on the lake's disc; uv 0.5,0.5 = the middle)
+function lakeGlowTex() {
+  const r = rng(97);
+  return canvas(256, 256, (g, w, h) => {
+    const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2); gr.addColorStop(0, '#9a9a9a'); gr.addColorStop(0.55, '#5a5a5a'); gr.addColorStop(0.9, '#141414'); gr.addColorStop(1, '#000'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    g.globalCompositeOperation = 'multiply';
+    for (let k = 0; k < 220; k++) { const x = r() * w, y = r() * h, rad = 6 + r() * 20; g.strokeStyle = `rgba(${150 + r() * 90 | 0},${150 + r() * 90 | 0},${150 + r() * 90 | 0},1)`; g.lineWidth = 2 + r() * 3; g.beginPath(); g.ellipse(x, y, rad, rad * (0.5 + r() * 0.5), r() * 3, 0, 7); g.stroke(); }
+    g.globalCompositeOperation = 'source-over';
+  });
+}
+// [realism] a rain puddle on a mud path (alpha: an irregular pool with a soft wet rim)
+function puddleTex() {
+  const r = rng(131), N = 128;
+  return canvas(N, N, (g) => {
+    const img = g.createImageData(N, N), o = r() * 50;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const dx = x / N - 0.5, dy = y / N - 0.5, d = Math.hypot(dx, dy) * 2, n = fbm(x / 22 + o, y / 22 - o) * 0.7 + fbm(x / 7 + 3, y / 7 + o) * 0.3;
+      const k = clamp((0.62 + (n - 0.5) * 0.9 - d) * 9, 0, 1), i = (y * N + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = k * 255; img.data[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+  }, false);
+}
+// [realism] drifting mist (alpha wisps that tile): long soft streaks across u, scrolled by the map
+function mistTex() {
+  const r = rng(151), N = 256;
+  return canvas(N, N, (g) => {
+    g.fillStyle = '#000'; g.fillRect(0, 0, N, N);
+    for (let k = 0; k < 70; k++) { const x = r() * N, y = r() * N, rx = 30 + r() * 80, ry = 8 + r() * 22; for (const ox of [-N, 0, N]) for (const oy of [-N, 0, N]) { g.save(); g.translate(x + ox, y + oy); g.scale(1, ry / rx); const gr = g.createRadialGradient(0, 0, 0, 0, 0, rx); gr.addColorStop(0, `rgba(255,255,255,${0.12 + r() * 0.18})`); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, rx, 0, 7); g.fill(); g.restore(); } }
+  }, false);
+}
+// [realism] a tiny painted surroundings cube for things that must NOT mirror the open sky (three ignores a
+// material's envMapIntensity when it falls back to scene.environment): the river under the canopy mirrors dark
+// green walls of forest with a little sky overhead; the cave's rock and its lake only the dark
+function envCube(top, upper, lower, bottom) {
+  const face = (a, b) => { const c = document.createElement('canvas'); c.width = c.height = 16; const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 16); gr.addColorStop(0, a); gr.addColorStop(1, b); g.fillStyle = gr; g.fillRect(0, 0, 16, 16); return c; };
+  const sd = () => face(upper, lower), t = new THREE.CubeTexture([sd(), sd(), face(top, top), face(bottom, bottom), sd(), sd()]);
+  t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true; return t;
 }
 // tent canvas: woven khaki, stains, seams
 function tentTex(col, seed) {
@@ -98,6 +158,13 @@ function tentTex(col, seed) {
     blot(g, w, h, 18, 'rgba(60,50,30,0.25)', 10, 40, r); blot(g, w, h, 8, 'rgba(40,60,30,0.2)', 20, 60, r);
     g.fillStyle = rgba(col, 0.7, 0.8); g.fillRect(0, 126, w, 3); g.fillRect(126, 0, 3, h);
     for (let x = 4; x < w; x += 8) { g.fillStyle = rgba(col, 0.6, 0.6); g.fillRect(x, 127, 3, 1); }
+    // [realism] weather: sun-faded patches, tide-marks of old rain, black mildew specks, and mud splashed up the
+    // bottom (v 0 = the ground edge of the walls / the eaves: the bottom of the canvas)
+    blot(g, w, h, 6, rgba(col, 1.35, 0.18), 30, 70, r);
+    for (let k = 0; k < 10; k++) { const x = r() * w, y = r() * h, rad = 10 + r() * 24; g.strokeStyle = 'rgba(70,58,36,0.22)'; g.lineWidth = 1.5; g.beginPath(); g.ellipse(x, y, rad, rad * 0.7, r() * 3, 0, 7); g.stroke(); }
+    for (let k = 0; k < 700; k++) { g.fillStyle = `rgba(24,26,18,${0.1 + r() * 0.3})`; g.fillRect(r() * w, h - Math.pow(r(), 2.5) * h * 0.5, 1 + r() * 1.5, 1 + r() * 1.5); }
+    { const gr = g.createLinearGradient(0, h, 0, h - 46); gr.addColorStop(0, 'rgba(66,48,28,0.75)'); gr.addColorStop(0.4, 'rgba(66,48,28,0.3)'); gr.addColorStop(1, 'rgba(66,48,28,0)'); g.fillStyle = gr; g.fillRect(0, h - 46, w, 46); }
+    for (let k = 0; k < 160; k++) { g.fillStyle = `rgba(70,52,30,${0.2 + r() * 0.4})`; g.beginPath(); g.arc(r() * w, h - Math.pow(r(), 2) * 60, 0.8 + r() * 2.5, 0, 7); g.fill(); }
   });
 }
 // palm thatch: overlapping layers of dry fronds
@@ -142,6 +209,13 @@ function bigLeafTex(seed) {
       g.strokeStyle = rgba(col, 1.5, 0.7); g.lineWidth = 1.5; g.beginPath(); g.moveTo(0, -L / 2); g.lineTo(0, L / 2); g.stroke();
       g.strokeStyle = rgba(col, 0.6, 0.5); g.lineWidth = 0.8; for (let t = -0.4; t < 0.45; t += 0.12) { g.beginPath(); g.moveTo(0, t * L); g.lineTo(Wd * 0.8, t * L + L * 0.12); g.moveTo(0, t * L); g.lineTo(-Wd * 0.8, t * L + L * 0.12); g.stroke(); }
       if (r() < 0.3) { g.globalCompositeOperation = 'destination-out'; for (let t = -0.3; t < 0.35; t += 0.15) { g.beginPath(); g.ellipse(Wd * 0.55, t * L, Wd * 0.3, 2, 0.3, 0, 7); g.fill(); } g.globalCompositeOperation = 'source-over'; }
+      // [realism] (clipped to the leaf) a waxy sheen down one half, a yellowed / dead-brown tip, the odd blight spot
+      g.save(); g.beginPath(); g.moveTo(0, -L / 2); g.bezierCurveTo(Wd, -L / 3, Wd, L / 3, 0, L / 2); g.bezierCurveTo(-Wd, L / 3, -Wd, -L / 3, 0, -L / 2); g.clip(); g.globalCompositeOperation = 'source-atop';
+      { const sh = g.createLinearGradient(0, 0, Wd, 0); sh.addColorStop(0, 'rgba(220,240,190,0.16)'); sh.addColorStop(1, 'rgba(220,240,190,0)'); g.fillStyle = sh; g.fillRect(0, -L / 2, Wd, L); }
+      if (r() < 0.45) { const tip = g.createLinearGradient(0, L / 2, 0, L * (0.05 + r() * 0.25)); tip.addColorStop(0, r() < 0.5 ? 'rgba(120,84,36,0.9)' : 'rgba(150,140,50,0.75)'); tip.addColorStop(1, 'rgba(120,100,40,0)'); g.fillStyle = tip; g.fillRect(-Wd, -L / 2, Wd * 2, L); }
+      for (let q = 0; q < 3; q++) if (r() < 0.35) { g.fillStyle = `rgba(${90 + r() * 40 | 0},${70 + r() * 20 | 0},30,0.55)`; g.beginPath(); g.arc((r() - 0.5) * Wd, (r() - 0.5) * L * 0.8, 1.5 + r() * 4, 0, 7); g.fill(); }
+      g.restore();
+      if (r() < 0.25) { g.globalCompositeOperation = 'destination-out'; for (let q = 0; q < 2; q++) { g.beginPath(); g.arc((r() < 0.5 ? -1 : 1) * Wd * (0.6 + r() * 0.4), (r() - 0.5) * L * 0.6, 2 + r() * 5, 0, 7); g.fill(); } g.globalCompositeOperation = 'source-over'; }
       g.restore();
     }
   });
@@ -156,7 +230,7 @@ function frondTex(seed, palm = false) {
     for (let y = h - 10; y > 8; y -= palm ? 7 : 9) {
       const t = 1 - y / h, L = (palm ? 120 : 110) * Math.sin(Math.min(1, t * 1.15) * Math.PI * 0.95) * (0.85 + r() * 0.3) + 6, v = 0.75 + r() * 0.5;
       for (const sd of [-1, 1]) {
-        g.fillStyle = rgba(col, v); g.beginPath(); g.moveTo(cx, y);
+        g.fillStyle = r() < (palm ? 0.06 : 0.04) + t * 0.1 ? rgba([118, 92, 46], v) : rgba(col, v); g.beginPath(); g.moveTo(cx, y);   // [realism] the odd dried, browned leaflet (more toward the tip)
         const ex = cx + sd * L, ey = y - L * (palm ? 0.5 : 0.28);
         g.quadraticCurveTo(cx + sd * L * 0.5, y - (palm ? 2 : 6), ex, ey); g.quadraticCurveTo(cx + sd * L * 0.5, y - (palm ? 8 : 14), cx, y - (palm ? 5 : 8)); g.fill();
       }
@@ -170,10 +244,10 @@ function vineTex(seed) {
     g.clearRect(0, 0, w, h);
     for (let k = 0; k < 14; k++) {
       let x = r() * w; const len = h * (0.5 + r() * 0.5);
-      g.strokeStyle = rgba([60, 74, 36], 0.8 + r() * 0.4); g.lineWidth = 3 + r() * 4; g.beginPath(); g.moveTo(x, 0);
+      g.strokeStyle = r() < 0.3 ? rgba([84, 66, 44], 0.7 + r() * 0.4) : rgba([60, 74, 36], 0.7 + r() * 0.4); g.lineWidth = 2 + r() * 4; g.beginPath(); g.moveTo(x, 0);   // [realism] some are bare woody liana / aerial roots
       for (let y = 0; y < len; y += 16) { x += (r() - 0.5) * 6; g.lineTo(x, y); }
       g.stroke();
-      for (let y = 10; y < len; y += 8 + r() * 12) { const lx = x + (r() - 0.5) * 12; g.fillStyle = rgba([58, 104, 36], 0.7 + r() * 0.6); g.beginPath(); g.ellipse(lx, y, 6 + r() * 6, 3 + r() * 3, r() * 3, 0, 7); g.fill(); g.strokeStyle = 'rgba(30,50,20,0.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(lx - 5, y); g.lineTo(lx + 5, y); g.stroke(); }
+      for (let y = 10; y < len; y += 8 + r() * 12) { const lx = x + (r() - 0.5) * 12; g.fillStyle = r() < 0.12 ? rgba([110, 92, 48], 0.7 + r() * 0.4) : rgba([[44, 82, 30], [58, 98, 36], [36, 66, 26]][Math.floor(r() * 3)], 0.7 + r() * 0.6); g.beginPath(); g.ellipse(lx, y, 6 + r() * 6, 3 + r() * 3, r() * 3, 0, 7); g.fill(); g.strokeStyle = 'rgba(30,50,20,0.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(lx - 5, y); g.lineTo(lx + 5, y); g.stroke(); }
     }
   });
 }
@@ -535,12 +609,13 @@ export function jungleKit(K) {
     if (L && L.onBeforeCompile) { m.onBeforeCompile = L.onBeforeCompile; m.userData.pk = (L.userData.pk || 'fol') + 'j' + sway; m.customProgramCacheKey = () => m.userData.pk; m.alphaToCoverage = true; }
     return m;
   };
+  const forestEnv = envCube('#b4c4c0', '#6a7c58', '#1c2616', '#10140c'), caveEnv = envCube('#8c9088', '#7a7e74', '#50524a', '#383834'), lakeEnv = envCube('#2a2e2a', '#22261f', '#141712', '#0c0e0c');   // (the cave's: a dull grey fill, as the sky env lit it before, without the blue sky in the wet rock)
   const stone = stoneTex(11, 0.55), stone2 = stoneTex(23, 0.3), cave = caveRockTex(5), flags = flagTex(29), ripN = tier() ? null : rippleNormal();
   const M = {
     jStone: std({ ...stone, color: 0xd8d4c4, roughness: 0.95 }),
     jStone2: std({ ...stone2, color: 0xc8c0b0, roughness: 0.95 }),
-    jCave: std({ ...cave, color: 0x9a948a, roughness: 0.8, metalness: 0.05 }),
-    jCaveWet: std({ ...cave, color: 0x6a6660, roughness: 0.35, metalness: 0.1 }),
+    jCave: std({ ...cave, color: 0x9a948a, roughness: 0.8, metalness: 0.05, envMap: caveEnv }),
+    jCaveWet: std({ ...cave, color: 0x6a6660, roughness: 0.35, metalness: 0.1, envMap: caveEnv }),
     jTent: std({ map: tentTex([150, 138, 100], 3), roughness: 0.95, side: THREE.DoubleSide }),
     jTent2: std({ map: tentTex([96, 108, 70], 5), roughness: 0.95, side: THREE.DoubleSide }),
     jTentBlue: std({ map: tentTex([60, 86, 120], 7), roughness: 0.9, side: THREE.DoubleSide }),
@@ -551,20 +626,22 @@ export function jungleKit(K) {
     jLeaf2: leafy(bigLeafTex(19), 0.05, 0xc8d8a8),
     jFern: leafy(frondTex(21), 0.06),
     jPalm: leafy(frondTex(23, true), 0.07),
-    jVine: leafy(vineTex(25), 0.03, 0xffffff, 0.3),
+    jVine: leafy(vineTex(25), 0.03, 0xb4c09c, 0.3),   // [realism] tinted down: the curtains glowed neon green against the dark rock
     jLeaf3: leafy(bigLeafTex(17), 0.05, 0x9ab088),
     jPalm2: leafy(frondTex(23, true), 0.07, 0xe0e4a8),
-    jBark: std({ ...K.TX.relief(K.TX.barkTexture('oak'), 1.6), color: 0xb4ac98, roughness: 0.95 }),
+    jBark: (() => { const bk = K.TX.barkTexture('oak'); return std({ ...K.TX.relief(bk, 1.6), map: mossyBark(bk, 71), color: 0xc8c0ac, roughness: 0.92 }); })(),   // [realism] mossy, lichened, rain-streaked
     jPalmBark: std({ ...K.TX.relief(K.TX.barkTexture('pine'), 1.0), color: 0xd4c6aa, roughness: 0.95 }),
     jEndGrain: std({ map: endGrainTex(), roughness: 0.9 }),
     jFall: new THREE.MeshStandardMaterial({ map: fallTex(), transparent: true, depthWrite: false, roughness: 0.1, side: THREE.DoubleSide, envMapIntensity: 1.2 }),
-    jRiver: new THREE.MeshStandardMaterial({ map: rippleTex(), color: 0x9ab8a8, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.9, envMapIntensity: 1.5, vertexColors: true, ...(ripN ? { normalMap: ripN, normalScale: new THREE.Vector2(0.6, 0.6) } : {}) }),
+    jRiver: new THREE.MeshStandardMaterial({ envMap: forestEnv, map: rippleTex(), color: 0x7c8c70, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.9, envMapIntensity: 1.5, vertexColors: true, ...(ripN ? { normalMap: ripN, normalScale: new THREE.Vector2(0.6, 0.6) } : {}) }),
     jSea: new THREE.MeshStandardMaterial({ map: rippleTex(), color: 0x6a9aa8, roughness: 0.05, metalness: 0.25, transparent: true, opacity: 0.92, envMapIntensity: 1.8, ...(ripN ? { normalMap: ripN.clone(), normalScale: new THREE.Vector2(0.5, 0.5) } : {}) }),
     jFoam: new THREE.MeshStandardMaterial({ map: foamTex(), transparent: true, depthWrite: false, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-    jLake: new THREE.MeshStandardMaterial({ color: 0x050d0c, roughness: 0.04, metalness: 0.2, emissive: 0x0b4a2a, emissiveIntensity: 0.55, envMapIntensity: 0.25, transparent: true, opacity: 0.95 }),
-    jCaveFloor: std({ ...K.TX.relief(K.TX.gravelTexture(), 1.2), color: 0x6a6258, roughness: 0.75 }),
+    // [realism] black still water lit from below: a mottled glow deep in the middle, no bright sky in it (the env map
+    // is the sky outside; a cave lake only mirrors the dark), a faint ripple
+    jLake: new THREE.MeshStandardMaterial({ color: 0x040a09, roughness: 0.06, metalness: 0.1, emissive: 0x2fd07a, emissiveMap: lakeGlowTex(), emissiveIntensity: 1.6, envMap: lakeEnv, envMapIntensity: 1, transparent: true, opacity: 0.96, ...(ripN ? { normalMap: ripN.clone(), normalScale: new THREE.Vector2(0.15, 0.15) } : {}) }),
+    jCaveFloor: std({ ...K.TX.relief(K.TX.gravelTexture(), 1.2), color: 0x6a6258, roughness: 0.75, envMap: caveEnv }),
     jSand: std({ map: K.TX.sandTexture(), roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-    jCrystal: std({ color: 0x66ff88, emissive: 0x33ff66, emissiveIntensity: 4, roughness: 0.2, metalness: 0.1, transparent: true, opacity: 0.85 }),
+    jCrystal: std({ color: 0x2f8a50, emissive: 0x2bd968, emissiveIntensity: 1.3, roughness: 0.12, metalness: 0.05, transparent: true, opacity: 0.82, envMap: caveEnv }),   // [realism] glowing green glass, not blown-out white
     jBat: std({ color: 0x1a1612, roughness: 0.9, side: THREE.DoubleSide }),
     jHull: std({ map: hullTex(), roughness: 0.6, side: THREE.DoubleSide }),
     jCanvasGreen: std({ map: tentTex([70, 82, 52], 31), roughness: 1, side: THREE.DoubleSide }),
@@ -587,6 +664,10 @@ export function jungleKit(K) {
     jMetalDark: std({ map: K.TX.paintedMetalTexture([56, 60, 62]), roughness: 0.55, metalness: 0.5 }),
     jTarp: std({ map: tentTex([40, 70, 130], 41), roughness: 0.7, side: THREE.DoubleSide }),
     jRuinDark: std({ ...stone, color: 0x888070, roughness: 1 }),
+    // [realism] standing water on the mud paths (mirror-smooth, the env sky in it), river mist, waterfall spray
+    jPuddle: new THREE.MeshStandardMaterial({ color: 0x1c1710, roughness: 0.03, metalness: 0.0, envMapIntensity: 1.4, alphaMap: puddleTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
+    jMist: new THREE.MeshBasicMaterial({ color: 0xdfe8e4, alphaMap: mistTex(), transparent: true, depthWrite: false, opacity: 0.4, vertexColors: true, side: THREE.DoubleSide }),
+    jSpray: new THREE.PointsMaterial({ color: 0xeef4f2, size: 3.8, sizeAttenuation: true, transparent: true, depthWrite: false, opacity: 0.13, alphaMap: (() => { const t = canvas(64, 64, (g, w) => { const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); gr.addColorStop(0, '#fff'); gr.addColorStop(0.5, '#777'); gr.addColorStop(1, '#000'); g.fillStyle = gr; g.fillRect(0, 0, w, w); }, false); return t; })() }),
   };
   M.jFall.map.wrapS = M.jFall.map.wrapT = THREE.RepeatWrapping; M.jFall.map.repeat.set(1, 2);
   M.jEmber.emissiveMap = M.jEmber.map;

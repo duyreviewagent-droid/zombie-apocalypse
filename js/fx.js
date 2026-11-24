@@ -154,6 +154,45 @@ export function makeFX(scene, world = null) {
     balls.push({ b, r, t: 1, size: 1 });
   }
   let bi = 0;
+  // [realism] bullet holes: a dark hole in a ring of freshly chipped surface, left on whatever was hit (one instanced
+  // mesh, one draw call; the oldest are reused, and each one fades away after a minute or so)
+  const HOLE_N = LOW > 1 ? 32 : LOW ? 48 : 96;
+  const holeTex = (() => {
+    const N = 64, c = document.createElement('canvas'); c.width = c.height = N; const g = c.getContext('2d'), m = N / 2;
+    for (let i = 0; i < 26; i++) { const a = Math.random() * 6.28, r = 6 + Math.random() * 16; g.fillStyle = `rgba(${200 + Math.random() * 55},${200 + Math.random() * 55},${200 + Math.random() * 55},${0.35 + Math.random() * 0.4})`; g.beginPath(); g.ellipse(m + Math.cos(a) * r * 0.5, m + Math.sin(a) * r * 0.5, 2 + Math.random() * 6, 1 + Math.random() * 3, a, 0, 7); g.fill(); }   // chips
+    const gr = g.createRadialGradient(m, m, 0, m, m, 13); gr.addColorStop(0, 'rgba(8,6,5,1)'); gr.addColorStop(0.45, 'rgba(18,15,13,0.95)'); gr.addColorStop(1, 'rgba(60,55,50,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(m, m, 13, 0, 7); g.fill();
+    for (let i = 0; i < 7; i++) { const a = Math.random() * 6.28; g.strokeStyle = 'rgba(20,18,16,0.6)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(m + Math.cos(a) * 5, m + Math.sin(a) * 5); g.lineTo(m + Math.cos(a + 0.2) * (12 + Math.random() * 14), m + Math.sin(a + 0.2) * (12 + Math.random() * 14)); g.stroke(); }   // hairline cracks
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })();
+  const holes = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ map: holeTex, transparent: true, depthWrite: false, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), HOLE_N);
+  holes.frustumCulled = false; holes.renderOrder = 1; holes.receiveShadow = true;
+  { const z = new THREE.Matrix4().makeScale(0, 0, 0); for (let i = 0; i < HOLE_N; i++) { holes.setMatrixAt(i, z); holes.setColorAt(i, new THREE.Color(1, 1, 1)); } }
+  scene.add(holes);
+  const holeD = Array.from({ length: HOLE_N }, () => ({ t: 0, s: 0, p: new THREE.Vector3(), q: new THREE.Quaternion() }));
+  let hi = 0, holeLive = 0, holeTick = 0;
+  const HZ = new THREE.Vector3(0, 0, 1), hq2 = new THREE.Quaternion(), hM = new THREE.Matrix4(), hS = new THREE.Vector3(), hC = new THREE.Color();
+  function hole(p, n, mat, big) {
+    if (!n || n.lengthSq() < 0.5) return;
+    const soft = mat === 'dirt' || mat === 'grass' || mat === 'mud' || mat === 'sand' || mat === 'cloth' || mat === 'paper' || mat === 'wire';
+    const D = holeD[hi], i = hi; hi = (hi + 1) % HOLE_N;
+    D.p.copy(p).addScaledVector(n, 0.004); D.q.setFromUnitVectors(HZ, n).multiply(hq2.setFromAxisAngle(HZ, Math.random() * 6.28));
+    D.s = (soft ? 0.07 : mat === 'metal' || mat === 'barrel' ? 0.026 : mat === 'wood' ? 0.034 : 0.045) * Math.min(1.5, Math.max(0.45, big)) * (0.85 + Math.random() * 0.3); D.t = 0;
+    const c = surf[mat] || surf.dirt;
+    // the ring takes the colour of what's underneath, brighter (fresh chips, bare metal, pale torn wood); in soil just a dark scuff
+    if (soft) hC.setRGB(c[0] * 0.55, c[1] * 0.5, c[2] * 0.45); else if (mat === 'metal' || mat === 'barrel') hC.setRGB(0.95, 0.95, 0.97); else hC.setRGB(Math.min(1, c[0] * 1.35 + 0.1), Math.min(1, c[1] * 1.35 + 0.1), Math.min(1, c[2] * 1.35 + 0.1));
+    holes.setColorAt(i, hC); holes.instanceColor.needsUpdate = true;
+    holes.setMatrixAt(i, hM.compose(D.p, D.q, hS.setScalar(D.s))); holes.instanceMatrix.needsUpdate = true;
+    holeLive = HOLE_N;
+  }
+  function holeUpdate(dt) {
+    if (!holeLive || (++holeTick & 15)) return;
+    let any = 0, ch = false;
+    for (let i = 0; i < HOLE_N; i++) { const D = holeD[i]; if (D.s <= 0) continue; D.t += dt * 16; any++;
+      if (D.t > 70) { const k = Math.max(0, 1 - (D.t - 70) / 5); if (k <= 0) D.s = 0; holes.setMatrixAt(i, hM.compose(D.p, D.q, hS.setScalar(D.s * k))); ch = true; } }
+    if (ch) holes.instanceMatrix.needsUpdate = true;
+    if (!any) holeLive = 0;
+  }
   const surf = {
     dirt: [0.36, 0.29, 0.21], grass: [0.32, 0.3, 0.2], mud: [0.25, 0.2, 0.15], sand: [0.55, 0.47, 0.34], concrete: [0.62, 0.6, 0.56], brick: [0.55, 0.32, 0.24],
     rock: [0.55, 0.53, 0.5], wood: [0.5, 0.38, 0.24], metal: [0.6, 0.6, 0.6], barrel: [0.6, 0.6, 0.6], cloth: [0.4, 0.42, 0.3], flesh: [0.5, 0.45, 0.4], wire: [0.5, 0.5, 0.5], paper: [0.85, 0.82, 0.74],
@@ -294,7 +333,7 @@ export function makeFX(scene, world = null) {
     lights,
     update(dt, cam) {
       if (!pooled) { pool(); if (!pooled && ++F._noW > 120) { pooled = true; for (const l of fxLights) scene.add(l); } }
-      glow.update(dt); smoke.update(dt); bits.update(dt); debUpdate(dt);
+      glow.update(dt); smoke.update(dt); bits.update(dt); debUpdate(dt); holeUpdate(dt);
       if (!F._lights) { F._lights = {}; scene.traverse(o => { if (o.isHemisphereLight) F._lights.hemi = o; else if (o.isDirectionalLight && o.castShadow) F._lights.sun = o; }); }
       { const { hemi, sun } = F._lights, a = AMB.value; a.setRGB(0.12, 0.12, 0.13);
         if (hemi) a.setRGB(hemi.color.r, hemi.color.g, hemi.color.b).multiplyScalar(hemi.intensity * 1.1);
@@ -365,8 +404,9 @@ export function makeFX(scene, world = null) {
       s.m.position.copy(p); s.v.copy(dir).multiplyScalar(2 + Math.random() * 1.5); s.v.y += 1.5 + Math.random();
       s.w.set(rnd(30), rnd(30), rnd(30)); s.life = 6; s.rest = false; s.bounced = 0; s.m.visible = true;
     },
-    impact(p, n, mat = 'dirt', big = 1) {
+    impact(p, n, mat = 'dirt', big = 1, opt = null) {
       const c = surf[mat] || surf.dirt;
+      if (mat !== 'flesh' && !(opt && opt.nohole)) hole(p, n, mat, big);   // [realism]
       if (mat === 'metal' || mat === 'barrel') {
         for (let i = 0; i < 10 * big; i++) glow.emit(p.x, p.y, p.z, n.x * 3 + rnd(3), n.y * 3 + rnd(3) + 1, n.z * 3 + rnd(3), 0.15 + Math.random() * 0.25, 0.03, 0.01, 1, 0.8, 0.45, 1, 9.8, 0.5);
         flashLight(p, 1.5, 0.04, 4, 0xffd090);
@@ -424,7 +464,7 @@ export function makeFX(scene, world = null) {
     holdLight,
     dropLight,
     sparks(p, n = 10) { for (let i = 0; i < n; i++) glow.emit(p.x, p.y, p.z, rnd(3), Math.random() * 3, rnd(3), 0.3, 0.03, 0.01, 1, 0.8, 0.4, 1, 9.8, 0.5); },
-    clear() { debClear(); for (const P of [glow, smoke, bits]) { P.L.fill(0); P.dirty = true; } for (const s of shells) { s.life = 0; s.m.visible = false; } for (const c of chunks) { c.life = 0; c.m.visible = false; } for (const T of tracers) T.m.visible = false; for (const H of held) { H.hold = 0; H.cur = 0; H.key = null; H.l.intensity = 0; } },
+    clear() { debClear(); for (let i = 0; i < HOLE_N; i++) { holeD[i].s = 0; holes.setMatrixAt(i, hM.makeScale(0, 0, 0)); } holes.instanceMatrix.needsUpdate = true; holeLive = 0; for (const P of [glow, smoke, bits]) { P.L.fill(0); P.dirty = true; } for (const s of shells) { s.life = 0; s.m.visible = false; } for (const c of chunks) { c.life = 0; c.m.visible = false; } for (const T of tracers) T.m.visible = false; for (const H of held) { H.hold = 0; H.cur = 0; H.key = null; H.l.intensity = 0; } },
   };
   return F;
 }

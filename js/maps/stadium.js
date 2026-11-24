@@ -99,8 +99,18 @@ export function buildMap(K) {
   add('sdSeatB', std({ map: T.seat, color: new THREE.Color(HOME.col2), roughness: 0.35 }));
   add('sdSeatY', std({ map: T.seat, color: new THREE.Color(0xd8b020), roughness: 0.35 }));
   add('sdSeatG', std({ map: T.seat, color: new THREE.Color(0x3a3e44), roughness: 0.35 }));
+  // [realism] the moulded seats (desktop): weathered plastic, a dark steel bracket; phones keep the plain box seat
+  const SEAT_HI = tier() === 0, seatGeo = SEAT_HI ? G.seatHi : G.seat;
+  const hiSeat = (k, col) => SEAT_HI ? add(k, std({ map: T.seatHi, color: new THREE.Color(col), roughness: 0.55 })) : MAT[k.replace('H', '')];
+  const seatHC = hiSeat('sdSeatHC', HOME.col), seatHB = hiSeat('sdSeatHB', HOME.col2), seatHY = hiSeat('sdSeatHY', 0xd8b020);
   add('sdNet', std({ map: T.net, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.8, transparent: false }));
   add('sdCanopy', std({ color: 0xeeeeea, roughness: 0.6, side: THREE.DoubleSide }));
+  { const br = rng(31); add('sdBackWall', std({ map: K.ctex(128, 128, (g, w, h) => {   // [realism] charcoal profiled steel sheeting, rain streaks
+      g.fillStyle = '#4a4e54'; g.fillRect(0, 0, w, h);
+      for (let x = 0; x < w; x += 16) { g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(x, 0, 3, h); g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(x + 9, 0, 5, h); }
+      for (let k = 0; k < 9; k++) { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(20,16,12,0.16)'); gr.addColorStop(1, 'rgba(20,16,12,0)'); g.fillStyle = gr; g.fillRect(br() * w, 0, 2 + br() * 4, h * (0.3 + br() * 0.7)); }
+      for (let k = 0; k < 500; k++) { g.fillStyle = `rgba(0,0,0,${0.08 * br()})`; g.fillRect(br() * w, br() * h, 2, 2); }
+    }, [1, 1]), roughness: 0.6, metalness: 0.4 }), 3); }
   // things that glow when the power's on
   const glow = (col, em, i = 1.6, o = {}) => std({ color: col, emissive: em, emissiveIntensity: i, roughness: 0.4, ...o });
   const bt = T.boards; bt.repeat.set(1, 32 / 0.92);
@@ -138,6 +148,30 @@ export function buildMap(K) {
     for (const sz of [-1, 1]) K.xadd(G.arc(1, 0, Math.PI / 2), MAT.sdLine, K.mat4(gx, 0.036, sz * PZ, s > 0 ? (sz > 0 ? Math.PI / 2 : Math.PI) : (sz > 0 ? 0 : -Math.PI / 2)), false);   // corner arcs
   }
   K.xadd(G.ring(9.15), MAT.sdLine, K.mat4(0, 0.036, 0), false); K.xadd(G.disc(0.15), MAT.sdLine, K.mat4(0, 0.037, 0), false);
+  // [realism] a cup-final pitch late in the season: worn goalmouths, a scuffed penalty spot and centre, the linesmen's
+  // runs down the touchlines — one blended decal material over the grass (a few quads, merged)
+  { const wr = rng(77), wearT = K.ctex(256, 256, (g, w, h) => {
+      g.clearRect(0, 0, w, h);
+      for (let k = 0; k < 1400; k++) {   // blotches of bare, dry earth and flattened yellowed grass, thicker in the middle
+        const a = wr() * 6.283, d = Math.pow(wr(), 0.7) * 0.5, x = w / 2 + Math.cos(a) * d * w * 0.9, y = h / 2 + Math.sin(a) * d * h * 0.9, f = 1 - d * 1.8;
+        if (f <= 0) continue;
+        const soil = wr() < 0.55; g.fillStyle = soil ? `rgba(${92 + wr() * 30 | 0},${74 + wr() * 22 | 0},${46 + wr() * 16 | 0},${0.12 * f + wr() * 0.1 * f})` : `rgba(${120 + wr() * 30 | 0},${124 + wr() * 24 | 0},${60 + wr() * 20 | 0},${0.1 * f})`;
+        g.beginPath(); g.ellipse(x, y, 2 + wr() * 9 * f, 1 + wr() * 5 * f, wr() * 3, 0, 7); g.fill();
+      }
+      for (let k = 0; k < 220; k++) { g.fillStyle = `rgba(60,48,30,${0.1 + wr() * 0.2})`; g.fillRect(w * (0.2 + wr() * 0.6), h * (0.2 + wr() * 0.6), 1 + wr() * 3, 1); }   // stud marks
+    }, [1, 1]);
+    wearT.wrapS = wearT.wrapT = THREE.ClampToEdgeWrapping;
+    const wearM = add('sdWear', std({ map: wearT, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const patch = (x, z, sx, sz, yaw = 0) => K.xadd(G.plane.clone().rotateX(-Math.PI / 2), wearM, K.mat4(x, 0.028, z, yaw, sx, 1, sz), false);
+    for (const s of [-1, 1]) {
+      patch(s * (PX - 3.2), 0, 8, 13);                 // the goalmouth (the keeper's area: nearly bare)
+      patch(s * (PX - 3), 0, 5, 7, 0.4);
+      patch(s * (PX - 11), 0, 3.2, 3.2, 1);            // the penalty spot
+      patch(s * (PX - 14), s * 4, 9, 6, 0.3);          // the edge of the box
+      patch(s * 26, -s * (PZ - 1.4), 52, 2.6);         // a linesman's run, one half each side
+    }
+    patch(0, 0, 7, 7); patch(0, 0, 18, 9, 0.2);       // the centre circle (kick-offs)
+  }
   // outside: the plaza (north), the car park (south), service roads east and west
   K.slab(-106, -106, 106, -70.6, 'walk', 'concrete');
   K.slab(-106, 58.8, 106, 106, 'sdAsphalt', 'asphalt');
@@ -156,7 +190,7 @@ export function buildMap(K) {
     const g = st.aisles.map(a => [a - 0.6, a + 0.6]).concat(cut || []).sort((p, q) => p[0] - q[0]); const out = []; let u = -st.L;
     for (const [a, b] of g) { if (a > u) out.push([u, a]); u = Math.max(u, b); } if (u < st.L) out.push([u, st.L]); return out;
   };
-  const seatMat = st => st.away ? MAT.sdSeatY : st.id === 'S' ? MAT.sdSeatC : st.id === 'W' ? MAT.sdSeatB : MAT.sdSeatC;
+  const seatMat = st => st.away ? seatHY : st.id === 'W' ? seatHB : seatHC;   // [realism] (the moulded seats)
   const fans = [];   // [x, y, z, yaw, colourIndex] — sat in the seats on the calm evening
   const PLAYER_SEAT = [SPOTS.seatRow12.x, SPOTS.seatRow12.z];
 
@@ -187,7 +221,7 @@ export function buildMap(K) {
       for (const [u0, u1] of segs(st, tunnelCut.length && y - 0.3 < 3.25 ? tunnelCut : [])) {
         for (let u = u0 + 0.3; u <= u1 - 0.25; u += 0.5) {
           const [x, z] = P(st, u, v0 + 0.42);
-          K.inst(G.seat, seatMat(st), K.mat4(x, y, z, yaw), false);
+          K.inst(seatGeo, seatMat(st), K.mat4(x, y, z, yaw), false);
           if (st.main && Math.abs(x - PLAYER_SEAT[0]) < 1.1 && Math.abs(z - PLAYER_SEAT[1]) < 0.4) continue;   // your seat and Ben's
           if (st.main && i > 11 && i <= 13 && Math.abs(x - PLAYER_SEAT[0]) < 1.6) continue;   // (the two rows behind you: nobody's head in the camera)
           if (R() < 0.82) fans.push([x, y, z, yaw, st.away ? (R() < 0.8 ? 2 : 3) : R() < 0.55 ? 0 : R() < 0.7 ? 1 : 3]);
@@ -306,6 +340,9 @@ export function buildMap(K) {
     // a canopy over each ground-level gate
     for (const [a, b, ya] of ops) if (ya < 0.5) { const [cx, cz] = P(st, (a + b) / 2, out + 1.0); const ax = Math.abs(st.a[0]) > 0.5; K.box(cx, 3.35, cz, ax ? (b - a) / 2 + 0.8 : 1.0, 3.55, ax ? 1.0 : (b - a) / 2 + 0.8, 0, f => f === 'top' ? 'sdRoofTop' : f === 'bot' ? 'sdRoofUnder' : 'sdBand'); }
     sbox(st, -L, st.back - 0.02, L, st.back + t + 0.04, yTop - 1.2, yTop, { ...fm, [bf(st)]: 'sdBand' }, { surf: 'metal' });
+    // [realism] above the top gangway the pitch sees the inside of the back wall: dark profiled steel sheeting (it's in
+    // the roof's shadow), not the concourse's painted blockwork
+    if (!st.main) sbox(st, -L, st.back - 0.03, L, st.back, st.top + 0.02, yTop - 1.2, { [pf(st)]: 'sdBackWall' }, { solid: false });
     // the stand's name in big letters on the outside
     const [x, z] = P(st, 0, st.back + t + 0.03); sign(st.name, x, yTop - 3.2, z, yawTo(st) + Math.PI, 16, 1.9, HOME.col, '#ffffff');
   }
@@ -603,7 +640,7 @@ export function buildMap(K) {
     for (let j = 0; j < n; j++) {
       const v0 = vu + j * d2, y = yu + j * r2;
       sbox(N, -50, v0, 50, v0 + d2, y - r2 - 0.1, y, f => f === 'top' ? 'sdTread' : 'sdRiser', { extra: { noWalk: true } });
-      for (let u = -49.7; u <= 49.7; u += 0.5) { const [x, z] = P(N, u, v0 + 0.46); K.inst(G.seat, Math.abs(u) < 12 && j > 3 && j < 9 && ((Math.floor(u / 2) + j) % 3 === 0) ? MAT.sdSeatB : MAT.sdSeatC, K.mat4(x, y, z, 0), false); if (R() < 0.85) fans.push([x, y, z, 0, R() < 0.6 ? 0 : 1]); }
+      for (let u = -49.7; u <= 49.7; u += 0.5) { const [x, z] = P(N, u, v0 + 0.46); K.inst(seatGeo, Math.abs(u) < 12 && j > 3 && j < 9 && ((Math.floor(u / 2) + j) % 3 === 0) ? seatHB : seatHC, K.mat4(x, y, z, 0), false); if (R() < 0.85) fans.push([x, y, z, 0, R() < 0.6 ? 0 : 1]); }
     }
     // the club crest on the upper tier's front, the clock
     const [cx, cz] = P(N, 0, 18.75); K.xadd(G.plane, std({ map: T.crest, transparent: true, alphaTest: 0.1, roughness: 0.5, emissive: 0xffffff, emissiveMap: T.crest, emissiveIntensity: 0.25 }), K.mat4(cx, L1 + 3.65, cz + 0.01, 0, 1.6, 1.6, 1), false);
@@ -957,10 +994,11 @@ export function buildMap(K) {
     Sph(0.022, 4, 3).scale(0.6, 1, 0.8).translate(-0.088, y, z), Sph(0.022, 4, 3).scale(0.6, 1, 0.8).translate(0.088, y, z)];
   const hairK = (y, z) => [Sph(0.106, 9, 4, 0, Math.PI * 0.5).scale(0.9, 1.08, 1.02).translate(0, y + 0.012, z - 0.006), Sph(0.104, 8, 3, Math.PI * 0.5, Math.PI * 0.22).scale(0.9, 1.08, 1.0).translate(0, y + 0.012, z - 0.012)];
   const C3o = (rt, rb, h, seg) => new THREE.CylinderGeometry(rt, rb, h, seg, 1, true);   // (open-ended: the ends are hidden anyway)
+  const ARM_SEG = LT ? 4 : 6;   // [realism] (round arms on desktop, not square tubes; phones keep 4 sides)
   const SEAT = {   // (sitting: hips on the seat pan, thighs forward, hands on the knees; thousands of them, all far off: ~240 triangles)
     top: G.merge([C3o(0.185, 0.145, 0.5, 6).scale(1, 1, 0.6).translate(0, 0.84, -0.06), Sph(0.185, 6, 2, 0, Math.PI / 2).scale(1.08, 0.42, 0.62).translate(0, 1.09, -0.06),
-      C3o(0.055, 0.047, 0.28, 4).rotateX(-0.25).translate(-0.215, 0.95, -0.03), C3o(0.055, 0.047, 0.28, 4).rotateX(-0.25).translate(0.215, 0.95, -0.03),
-      C3o(0.047, 0.04, 0.26, 4).rotateX(-1.3).translate(-0.2, 0.79, 0.09), C3o(0.047, 0.04, 0.26, 4).rotateX(-1.3).translate(0.2, 0.79, 0.09)]),
+      C3o(0.055, 0.047, 0.28, ARM_SEG).rotateX(-0.25).translate(-0.215, 0.95, -0.03), C3o(0.055, 0.047, 0.28, ARM_SEG).rotateX(-0.25).translate(0.215, 0.95, -0.03),
+      C3o(0.047, 0.04, 0.26, ARM_SEG).rotateX(-1.3).translate(-0.2, 0.79, 0.09), C3o(0.047, 0.04, 0.26, ARM_SEG).rotateX(-1.3).translate(0.2, 0.79, 0.09)]),
     legs: G.merge([C3o(0.155, 0.15, 0.16, 6).scale(1, 1, 0.72).translate(0, 0.53, -0.04), C3o(0.082, 0.068, 0.46, 4).rotateX(Math.PI / 2).translate(-0.095, 0.5, 0.17), C3o(0.082, 0.068, 0.46, 4).rotateX(Math.PI / 2).translate(0.095, 0.5, 0.17),
       C3o(0.06, 0.048, 0.44, 4).translate(-0.095, 0.26, 0.38), C3o(0.06, 0.048, 0.44, 4).translate(0.095, 0.26, 0.38)]),
     head: G.merge([C3o(0.048, 0.055, 0.12, 5).translate(0, 1.14, -0.05), Sph(0.1, 7, 5).scale(0.86, 1.1, 0.97).translate(0, 1.27, -0.05),

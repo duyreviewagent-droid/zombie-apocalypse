@@ -323,6 +323,12 @@ function bossStep(u, e) {
     const d = u.s.pos.distanceTo(P.s.pos);
     if (d < 12) C.shake = Math.max(C.shake, 0.18 * (1 - d / 12));
   }
+  // [zReal] a big one's foot puts up a little dust where it lands (close by only; a couple of motes on phones)
+  if (!u.giant && X.fx && X.fx.dust && u.s.pos.distanceTo(P.s.pos) < 30) {
+    const B = u.s.B; let p = u.s.pos;
+    if (B.LeftFoot && B.RightFoot) { B.LeftFoot.getWorldPosition(fA); B.RightFoot.getWorldPosition(fB); p = fA.y < fB.y ? fA : fB; }
+    X.fx.dust(V(p.x, 0.05, p.z), X.mobile ? 2 : u.bossT === 'boss' ? 6 : 3, [0.42, 0.38, 0.32], u.bossT === 'boss' ? 0.5 : 0.3);
+  }
 }
 // The Zombie's foot comes down: the camera shakes (less the farther you are), the ground rumbles, dust goes up, the
 // loose things nearby rattle (and the ones under its foot are crushed), people and the dead nearby stumble, and you

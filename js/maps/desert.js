@@ -201,6 +201,30 @@ export function buildMap(K) {
       { const [jx, jz] = P(doorLx + (doorLx > 0 ? -1.0 : 1.0), d / 2 + 0.6); inst(G.jar, 'clay', mat4(jx, 0, jz, r() * 6, 1.5, 1.5, 1.5)); }
       { const [lx2, lz2] = P(doorLx + (doorLx > 0 ? 0.85 : -0.85), d / 2 + 0.32), [px2, pz2] = P(doorLx + (doorLx > 0 ? 0.5 : -0.5), d / 2 + 1.6); inst(G.lantern, 'lanternOn', mat4(lx2, 2.35, lz2), false); xadd(G.ubox, 'darkMetal', mat4(lx2, 2.35, lz2, yaw, 0.03, 0.03, 0.34), false); lampAt(lx2, 2.2, lz2, { tx: px2, tz: pz2, pool: 2.2 }); }
     }
+    // [realism] the splash zone: rain bounce and blown sand wear the render at the foot of every outside wall into a
+    // darker band of mud with a ragged top edge, and here and there it has fallen away to the bare mud brick
+    {
+      const e = w / 2 + 0.2, f = d / 2 + 0.2, zb = yd > 0 ? d / 2 + yd + 0.175 : f, gx = doorLx, gw = yd > 0 ? 0.8 : 0.65, r = rng(houseN * 7919 + 3);   // own stream: the house's r() draws stay as they were
+      const band = (l0, l1, nl, ry, matK, hb, hr) => {   // a run along local x at local z = nl (ry turns it to face out)
+        const L = l1 - l0; if (L < 0.2) return; const n = Math.max(2, Math.round(L / 0.35)), g = new THREE.PlaneGeometry(L, 1, n, 1).translate(0, 0.5, 0);
+        const p = g.attributes.position, uv = g.attributes.uv;
+        for (let i = 0; i < p.count; i++) { const up = p.getY(i) > 0.5; p.setY(i, up ? hb + r() * hr : -0.04); uv.setXY(i, (p.getX(i) + l0) / 2.2, matK === 'splash' ? (up ? 1 : 0) : p.getY(i) / 2.2); }
+        return { g, m: (cx, cz) => mat4(cx, 0, cz, ry) };
+      };
+      const run = (axis, sgn, a0, a1, off, cuts = []) => {   // axis 'x': wall along local x at z = sgn*off; 'z': along z at x = sgn*off
+        let segs = [[a0, a1]]; for (const [c0, c1] of cuts) segs = segs.flatMap(([u, v]) => (c1 <= u || c0 >= v) ? [[u, v]] : [[u, c0], [c1, v]]);
+        for (const [u, v] of segs) {
+          const B = band(u, v, 0, 0, 'splash', 0.55, 0.3); if (!B) continue; const mid = (u + v) / 2, o = off + 0.03;
+          const [cx, cz] = axis === 'x' ? P(mid, sgn * o) : P(sgn * o, mid), ry = axis === 'x' ? Y(sgn > 0 ? 0 : PI) : Y(sgn > 0 ? PI / 2 : -PI / 2);
+          xadd(B.g, 'splash', mat4(cx, 0, cz, ry), false);
+          if (v - u > 2.5 && r() < 0.55) { const pl0 = u + 0.4 + r() * (v - u - 1.8), B2 = band(0, 0.6 + r() * 0.6, 0, 0, 'mudBrick', 0.16, 0.22), L2 = B2.g.parameters.width, c2 = pl0 + L2 / 2, o2 = o + 0.006;
+            const [qx, qz] = axis === 'x' ? P(c2, sgn * o2) : P(sgn * o2, c2); xadd(B2.g, 'mudBrick', mat4(qx, 0, qz, ry), false); }
+        }
+      };
+      run('x', -1, -e, e, f);                                                   // the back wall
+      run('z', 1, -f, zb, e); run('z', -1, -f, zb, e);                          // both sides (house + courtyard wall, one plane)
+      run('x', 1, -e, e, zb, [[gx - gw, gx + gw]]);                             // the front (courtyard wall or house front), gap at the gate/door
+    }
     // --- inside: the bedroom ---
     const bed = P(-ss * (w / 2 - 1.3), -d / 2 + 0.72);
     blk(...[bed[0], 0, bed[1]], 1.03, 0.36, 0.5, yaw, 'd_greyWood', 'wood');
@@ -557,6 +581,14 @@ export function buildMap(K) {
       // scree: loose stones down the banks
       for (let k = 0; k < 3; k++) { const sd = R() < 0.5 ? -1 : 1, sx = x + R() * 2.6, sz = zc + sd * (5.5 + R() * 3.5), ss = 0.25 + R() * 0.5; inst(G.stone, 'boulder', mat4(sx, hY(sx, sz) + ss * 0.08, sz, R() * 6, ss, ss * (0.5 + R() * 0.4), ss, R(), R()), false); }
       if (R() < 0.25) scrub(x + R() * 2, zc + (R() - 0.5) * 12, 0.9);
+    }
+    // [realism] the dry bed: a stream-sorted spread of rounded pebbles and cobbles, thickest along the old channel
+    // (its own random stream, so nothing else moves; same mesh batches as the scree; phones get a third)
+    { const rp = rng(5150), lowP = !!(K.TX && K.TX.isLow && K.TX.isLow());
+      for (let x = -104; x <= 104; x += lowP ? 3.9 : 1.3) {
+        if (Math.abs(x - HWY) < 7 || Math.abs(x + 8) < 2.4) continue;
+        for (let k = 0; k < 3; k++) { const px = x + rp() * 1.3, off = (rp() + rp() + rp() - 1.5) * 3.2, pz = wadiZ(px) + off, ps = 0.06 + rp() * rp() * 0.4; inst(G.stone, 'boulder', mat4(px, hY(px, pz) + ps * 0.04, pz, rp() * 6, ps, ps * (0.45 + rp() * 0.4), ps * (0.8 + rp() * 0.4), (rp() - 0.5) * 0.3, (rp() - 0.5) * 0.3), false); }
+      }
     }
     // the stone footbridge (x −8): flat deck at road level across the trench, parapets, two arches
     const bx = -8, wz = wadiZ(bx), hl = 13;

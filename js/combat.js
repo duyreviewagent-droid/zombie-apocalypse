@@ -145,7 +145,7 @@ function shot(u, o, d, W, first, agg = null) {
   const p = V().copy(o).addScaledVector(d, t);
   if (hit.kind === 'world') {
     worldHits++;
-    C.fx.impact(p, hit.n, hit.mat || 'dirt', W.id === 'sniper' ? 1.6 : W.pellets ? 0.5 : 1);
+    C.fx.impact(p, hit.n, hit.mat || 'dirt', W.id === 'sniper' ? 1.6 : W.pellets ? 0.5 : 1, hit.box ? { nohole: true } : null);   // [realism] (no hole left floating on a box that may break or move)
     if (W.pellets ? worldHits <= 2 : (first || Math.random() < 0.3)) C.SND.impact(p, hit.mat, W.pellets ? 0.6 : 1);
     if (hit.box) emit('hitBox', hit.box, W.dmg, u, p);
   } else if (hit.kind === 'unit') {
@@ -192,7 +192,7 @@ export function meleeWorld(from, yaw, reach, W) {
   const d = tC.set(Math.sin(yaw), -0.15, Math.cos(yaw)).normalize();
   const h = C.world.ray(from, d, reach + 0.2); if (!h) return null;
   const p = V().copy(from).addScaledVector(d, h.t), mat = h.mat || 'concrete';
-  C.fx.impact(p, h.n, mat, W.heavy ? 0.9 : 0.6);
+  C.fx.impact(p, h.n, mat, W.heavy ? 0.9 : 0.6, { nohole: true });
   if (W.blade && (mat === 'metal' || mat === 'barrel' || mat === 'concrete' || mat === 'brick' || mat === 'rock')) C.fx.sparks(p, W.heavy ? 14 : 8);
   C.SND.impact(p, mat, W.heavy ? 1.2 : 0.8);
   C.shake = Math.max(C.shake, 0.08);

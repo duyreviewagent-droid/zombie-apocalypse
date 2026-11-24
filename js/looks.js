@@ -260,7 +260,7 @@ function hairGeo(F, style) {
     case 'buzz': return shell(F, p => hairline(F, p), () => 0.008 * H);
     case 'crop': return shell(F, p => hairline(F, p), p => 0.012 * H + 0.04 * H * smooth(0.72, 1.0, (p.y - F.chin) / H));
     case 'balding': return shell(F, p => hairline(F, p) && bear(F, p) > 0.4 && p.y < F.chin + 0.88 * H, () => 0.01 * H);
-    case 'curly': return shell(F, p => hairline(F, p), p => 0.03 * H + 0.06 * H * smooth(0.6, 1.0, (p.y - F.chin) / H) + 0.025 * H * vnoise(p.x / H * 14, p.y / H * 14, p.z / H * 14));
+    case 'curly': { const g = shell(F, p => hairline(F, p), p => 0.03 * H + 0.06 * H * smooth(0.6, 1.0, (p.y - F.chin) / H) + 0.025 * H * vnoise(p.x / H * 14, p.y / H * 14, p.z / H * 14)); g.computeVertexNormals(); return g; }   // [chars] shaded as the curls really sit
   }
   return null;
 }
@@ -337,6 +337,7 @@ const tintFor = (hex, base = 0.62) => { const [r, g, b] = rgbOf(hex); return new
 function shellMat(hex) {
   const k = 'shell:' + hex; if (MATS.has(k)) return MATS.get(k);
   const m = new THREE.MeshStandardMaterial({ map: strands(), roughness: 0.82, metalness: 0 });
+  if (!C.mobile) { m.bumpMap = strands(); m.bumpScale = 0.6; }   // [chars] the strands catch the light, not a painted cap
   m.color.copy(tintFor(hex)); m.name = 'LookHair'; MATS.set(k, m); return m;
 }
 function donorMat(d, hex, grey = true) {
@@ -349,6 +350,52 @@ function donorMat(d, hex, grey = true) {
 function plainMat(hex, rough = 0.7, metal = 0, name = 'Look') {
   const k = 'plain:' + hex + ':' + rough + ':' + metal; if (MATS.has(k)) return MATS.get(k);
   const m = new THREE.MeshStandardMaterial({ color: hex, roughness: rough, metalness: metal }); m.name = name; MATS.set(k, m); return m;
+}
+
+// ---------------------------------------------------------------- skin and eyes  [chars]
+// Skin isn't matte paint: light goes in, scatters and comes back out warmer (reddest where the light falls off — the
+// terminator, the shadow side of a nose or an ear), it has fine pores, and a slight oily sheen. One shared program for
+// every skin (a per-person clone only carries its colour); the pore texture is one 256px normal map, desktop only.
+let PORES = null;
+function poreTex() {
+  if (PORES) return PORES;
+  const sz = 256, h = new Float32Array(sz * sz), R = rng(7331);
+  for (let i = 0; i < sz * sz; i++) h[i] = 0.5 + (R() - 0.5) * 0.12;
+  for (let n = 0; n < 2600; n++) {   // pores: little pits
+    const cx = R() * sz, cy = R() * sz, r = 0.8 + R() * 1.4, d = 0.35 + R() * 0.5;
+    for (let y = Math.floor(cy - r - 1); y <= cy + r + 1; y++) for (let x = Math.floor(cx - r - 1); x <= cx + r + 1; x++) {
+      const q = Math.hypot(x - cx, y - cy) / r; if (q >= 1) continue; const i = ((y + sz) % sz) * sz + (x + sz) % sz; h[i] -= d * (1 - q * q);
+    }
+  }
+  for (let n = 0; n < 140; n++) {   // fine creases
+    let x = R() * sz, y = R() * sz; const a = R() * Math.PI, L = 10 + R() * 30, dx = Math.cos(a), dy = Math.sin(a) * 0.35;
+    for (let t = 0; t < L; t++) { const i = ((Math.floor(y) + sz) % sz) * sz + (Math.floor(x) + sz) % sz; h[i] -= 0.25; x += dx; y += dy; }
+  }
+  const cv = document.createElement('canvas'); cv.width = cv.height = sz; const g = cv.getContext('2d'), D = g.createImageData(sz, sz), d = D.data;
+  const H = (x, y) => h[((y + sz) % sz) * sz + (x + sz) % sz];
+  for (let y = 0; y < sz; y++) for (let x = 0; x < sz; x++) {
+    const nx = (H(x - 1, y) - H(x + 1, y)) * 1.6, ny = (H(x, y - 1) - H(x, y + 1)) * 1.6, l = Math.hypot(nx, ny, 1), p = (y * sz + x) * 4;
+    d[p] = (nx / l * 0.5 + 0.5) * 255; d[p + 1] = (ny / l * 0.5 + 0.5) * 255; d[p + 2] = (1 / l * 0.5 + 0.5) * 255; d[p + 3] = 255;
+  }
+  g.putImageData(D, 0, 0);
+  PORES = new THREE.CanvasTexture(cv); PORES.wrapS = PORES.wrapT = THREE.RepeatWrapping; PORES.colorSpace = THREE.NoColorSpace; PORES.repeat.set(14, 14);
+  return PORES;
+}
+const SKIN_GLSL = `{ float sl = dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722));
+    float sw = smoothstep(0.004, 0.05, sl) * (1.0 - smoothstep(0.1, 0.5, sl));
+    outgoingLight *= mix(vec3(1.0), vec3(1.16, 0.95, 0.86), sw * 0.75); }
+  #include <opaque_fragment>`;
+function skinUp(m, face) {
+  m.roughness = face ? 0.6 : 0.66;
+  if (face && !C.mobile && !m.normalMap) { m.normalMap = poreTex(); m.normalScale.set(0.32, 0.32); }
+  m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', SKIN_GLSL); };
+  m.customProgramCacheKey = () => 'skin-sss' + (m.normalMap ? 'n' : '');
+  m.userData.skinSSS = true;
+}
+function wetMat(src, rough) {
+  const k = 'wet:' + src.uuid; if (MATS.has(k)) return MATS.get(k);
+  const m = src.clone(); m.roughness = rough; m.metalness = 0; if ('envMapIntensity' in m) m.envMapIntensity = 1.2;
+  MATS.set(k, m); return m;
 }
 
 // ---------------------------------------------------------------- hats and glasses
@@ -426,9 +473,11 @@ export function applyLook(s, L, { zombie = false } = {}) {
       if (/Wolf3D_Head|Wolf3D_Body/.test(n) && m0.map) {   // skin: the painted skin scaled to this person's tone
         const mean = meanSkin(m0.map), m = m0.clone(), lum = c => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]), Lr = lum(tone) / lum(mean), f = [0, 1, 2].map(c => Lr * Math.pow(lin(tone[c]) / lin(mean[c]) / Lr, 0.5)), mx = Math.max(...f), cap = mx > 1.1 ? 1.1 / mx : 1;
         m.color.setRGB(f[0] * cap, f[1] * cap, f[2] * cap); o.material = m;   // (never lifted past the painting's own highlights: chalk-white faces)
+        skinUp(m, /Wolf3D_Head/.test(n));   // [chars] pores, a little oil, light scattering warm under the skin
       } else if (/Outfit_(Top|Bottom)|Footwear/.test(n)) {
         const which = /Top/.test(n) ? 'top' : /Bottom/.test(n) ? 'bot' : 'shoe', col = which === 'top' ? TOPS[L.top] : which === 'bot' ? BOTTOMS[L.bot] : SHOES[L.shoe];
         const U = { lkA: { value: v3(col) } }; o.material = dyeMat(m0, 1, U); s.lookU.push([which, U]);
+      } else if (/Eye|Teeth/.test(n) && !/Brow|Lash/.test(n)) { o.material = wetMat(m0, /Eye/.test(n) ? 0.12 : 0.42);   // [chars] wet eyes catch the light
       } else if (/Hair|Beard|Headwear/.test(n)) o.visible = false;   // their own: the look brings its own
     });
     // hair

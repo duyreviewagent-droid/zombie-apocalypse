@@ -34,9 +34,11 @@ export function textures(seed = 11) {
   const r = rng(seed), T = {};
   // the pitch: two mowing stripes per texture repeat (along u), fine blade noise, a few worn patches
   T.grass = canvasTex(512, 512, (g, w, h) => {
-    for (let i = 0; i < 2; i++) { g.fillStyle = i ? '#3f7a2c' : '#4e8c34'; g.fillRect(i * w / 2, 0, w / 2, h); }
+    for (let i = 0; i < 2; i++) { g.fillStyle = i ? '#3d6f2c' : '#4b8034'; g.fillRect(i * w / 2, 0, w / 2, h); }   // [realism] (a little less lime: real turf under lights)
+    { const q = rng(seed + 5); for (let k = 0; k < 140; k++) { const x = q() * w, y = q() * h, rr = 12 + q() * 40, gr = g.createRadialGradient(x, y, 0, x, y, rr), d = q() < 0.5; gr.addColorStop(0, d ? 'rgba(20,40,10,0.13)' : 'rgba(150,160,80,0.09)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - rr, y - rr, rr * 2, rr * 2); } }   // [realism] clumps: lusher and drier patches
     for (let k = 0; k < 26000; k++) { const x = r() * w, y = r() * h, l = 70 + r() * 70; g.fillStyle = `rgba(${l * 0.45 | 0},${l | 0},${l * 0.32 | 0},${0.25 + r() * 0.3})`; g.fillRect(x, y, 1, 2 + r() * 3); }
     noise(g, w, h, 4000, 0.12, r);
+    { const q = rng(seed + 9); for (let k = 0; k < 900; k++) { g.fillStyle = `rgba(${170 + q() * 40 | 0},${170 + q() * 30 | 0},${90 + q() * 30 | 0},${0.12 + q() * 0.15})`; g.fillRect(q() * w, q() * h, 1, 1 + q() * 2); } }   // [realism] dry yellowed blade tips
   });
   // the run-off round the pitch: darker, shaggier grass
   T.apron = canvasTex(256, 256, (g, w, h) => {
@@ -99,6 +101,14 @@ export function textures(seed = 11) {
   T.net = canvasTex(64, 64, (g, w, h) => { g.clearRect(0, 0, w, h); g.strokeStyle = 'rgba(245,245,245,1)'; g.lineWidth = 2.2; for (let i = 0; i <= 64; i += 16) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, h); g.stroke(); g.beginPath(); g.moveTo(0, i); g.lineTo(w, i); g.stroke(); } });
   // the seat: a moulded plastic tip-up seat's colour with a faint sheen gradient
   T.seat = canvasTex(32, 32, (g, w, h) => { const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#c8c8c8'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+  // [realism] the moulded seat's: top 65% the plastic, sun-faded and scuffed; bottom 20% the dark steel bracket (G.seatHi's uvs)
+  T.seatHi = canvasTex(64, 64, (g, w, h) => {
+    const gr = g.createLinearGradient(0, 0, 0, h * 0.68); gr.addColorStop(0, '#f2f0ec'); gr.addColorStop(1, '#c4c2be'); g.fillStyle = gr; g.fillRect(0, 0, w, h * 0.7);
+    noise(g, w, h * 0.68, 260, 0.14, r); noise(g, w, h * 0.68, 120, 0.12, r, false);
+    for (let k = 0; k < 5; k++) { g.fillStyle = `rgba(30,30,30,${0.06 + r() * 0.08})`; g.fillRect(r() * w, r() * h * 0.6, 4 + r() * 10, 1); }   // scuffs
+    g.fillStyle = '#bdbab4'; g.fillRect(0, h * 0.7, w, h * 0.12);
+    g.fillStyle = '#3a3c3e'; g.fillRect(0, h * 0.82, w, h * 0.18); noise(g, w, h, 80, 0.2, r, false);
+  }, { aniso: 2 });
   // the big screen (match state drawn later by the map's update via T.drawScreen)
   T.screenCanvas = document.createElement('canvas'); T.screenCanvas.width = 1024; T.screenCanvas.height = 384;
   T.screen = new THREE.CanvasTexture(T.screenCanvas); T.screen.colorSpace = THREE.SRGBColorSpace; T.screen.anisotropy = 8;
@@ -206,6 +216,23 @@ export function geos() {
     new THREE.BoxGeometry(0.44, 0.38, 0.05).rotateX(-0.16).translate(0, 0.66, -0.16),
     new THREE.BoxGeometry(0.05, 0.36, 0.05).translate(0, 0.2, -0.1),
   ]);
+  // [realism] the moulded seat (desktop / bigger GPUs): a dished pan with a rolled front lip, a tall back that wraps
+  // round you, tapers and rounds off at the top, on a dark steel bracket bolted to the riser (~88 triangles).
+  // UVs (T.seatHi): the plastic samples its top (v > 0.3), the bracket the dark steel strip at its bottom (v < 0.2).
+  {
+    const shape = (geo, fn) => { const p = geo.attributes.position; for (let i = 0; i < p.count; i++) { const v = fn(p.getX(i), p.getY(i), p.getZ(i)); p.setXYZ(i, v[0], v[1], v[2]); } geo.computeVertexNormals(); return geo; };
+    const uvTo = (geo, v0, v1) => { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setY(i, v0 + uv.getY(i) * (v1 - v0)); return geo; };
+    const pan = shape(new THREE.BoxGeometry(0.44, 0.05, 0.38, 2, 1, 2), (x, y, z) => {
+      const ex = (x / 0.22) ** 2, front = Math.max(0, (z - 0.12) / 0.07);
+      return [x * (1 - 0.06 * Math.max(0, -z / 0.19)), y - 0.018 * (1 - ex) * (1 - Math.abs(z / 0.19)) - 0.03 * front * front + 0.012 * ex, z];
+    }).translate(0, 0.43, 0.02);
+    const back = shape(new THREE.BoxGeometry(0.44, 0.42, 0.035, 2, 2, 1), (x, y, z) => {
+      const t = (y + 0.21) / 0.42, ex = (x / 0.22) ** 2, w = 1 - 0.14 * t * t, top = t > 0.8 ? (t - 0.8) / 0.2 : 0;
+      return [x * w, y - 0.05 * ex * top, z + 0.05 * ex - 0.03 * t];   // (the wings come forward; the top leans back; the top corners roll off)
+    }).rotateX(-0.14).translate(0, 0.69, -0.165);
+    const brk = merge([new THREE.BoxGeometry(0.04, 0.36, 0.05).translate(0, 0.2, -0.13), new THREE.BoxGeometry(0.035, 0.035, 0.3).translate(0, 0.39, -0.01)]);
+    G.seatHi = merge([uvTo(pan, 0.35, 1), uvTo(back, 0.35, 1), uvTo(brk, 0.02, 0.15)]);
+  }
   G.seatLeg = merge([new THREE.BoxGeometry(0.03, 0.4, 0.3).translate(-0.23, 0.2, -0.02), new THREE.BoxGeometry(0.03, 0.4, 0.3).translate(0.23, 0.2, -0.02)]);
   // a spectator, sitting (cheap: a torso, head, thighs) — instanced in thousands with a per-instance colour
   G.fan = merge([

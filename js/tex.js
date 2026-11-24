@@ -191,24 +191,50 @@ export function barkTexture(kind = 'oak') {
 export function rockTexture() {
   const N = 512, r = rng(61);
   const [c, g] = cv(N);
-  paintNoise(g, N, [[70, 68, 64], [104, 100, 94], [130, 126, 118], [150, 146, 138]], valueNoise(N, [4, 16, 64, 256], 63), 20, r);
-  for (let k = 0; k < 300; k++) { g.strokeStyle = `rgba(30,28,26,${0.2 + r() * 0.3})`; g.lineWidth = 0.6 + r(); const x = r() * N, y = r() * N; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 50, y + (r() - 0.5) * 50); g.stroke(); }
-  for (let k = 0; k < 260; k++) { g.fillStyle = `rgba(${160 + r() * 40 | 0},${160 + r() * 40 | 0},${120 + r() * 30 | 0},${0.12 + r() * 0.2})`; g.beginPath(); g.arc(r() * N, r() * N, 2 + r() * 9, 0, 7); g.fill(); }
+  paintNoise(g, N, [[70, 68, 64], [104, 100, 94], [130, 126, 118], [150, 146, 138]], valueNoise(N, [4, 16, 64, 256], 63), 14, r);
+  grain(g, N, N, r, 16, 0.05, 40);   // crystalline grain: mica glints and dark mineral specks
+  for (let k = 0; k < 7; k++) drawCrack(g, r, N, N, r() * N, r() * N, r() * 6.3, 10 + (r() * 10 | 0), 10, 0.8 + r() * 1.2, 0.35);   // joints and fractures
+  for (let k = 0; k < 4; k++) {   // pale quartz veins
+    const pts = []; let x = r() * N, y = r() * N, a = r() * 6.3; for (let s = 0; s < 14; s++) { a += (r() - 0.5) * 0.5; x += Math.cos(a) * 14; y += Math.sin(a) * 14; pts.push([x, y]); }
+    g.strokeStyle = `rgba(206,200,188,${0.16 + r() * 0.14})`; g.lineWidth = 1 + r() * 2.5; g.lineJoin = 'round';
+    wrap9(g, N, N, () => { g.beginPath(); pts.forEach(([px, py], i) => i ? g.lineTo(px, py) : g.moveTo(px, py)); g.stroke(); });
+  }
+  // lichen and moss in ragged colonies (a thresholded noise, not round dots), weathering stains under them
+  const L = valueNoise(N, [6, 24, 96], 65), M = valueNoise(N, [4, 16, 64], 66), id = g.getImageData(0, 0, N, N), d = id.data;
+  for (let i = 0; i < N * N; i++) {
+    const l = Math.max(0, Math.min(1, (L[i] - 0.66) * 9)) * 0.5, m = Math.max(0, Math.min(1, (M[i] - 0.68) * 7)) * 0.45, st = (M[i] - 0.5) * 0.14;
+    let R = d[i * 4] * (1 - st), G = d[i * 4 + 1] * (1 - st), B = d[i * 4 + 2] * (1 - st);
+    R += (176 - R) * l; G += (178 - G) * l; B += (146 - B) * l;   // pale grey-green crustose lichen
+    R += (66 - R) * m; G += (84 - G) * m; B += (40 - B) * m;   // moss in the damp spots
+    d[i * 4] = R; d[i * 4 + 1] = G; d[i * 4 + 2] = B;
+  }
+  g.putImageData(id, 0, 0);
   return tex(c);
 }
 
+let _plank = null;
 export function plankTexture() {
+  if (_plank) return _plank;
   const W = 512, H = 512, r = rng(71);
   const [c, g] = cv(W, H);
-  const rows = 8;
+  const rows = 8, ph = H / rows;
   for (let i = 0; i < rows; i++) {
-    const v = 0.8 + r() * 0.35;
-    g.fillStyle = `rgb(${118 * v | 0},${84 * v | 0},${54 * v | 0})`; g.fillRect(0, i * H / rows, W, H / rows);
-    for (let k = 0; k < 40; k++) { g.strokeStyle = `rgba(${60 + r() * 40 | 0},${40 + r() * 20 | 0},20,${0.2 + r() * 0.3})`; g.lineWidth = 0.6 + r() * 1.5; const y = i * H / rows + r() * H / rows; g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(W / 3, y + (r() - 0.5) * 8, W * 2 / 3, y + (r() - 0.5) * 8, W, y + (r() - 0.5) * 4); g.stroke(); }
-    g.fillStyle = 'rgba(20,12,6,0.85)'; g.fillRect(0, i * H / rows, W, 3);
-    if (r() < 0.6) { g.fillStyle = 'rgba(40,24,12,0.7)'; g.beginPath(); g.ellipse(r() * W, i * H / rows + H / rows / 2, 6 + r() * 6, 4, 0, 0, 7); g.fill(); }
+    const v = 0.8 + r() * 0.3, y = i * ph;
+    woodGrain(g, 0, y, W, ph, [124 * v, 88 * v, 56 * v], r, { lines: 0.5, knots: r() < 0.5 ? 1 : 0, contrast: 1.4, horizontal: true });
+    // weathered: the grain raised and greyed in streaks along the board
+    for (let k = 0; k < 30; k++) { g.fillStyle = `rgba(${r() < 0.6 ? '150,140,128' : '40,26,14'},${0.04 + r() * 0.07})`; const x = r() * W, yy = y + 3 + r() * (ph - 6), L = 30 + r() * 160; g.fillRect(x, yy, L, 1); g.fillRect(x - W, yy, L, 1); }
+    g.fillStyle = 'rgba(20,12,6,0.85)'; g.fillRect(0, y, W, 2.5);   // the gap between boards
+    g.fillStyle = 'rgba(20,12,6,0.25)'; g.fillRect(0, y + 2.5, W, 2);   // shadow cast into it
+    g.fillStyle = 'rgba(255,236,200,0.08)'; g.fillRect(0, y + ph - 1.5, W, 1.5);   // the worn top edge of the board below
+    for (const x of [10, W - 10]) for (const ny of [y + ph * 0.3, y + ph * 0.7]) {   // nails where the board meets a post, a rust bleed under each
+      const gr = g.createLinearGradient(0, ny, 0, ny + 14); gr.addColorStop(0, 'rgba(90,40,14,0.35)'); gr.addColorStop(1, 'rgba(90,40,14,0)'); g.fillStyle = gr; g.fillRect(x - 1.5, ny, 3, 14);
+      g.fillStyle = 'rgba(40,34,30,0.9)'; g.beginPath(); g.arc(x, ny, 2, 0, 7); g.fill(); g.fillStyle = 'rgba(150,140,130,0.5)'; g.beginPath(); g.arc(x - 0.5, ny - 0.5, 0.8, 0, 7); g.fill();
+    }
+    if (r() < 0.4) drawCrack(g, r, W, H, r() * W, y + ph * (0.3 + r() * 0.4), (r() < 0.5 ? 0 : Math.PI) + (r() - 0.5) * 0.1, 6, 10, 1, 0.5);   // a split along the grain
   }
-  return tex(c);
+  grime(g, W, H, 77, 0.2, 0);
+  grain(g, W, H, r, 6);
+  return (_plank = withNormal(tex(c), c, 1.2));
 }
 
 export function glowSprite(col = '255,240,200') {
@@ -231,23 +257,37 @@ export function brickTexture() {
   const W = 512, H = 512, r = rng(101);
   const [c, g] = cv(W, H);
   const [hc, hg] = cv(W, H); hg.fillStyle = '#000'; hg.fillRect(0, 0, W, H);   // height: mortar recessed, bricks proud
-  g.fillStyle = '#8a8478'; g.fillRect(0, 0, W, H);   // mortar
-  const bw = 64, bh = 24;
-  for (let row = 0; row < Math.ceil(H / bh); row++) for (let col = -1; col < W / bw + 1; col++) {
-    const x = col * bw + (row % 2) * bw / 2, y = row * bh, v = 0.75 + r() * 0.4;
-    g.fillStyle = `rgb(${128 * v | 0},${62 * v | 0},${44 * v | 0})`; g.fillRect(x + 2, y + 2, bw - 4, bh - 4);
-    hg.fillStyle = `rgb(${200 + r() * 40 | 0},0,0)`; hg.fillRect(x + 2.5, y + 2.5, bw - 5, bh - 5);   // each brick sits a touch differently
-    hg.fillStyle = 'rgba(230,0,0,0.6)'; hg.fillRect(x + 3.5, y + 3.5, bw - 7, bh - 7);   // rounded arrises
-    for (let k = 0; k < 6; k++) { hg.fillStyle = 'rgba(0,0,0,0.5)'; hg.fillRect(x + 2 + r() * (bw - 6), y + 2 + r() * (bh - 6), 1 + r() * 3, 1 + r() * 2); }   // chips and pits
-    for (let k = 0; k < 18; k++) { g.fillStyle = `rgba(${r() < 0.5 ? '40,20,14' : '190,120,90'},${0.1 + r() * 0.2})`; g.fillRect(x + 2 + r() * (bw - 6), y + 2 + r() * (bh - 6), 1 + r() * 4, 1 + r() * 3); }
+  // mortar: sandy grey, uneven, gritty
+  paintNoise(g, W, [[112, 106, 96], [132, 126, 114], [150, 144, 132]], valueNoise(W, [16, 64, 256], 103), 18, r);
+  const bw = 64, rows = 22, bh = H / rows;   // a whole number of courses per tile, so it repeats with no seam
+  // a real wall is a blend: mostly reds, some orange, browns, the odd dark over-fired clinker
+  const PAL = [[128, 58, 40], [140, 66, 44], [118, 52, 38], [150, 78, 50], [104, 50, 38], [134, 72, 56], [92, 44, 34], [158, 92, 62]];
+  for (let row = 0; row < rows; row++) for (let col = 0; col < W / bw; col++) {
+    const x0 = col * bw + (row % 2) * bw / 2 + (r() - 0.5) * 2, y = row * bh + (r() - 0.5) * 0.8;
+    const q = r(), p = q < 0.06 ? [62, 36, 30] : PAL[r() * PAL.length | 0], v = 0.86 + r() * 0.24, hv = 200 + r() * 40 | 0;
+    const chips = []; for (let k = 0; k < 6; k++) chips.push([2 + r() * (bw - 6), 2 + r() * (bh - 6), 1 + r() * 3, 1 + r() * 2]);
+    const specks = []; for (let k = 0; k < 26; k++) specks.push([r() < 0.5 ? '40,20,14' : '196,130,96', 0.08 + r() * 0.2, 2 + r() * (bw - 6), 2 + r() * (bh - 6), 1 + r() * 4, 1 + r() * 2.5]);
+    const corner = r() < 0.12 ? [r() < 0.5 ? 2 : bw - 9, r() < 0.5 ? 2 : bh - 7] : null;
+    const face = r() < 0.5, kiss = r() < 0.25 ? 0.12 + r() * 0.12 : 0;   // a flashed (darker) end where bricks touched in the kiln
+    for (const x of [x0 - W, x0, x0 + W]) {   // drawn wrapped
+      g.fillStyle = `rgb(${p[0] * v | 0},${p[1] * v | 0},${p[2] * v | 0})`; g.fillRect(x + 2, y + 2, bw - 4, bh - 4);
+      if (kiss) { const gr = g.createLinearGradient(face ? x + 2 : x + bw - 2, 0, face ? x + 22 : x + bw - 22, 0); gr.addColorStop(0, `rgba(40,18,10,${kiss * 2})`); gr.addColorStop(1, 'rgba(40,18,10,0)'); g.fillStyle = gr; g.fillRect(x + 2, y + 2, bw - 4, bh - 4); }
+      g.strokeStyle = 'rgba(30,14,8,0.18)'; g.lineWidth = 1; g.strokeRect(x + 2.5, y + 2.5, bw - 5, bh - 5);   // the darker fired skin at the arrises
+      g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(x + 2, y + bh - 2, bw - 4, 1.2);   // the bed joint under each brick sits in shadow
+      g.fillStyle = 'rgba(255,230,200,0.06)'; g.fillRect(x + 2, y + 2, bw - 4, 1);   // the top arris catches the sky
+      hg.fillStyle = `rgb(${hv},0,0)`; hg.fillRect(x + 2.5, y + 2.5, bw - 5, bh - 5);   // each brick sits a touch differently
+      hg.fillStyle = 'rgba(230,0,0,0.6)'; hg.fillRect(x + 3.5, y + 3.5, bw - 7, bh - 7);   // rounded arrises
+      for (const [a, b, w, h] of chips) { hg.fillStyle = 'rgba(0,0,0,0.5)'; hg.fillRect(x + a, y + b, w, h); }   // chips and pits
+      for (const [col, al, a, b, w, h] of specks) { g.fillStyle = `rgba(${col},${al})`; g.fillRect(x + a, y + b, w, h); }
+      if (corner) { g.fillStyle = 'rgba(126,118,106,0.9)'; g.fillRect(x + corner[0], y + corner[1], 7, 5); hg.fillStyle = 'rgba(40,0,0,1)'; hg.fillRect(x + corner[0], y + corner[1], 7, 5); }   // a knocked-off corner
+    }
   }
-  // old plaster still clinging on in patches, soot near the top
-  const n = valueNoise(W, [4, 16], 107);
+  // weathering: a little soft mottling across the wall and faint white efflorescence salts in drifts (no tile-sized gradient: it would band)
+  const n = valueNoise(W, [4, 16], 107), ef = valueNoise(W, [3, 12, 48], 108), fine = valueNoise(W, [64, 128], 106);
   const id = g.getImageData(0, 0, W, H), d = id.data;
   for (let i = 0; i < W * H; i++) {
-    const p = n[i];
-    const y = Math.floor(i / W) / H, soot = (1 - y) * 0.12 * (0.5 + n[(i + 9000) % (W * H)]) + (p - 0.5) * 0.08;   // a little weathering, no blotches
-    d[i * 4] *= 1 - soot; d[i * 4 + 1] *= 1 - soot; d[i * 4 + 2] *= 1 - soot;
+    const f = 1 - (n[i] - 0.5) * 0.12 + (fine[i] - 0.5) * 0.14 + (r() - 0.5) * 0.08, e = Math.max(0, ef[i] - 0.62) * 0.5;
+    d[i * 4] = d[i * 4] * f + (210 - d[i * 4]) * e; d[i * 4 + 1] = d[i * 4 + 1] * f + (206 - d[i * 4 + 1]) * e; d[i * 4 + 2] = d[i * 4 + 2] * f + (196 - d[i * 4 + 2]) * e;
   }
   g.putImageData(id, 0, 0);
   // height = red channel of the height canvas + fine grit
@@ -258,11 +298,17 @@ export function brickTexture() {
 export function concreteTexture(tone = 1) {
   const N = 512, r = rng(111);
   const [c, g] = cv(N);
-  paintNoise(g, N, [[96, 94, 90], [122, 120, 115], [140, 138, 132], [156, 154, 148]].map(a => a.map(x => x * tone)), valueNoise(N, [4, 16, 64, 256], 113), 16, r);
-  for (let k = 0; k < 500; k++) { g.fillStyle = `rgba(40,40,40,${0.15 + r() * 0.3})`; g.beginPath(); g.arc(r() * N, r() * N, 0.6 + r() * 2.2, 0, 7); g.fill(); }
-  for (let k = 0; k < 30; k++) { g.strokeStyle = `rgba(30,30,30,${0.25 + r() * 0.3})`; g.lineWidth = 0.8; let x = r() * N, y = r() * N; g.beginPath(); g.moveTo(x, y); for (let s = 0; s < 8; s++) { x += (r() - 0.5) * 30; y += r() * 20; g.lineTo(x, y); } g.stroke(); }
+  paintNoise(g, N, [[96, 94, 90], [122, 120, 115], [140, 138, 132], [156, 154, 148]].map(a => a.map(x => x * tone)), valueNoise(N, [3, 8, 32, 128, 256], 113), 12, r);
+  grain(g, N, N, r, 12 * tone, 0.03, 36 * tone);   // sand and fine aggregate
+  for (let k = 0; k < 500; k++) { g.fillStyle = `rgba(40,40,40,${0.15 + r() * 0.3})`; g.beginPath(); g.arc(r() * N, r() * N, 0.6 + r() * 2.2, 0, 7); g.fill(); }   // blowholes
+  for (let k = 0; k < 5; k++) drawCrack(g, r, N, N, r() * N, r() * N, r() * 6.3, 10 + (r() * 10 | 0), 12, 0.6 + r() * 0.6, 0.3 + r() * 0.15);
   const hgt = isLow() ? null : normalFromHeight(c, 1.6);   // relief from the pits and cracks before the rain streaks go on (streaks are colour only)
-  for (let k = 0; k < 14; k++) { const x = r() * N; const gr = g.createLinearGradient(x, 0, x + 20, 0); gr.addColorStop(0, 'rgba(60,50,40,0)'); gr.addColorStop(0.5, 'rgba(60,50,40,0.18)'); gr.addColorStop(1, 'rgba(60,50,40,0)'); g.fillStyle = gr; g.fillRect(x, r() * N * 0.5, 20, N); }
+  for (let k = 0; k < 14; k++) {   // rain/rust streaks: fade in where the water starts, out where it ends; wrapped
+    const x = r() * N, y0 = r() * N, L = N * (0.3 + r() * 0.6), w = 8 + r() * 22, al = 0.08 + r() * 0.12;
+    const gr = g.createLinearGradient(0, y0, 0, y0 + L); gr.addColorStop(0, 'rgba(60,50,40,0)'); gr.addColorStop(0.25, `rgba(60,50,40,${al})`); gr.addColorStop(1, 'rgba(60,50,40,0)');
+    wrap9(g, N, N, () => { g.save(); g.beginPath(); g.ellipse(x + w / 2, y0 + L / 2, w / 2, L / 2, 0, 0, 7); g.clip(); g.fillStyle = gr; g.fillRect(x, y0, w, L); g.restore(); });
+  }
+  grime(g, N, N, 117, 0.1, 0);
   const t = tex(c); t.userData.normal = hgt; return t;
 }
 export function burlapTexture() {
@@ -370,75 +416,191 @@ function grime(g, N, M, seed, amt = 0.25, bottom = 0) {
   }
   g.putImageData(id, 0, 0);
 }
+// ---- realism helpers: everything drawn through wrap9 comes back in on the opposite edge, so a crack or patch that
+// crosses the tile border never leaves a hard seam where the texture repeats.
+// bb = [x0, y0, x1, y1] of what fn draws (optional): copies that would land wholly off the canvas are skipped
+function wrap9(g, W, H, fn, bb) {
+  for (const oy of [-H, 0, H]) for (const ox of [-W, 0, W]) {
+    if (bb && (bb[2] + ox < 0 || bb[0] + ox > W || bb[3] + oy < 0 || bb[1] + oy > H)) continue;
+    g.save(); g.translate(ox, oy); fn(); g.restore();
+  }
+}
+// a real crack: a wandering, tapering line (dark core, pale chipped lip beside it) that branches now and then
+function drawCrack(g, r, W, H, x, y, a, n, step, w, dark = 0.45, depth = 0) {
+  const pts = [[x, y]];
+  for (let s = 0; s < n; s++) { a += (r() - 0.5) * 0.85; x += Math.cos(a) * step * (0.5 + r()); y += Math.sin(a) * step * (0.5 + r()); pts.push([x, y]); }
+  g.lineJoin = g.lineCap = 'round';
+  const bb = [Infinity, Infinity, -Infinity, -Infinity]; for (const [px, py] of pts) { bb[0] = Math.min(bb[0], px - 8); bb[1] = Math.min(bb[1], py - 8); bb[2] = Math.max(bb[2], px + 8); bb[3] = Math.max(bb[3], py + 8); }
+  wrap9(g, W, H, () => {
+    for (let s = 1; s < pts.length; s++) {
+      const t = 1 - s / pts.length * 0.75, [x0, y0] = pts[s - 1], [x1, y1] = pts[s];
+      g.strokeStyle = `rgba(178,174,166,${0.12 * t})`; g.lineWidth = w * t * 2.4; g.beginPath(); g.moveTo(x0 + 0.8, y0 + 0.8); g.lineTo(x1 + 0.8, y1 + 0.8); g.stroke();
+      g.strokeStyle = `rgba(14,13,12,${dark * (0.55 + 0.45 * t)})`; g.lineWidth = Math.max(0.5, w * t); g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+    }
+  }, bb);
+  if (depth < 2) for (let i = 2; i < pts.length - 2; i++) if (r() < 0.1) {
+    const da = Math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0]) + (r() < 0.5 ? 1 : -1) * (0.5 + r() * 0.7);
+    drawCrack(g, r, W, H, pts[i][0], pts[i][1], da, Math.max(3, n * 0.45 | 0), step * 0.8, w * 0.6, dark * 0.85, depth + 1);
+  }
+}
+// per-pixel grain: fine random speckle (the "tooth" every real surface has at close range) plus sparse bright/dark grains
+function grain(g, W, H, r, amt = 10, sparks = 0, sparkAmt = 40) {
+  const id = g.getImageData(0, 0, W, H), d = id.data;
+  for (let i = 0; i < W * H; i++) {
+    let n = (r() - 0.5) * amt;
+    if (sparks && r() < sparks) n += (r() < 0.55 ? 1 : -1) * sparkAmt * (0.5 + r() * 0.5);
+    d[i * 4] += n; d[i * 4 + 1] += n; d[i * 4 + 2] += n * 0.97;
+  }
+  g.putImageData(id, 0, 0);
+}
 // horizontal lap siding (one texture tile = 1 m), tinted by the material colour
 export function sidingTexture(seed = 1) {
-  const N = 256, r = rng(seed * 31 + 5);
+  const N = isLow() ? 256 : 512, S = N / 256, r = rng(seed * 31 + 5);
   const [c, g] = cv(N);
   g.fillStyle = '#e8e6e0'; g.fillRect(0, 0, N, N);
   const bh = N / 6;   // boards 16.7 cm
-  const hh = new Float32Array(N * N), grain = valueNoise(N, [16, 128], seed * 3 + 11);
+  const hh = new Float32Array(N * N), lump = valueNoise(N, [16, 128], seed * 3 + 11);
+  const [sc, sg] = cv(N); sg.fillStyle = '#808080'; sg.fillRect(0, 0, N, N);   // the embossed cedar-grain streaks (fibre-cement / painted wood)
   for (let b = 0; b < 6; b++) {
-    const y = b * bh;
-    // only the thin drip-edge shadow is baked now (ambient-occluded crack under each lap); the slope comes from the normal map
-    const gr = g.createLinearGradient(0, y, 0, y + bh); gr.addColorStop(0, 'rgba(0,0,0,0.06)'); gr.addColorStop(0.08, 'rgba(0,0,0,0.0)'); gr.addColorStop(0.9, 'rgba(0,0,0,0.0)'); gr.addColorStop(0.97, 'rgba(0,0,0,0.1)'); gr.addColorStop(1, 'rgba(0,0,0,0.16)');
+    const y = b * bh, tone = 1 + (r() - 0.5) * 0.04;   // boards weathered a hair differently
+    g.fillStyle = tone > 1 ? `rgba(255,255,255,${(tone - 1) * 4})` : `rgba(0,0,0,${(1 - tone) * 2.4})`; g.fillRect(0, y, N, bh);
+    // only the thin drip-edge shadow is baked (ambient-occluded crack under each lap); the slope comes from the normal map
+    const gr = g.createLinearGradient(0, y, 0, y + bh); gr.addColorStop(0, 'rgba(0,0,0,0.07)'); gr.addColorStop(0.08, 'rgba(0,0,0,0.0)'); gr.addColorStop(0.86, 'rgba(0,0,0,0.0)'); gr.addColorStop(0.96, 'rgba(40,36,28,0.1)'); gr.addColorStop(1, 'rgba(0,0,0,0.2)');
     g.fillStyle = gr; g.fillRect(0, y, N, bh);
-    for (let k = 0; k < 40; k++) { g.fillStyle = `rgba(0,0,0,${r() * 0.05})`; g.fillRect(r() * N, y + r() * bh, 10 + r() * 60, 1); }
+    for (let k = 0; k < 160 * S; k++) {   // long grain streaks, wrapping round the tile edge
+      const x = r() * N, yy = y + 2 + r() * (bh - 4), L = (20 + r() * 110) * S, dk = r() < 0.5;
+      sg.fillStyle = dk ? `rgba(0,0,0,${0.25 + r() * 0.35})` : `rgba(255,255,255,${0.2 + r() * 0.3})`;
+      sg.fillRect(x, yy, L, S * (r() < 0.3 ? 2 : 1)); sg.fillRect(x - N, yy, L, S * (r() < 0.3 ? 2 : 1));
+      if (r() < 0.35) { g.fillStyle = `rgba(${dk ? '60,50,40' : '255,255,255'},${0.02 + r() * 0.03})`; g.fillRect(x, yy, L, S); g.fillRect(x - N, yy, L, S); }
+    }
+    for (let k = 0; k < 3; k++) {   // nail heads, painted over, just under the lap above
+      const x = ((k + r() * 0.3) / 3) * N, ny = y + 4 * S;
+      g.fillStyle = 'rgba(0,0,0,0.12)'; g.beginPath(); g.arc(x + 0.5, ny + 0.6, 1.4 * S, 0, 7); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.10)'; g.beginPath(); g.arc(x, ny, 1.1 * S, 0, 7); g.fill();
+    }
+    // mildew / dust caught along the bottom lip
+    for (let k = 0; k < 40 * S; k++) { g.fillStyle = `rgba(70,72,50,${0.03 + r() * 0.05})`; const x = r() * N; g.fillRect(x, y + bh - (2 + r() * 5) * S, (1 + r() * 4) * S, (1 + r() * 2) * S); }
   }
-  // height: a sawtooth per board — thin at the top (tucked under the board above), thick at the bottom overlap
-  for (let j = 0; j < N; j++) { const t = (j % bh) / bh; for (let i = 0; i < N; i++) hh[j * N + i] = t + (grain[j * N + i] - 0.5) * 0.06; }
-  grime(g, N, N, seed * 7 + 3, 0.14, 0);
+  const sd = sg.getImageData(0, 0, N, N).data;
+  // height: a sawtooth per board — thin at the top (tucked under the board above), thick at the bottom overlap — plus the grain
+  for (let j = 0; j < N; j++) { const t = (j % bh) / bh; for (let i = 0; i < N; i++) { const k = j * N + i; hh[k] = t + (lump[k] - 0.5) * 0.05 + (sd[k * 4] / 255 - 0.5) * 0.035; } }
+  grime(g, N, N, seed * 7 + 3, 0.06, 0);   // faint, not cloudy
+  grain(g, N, N, r, 5);
   return withNormal(tex(c), hh, 5, N, N);
 }
 export function shingleTexture(seed = 2) {
-  const N = 256, r = rng(seed * 13 + 1);
+  const N = isLow() ? 256 : 512, S = N / 256, r = rng(seed * 13 + 1);
   const [c, g] = cv(N);
-  g.fillStyle = '#3a3836'; g.fillRect(0, 0, N, N);
-  const [hc, hg] = cv(N); hg.fillStyle = '#000'; hg.fillRect(0, 0, N, N);
   const rh = N / 8, tw = N / 6;
-  for (let row = 0; row < 8; row++) for (let col = -1; col < 7; col++) {
-    const x = col * tw + (row % 2) * tw / 2 + (r() - 0.5) * 4, y = row * rh, v = 0.7 + r() * 0.5;
-    g.fillStyle = `rgb(${70 * v | 0},${66 * v | 0},${62 * v | 0})`; g.fillRect(x + 1, y + 1, tw - 2, rh - 2);
-    g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(x, y + rh - 3, tw, 3);
-    for (let k = 0; k < 30; k++) { g.fillStyle = `rgba(${r() < 0.5 ? '0,0,0' : '160,150,130'},${r() * 0.25})`; g.fillRect(x + r() * tw, y + r() * rh, 1.5, 1.5); }
-    // height: each tab is thicker at its exposed bottom edge (a step at every course); slots between tabs sink
-    const gr = hg.createLinearGradient(0, y, 0, y + rh); gr.addColorStop(0, 'rgb(60,0,0)'); gr.addColorStop(1, `rgb(${200 + r() * 50 | 0},0,0)`);
-    hg.fillStyle = gr; hg.fillRect(x + 1.5, y, tw - 3, rh);
+  // 1. the mineral granules: every pixel a little stone — mostly charcoal and slate, some brown, the odd pale one;
+  //    blended in drifts (a "weathered wood" blend) so no two tabs are the same colour
+  { const blend = valueNoise(N, [6, 24], seed + 7), id = g.createImageData(N, N), d = id.data;
+    for (let i = 0; i < N * N; i++) {
+      const q = r(), b = blend[i];
+      let v = q < 0.5 ? 52 + r() * 18 : q < 0.82 ? 72 + r() * 22 : q < 0.96 ? 92 + r() * 30 : 130 + r() * 50;
+      const warm = (b - 0.5) * 22 + (q > 0.7 && q < 0.82 ? 10 : 0);
+      d[i * 4] = v + warm; d[i * 4 + 1] = v + warm * 0.55 - 1; d[i * 4 + 2] = v - warm * 0.2 - 3; d[i * 4 + 3] = 255;
+    }
+    g.putImageData(id, 0, 0); }
+  const [hc, hg] = cv(N); hg.fillStyle = '#000'; hg.fillRect(0, 0, N, N);
+  for (let row = 0; row < 8; row++) {
+    const off = (row % 2) * tw / 2 + (r() - 0.5) * 6 * S, y = row * rh;
+    for (let col = 0; col < 6; col++) {
+      const x0 = col * tw + off + (r() - 0.5) * 3 * S, v = (r() - 0.5) * 0.22, w = tw - 2 * S;
+      const hv = 200 + r() * 50 | 0;
+      for (const x of [x0 - N, x0, x0 + N]) {   // drawn wrapped, so the tile repeats with no seam
+        g.fillStyle = v > 0 ? `rgba(255,248,236,${v * 0.5})` : `rgba(0,0,0,${-v * 0.9})`; g.fillRect(x + S, y, w, rh);   // this tab's own shade
+        g.fillStyle = 'rgba(10,10,10,0.75)'; g.fillRect(x - S, y, 2 * S, rh);   // the keyway slot between tabs
+        const gr = hg.createLinearGradient(0, y, 0, y + rh); gr.addColorStop(0, 'rgb(60,0,0)'); gr.addColorStop(1, `rgb(${hv},0,0)`);
+        hg.fillStyle = gr; hg.fillRect(x + 1.5 * S, y, w - S, rh);
+      }
+    }
+    // the drip edge: a crisp dark shadow line under the course above, a soft occlusion fading up the tab
+    const sh = g.createLinearGradient(0, y + rh - 6 * S, 0, y + rh); sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(0.7, 'rgba(0,0,0,0.22)'); sh.addColorStop(1, 'rgba(0,0,0,0.6)');
+    g.fillStyle = sh; g.fillRect(0, y + rh - 6 * S, N, 6 * S);
+    g.fillStyle = 'rgba(255,255,255,0.06)'; g.fillRect(0, y, N, S);   // the lit lower lip of the tab just above the shadow
+  }
+  // algae / runoff streaks: dark vertical stains running down the slope (wrapped)
+  for (let k = 0; k < 5; k++) {
+    const x = r() * N, w = (6 + r() * 18) * S, y0 = r() * N, L = (40 + r() * 140) * S;
+    const gr = g.createLinearGradient(0, y0, 0, y0 + L); gr.addColorStop(0, 'rgba(20,24,18,0)'); gr.addColorStop(0.3, `rgba(20,24,18,${0.12 + r() * 0.12})`); gr.addColorStop(1, 'rgba(20,24,18,0)');
+    g.fillStyle = gr; wrap9(g, N, N, () => g.fillRect(x, y0, w, L));
   }
   const hd = hg.getImageData(0, 0, N, N).data, grit = valueNoise(N, [64, 128], seed + 44), hh = new Float32Array(N * N);
-  for (let i = 0; i < N * N; i++) hh[i] = hd[i * 4] / 255 + (grit[i] - 0.5) * 0.15;   // granule grit
-  grime(g, N, N, seed + 40, 0.35, 0);
+  for (let i = 0; i < N * N; i++) hh[i] = hd[i * 4] / 255 + (grit[i] - 0.5) * 0.12 + (r() - 0.5) * 0.06;   // granule grit
+  grime(g, N, N, seed + 40, 0.18, 0);
   return withNormal(tex(c), hh, 4, N, N);
 }
 export function asphaltTexture() {
-  const N = 1024, r = rng(211), S = N / 512;   // 1024 px per 6 m tile (~17 px per 10 cm), weathered grey (albedo ~0.1-0.15), not tar black
+  const N = isLow() ? 512 : 1024, r = rng(211), S = N / 512;   // 1024 px per 6 m tile (~17 px per 10 cm), weathered grey (albedo ~0.1-0.15), not tar black
   const [c, g] = cv(N);
-  paintNoise(g, N, [[62, 62, 64], [78, 77, 76], [90, 89, 87], [104, 102, 99]], valueNoise(N, [8, 32, 128, 256], 213), 26, r);
-  for (let k = 0; k < 14000; k++) { const v = 80 + r() * 80 | 0; g.fillStyle = `rgba(${v},${v - 2},${v - 4},${0.3 + r() * 0.4})`; g.fillRect(r() * N, r() * N, 1 + r() * 2, 1 + r() * 2); }   // exposed aggregate
-  for (let k = 0; k < 5000; k++) { g.fillStyle = `rgba(30,30,32,${0.25 + r() * 0.3})`; g.fillRect(r() * N, r() * N, 1 + r() * 1.5, 1 + r() * 1.5); }   // voids between stones
-  const hgt = isLow() ? null : normalFromHeight(c, 1.4);   // aggregate relief from the stones themselves
-  for (let k = 0; k < 12; k++) {   // hairline cracks: thin, wandering in small steps, a pale chipped lip beside the dark line
-    let x = r() * N, y = r() * N, a = r() * 6.3; const pts = [[x, y]];
-    for (let s = 0; s < 26; s++) { a += (r() - 0.5) * 0.9; x += Math.cos(a) * 9 * S; y += Math.sin(a) * 9 * S; pts.push([x, y]); }
-    for (const [dx, col, w] of [[1.2, 'rgba(150,148,142,0.16)', 1.6], [0, `rgba(22,22,22,${0.28 + r() * 0.2})`, 0.6 + r() * 0.7]]) {
-      g.strokeStyle = col; g.lineWidth = w * S; g.lineJoin = 'round'; g.beginPath(); pts.forEach(([px, py], i) => i ? g.lineTo(px + dx, py + dx) : g.moveTo(px + dx, py + dx)); g.stroke();
-    }
+  paintNoise(g, N, [[60, 60, 62], [76, 75, 74], [88, 87, 85], [102, 100, 97]], valueNoise(N, [3, 8, 32, 128, 256], 213), 18, r);
+  // the aggregate: every pixel a speck of stone or binder, some bigger stones polished pale by tyres, dark voids between
+  grain(g, N, N, r, 14, 0.035, 40);
+  for (let k = 0; k < 2600 * S * S; k++) { const v = 96 + r() * 70 | 0, s = (0.8 + r() * 1.6) * S; g.fillStyle = `rgba(${v + 4},${v},${v - 6},${0.3 + r() * 0.45})`; g.fillRect(r() * N, r() * N, s * 1.6, s * (1 + r() * 0.6)); }
+  for (let k = 0; k < 2200 * S * S; k++) { g.fillStyle = `rgba(24,24,26,${0.25 + r() * 0.35})`; g.fillRect(r() * N, r() * N, (1 + r() * 1.5) * S, (1 + r() * 1.2) * S); }   // voids between stones
+  // utility-cut patches: rectangles of newer, darker, smoother asphalt with a tar-sealed seam round them
+  for (let k = 0; k < 2; k++) {
+    const x = r() * N, y = r() * N, w = (60 + r() * 120) * S, h = (40 + r() * 90) * S, a = (r() - 0.5) * 0.06;
+    const sp = []; for (let q = 0; q < w * h / (14 * S * S); q++) sp.push([r() * w, r() * h, 70 + r() * 50 | 0]);
+    wrap9(g, N, N, () => {
+      g.save(); g.translate(x, y); g.rotate(a);
+      g.fillStyle = 'rgba(34,34,36,0.26)'; g.fillRect(0, 0, w, h);
+      for (const [px, py, v] of sp) { g.fillStyle = `rgba(${v},${v},${v},0.25)`; g.fillRect(px, py, S, S); }
+      g.strokeStyle = 'rgba(18,18,20,0.45)'; g.lineWidth = 2.5 * S; g.strokeRect(0, 0, w, h);
+      g.restore();
+    }, [x - 8, y - 8, x + w + 8, y + h + 8]);
   }
+  // cracks: long wandering cracks that branch, and one patch of alligator (fatigue) cracking
+  for (let k = 0; k < 9; k++) drawCrack(g, r, N, N, r() * N, r() * N, r() * 6.3, 22 + (r() * 14 | 0), 10 * S, (0.7 + r() * 0.9) * S, 0.35 + r() * 0.2);
+  { const cx = r() * N, cy = r() * N, R = 70 * S, P = [];
+    for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) P.push([cx + i * R / 3 + (r() - 0.5) * R / 4, cy + j * R / 3 + (r() - 0.5) * R / 4, (r() - 0.5) * 6 * S, (r() - 0.5) * 6 * S]);
+    g.lineJoin = 'round';
+    wrap9(g, N, N, () => { for (let j = 0; j < 7; j++) for (let i = 0; i < 7; i++) {
+      const p = P[j * 7 + i], d = Math.hypot(p[0] - cx, p[1] - cy) / R; if (d > 1) continue;
+      for (const q of [i < 6 ? P[j * 7 + i + 1] : null, j < 6 ? P[(j + 1) * 7 + i] : null]) if (q) {
+        g.strokeStyle = `rgba(16,16,16,${0.45 * (1 - d * 0.7)})`; g.lineWidth = (0.6 + (1 - d)) * S; g.beginPath(); g.moveTo(p[0], p[1]);
+        g.quadraticCurveTo((p[0] + q[0]) / 2 + p[2], (p[1] + q[1]) / 2 + p[3], q[0], q[1]); g.stroke();
+      }
+    } });
+  }
+  const hgt = isLow() ? null : normalFromHeight(c, 1.5);   // relief from the stones, the voids and the cracks
   // tar-sealed crack repairs: glossy black squiggles laid over a few old cracks
   for (let k = 0; k < 3; k++) {   // each one follows a long, gently wandering crack
-    g.strokeStyle = 'rgba(26,26,28,0.45)'; g.lineWidth = 4 * S; g.lineJoin = g.lineCap = 'round'; let x = r() * N, y = r() * N, a = r() * 6.3; g.beginPath(); g.moveTo(x, y);
-    for (let s = 0; s < 6; s++) { a += (r() - 0.5) * 0.9; const mx = x + Math.cos(a) * 30 * S, my = y + Math.sin(a) * 30 * S; a += (r() - 0.5) * 0.9; x = mx + Math.cos(a) * 30 * S; y = my + Math.sin(a) * 30 * S; g.quadraticCurveTo(mx, my, x, y); } g.stroke();
+    g.strokeStyle = `rgba(22,22,24,${0.4 + r() * 0.15})`; g.lineWidth = (3 + r() * 2) * S; g.lineJoin = g.lineCap = 'round'; let x = r() * N, y = r() * N, a = r() * 6.3; const segs = [];
+    for (let s = 0; s < 7; s++) { a += (r() - 0.5) * 0.9; const mx = x + Math.cos(a) * 30 * S, my = y + Math.sin(a) * 30 * S; a += (r() - 0.5) * 0.9; const nx = mx + Math.cos(a) * 30 * S, ny = my + Math.sin(a) * 30 * S; segs.push([x, y, mx, my, nx, ny]); x = nx; y = ny; }
+    wrap9(g, N, N, () => { g.beginPath(); g.moveTo(segs[0][0], segs[0][1]); for (const s of segs) g.quadraticCurveTo(s[2], s[3], s[4], s[5]); g.stroke(); });
   }
-  // oil stains
-  for (let k = 0; k < 6; k++) { const x = r() * N, y = r() * N, s = (10 + r() * 30) * S; const gr = g.createRadialGradient(x, y, 0, x, y, s); gr.addColorStop(0, 'rgba(14,14,16,0.4)'); gr.addColorStop(1, 'rgba(14,14,16,0)'); g.fillStyle = gr; g.fillRect(x - s, y - s, s * 2, s * 2); }
+  // oil drips and stains: a cluster of overlapping blots, darkest in the middle, ragged at the edge
+  for (let k = 0; k < 6; k++) {
+    const x = r() * N, y = r() * N, s = (10 + r() * 26) * S;
+    const B = []; for (let q = 0; q < 6; q++) B.push([x + (r() - 0.5) * s, y + (r() - 0.5) * s * 0.7, s * (0.3 + r() * 0.6), 0.18 + r() * 0.14]);
+    wrap9(g, N, N, () => { for (const [ox, oy, rs, al] of B) { const gr = g.createRadialGradient(ox, oy, 0, ox, oy, rs); gr.addColorStop(0, `rgba(12,12,14,${al})`); gr.addColorStop(1, 'rgba(12,12,14,0)'); g.fillStyle = gr; g.fillRect(ox - rs, oy - rs, rs * 2, rs * 2); } });
+  }
   const t = tex(c); t.userData.normal = hgt; return t;
 }
 export function sidewalkTexture() {
-  const N = 256, r = rng(221);
+  const N = isLow() ? 256 : 512, S = N / 256, r = rng(221);   // tile = one 1.5 m slab
   const [c, g] = cv(N);
-  paintNoise(g, N, [[128, 126, 120], [148, 146, 140], [160, 158, 152], [170, 168, 160]], valueNoise(N, [4, 16, 64], 223), 14, r);
-  g.strokeStyle = 'rgba(40,40,40,0.55)'; g.lineWidth = 2; g.strokeRect(0, 0, N, N);   // expansion joints every 1.5 m (tile = 1.5 m)
-  for (let k = 0; k < 6; k++) { g.strokeStyle = `rgba(30,30,30,${0.3 + r() * 0.3})`; g.lineWidth = 0.8; let x = r() * N, y = r() * N; g.beginPath(); g.moveTo(x, y); for (let s = 0; s < 6; s++) { x += (r() - 0.5) * 30; y += (r() - 0.5) * 30; g.lineTo(x, y); } g.stroke(); }
-  for (let k = 0; k < 400; k++) { const v = 100 + r() * 70 | 0; g.fillStyle = `rgba(${v},${v},${v - 4},0.5)`; g.fillRect(r() * N, r() * N, 1, 1); }   // broom-finish grit
+  paintNoise(g, N, [[126, 124, 118], [146, 144, 138], [158, 156, 150], [168, 166, 158]], valueNoise(N, [3, 8, 32, 128], 223), 10, r);
+  // broom finish: fine ridges dragged across the slab, a little wavy
+  for (let y = 0; y < N; y += 1.5 * S) {
+    g.strokeStyle = r() < 0.5 ? `rgba(90,88,84,${0.05 + r() * 0.07})` : `rgba(220,218,212,${0.04 + r() * 0.06})`; g.lineWidth = S * 0.7;
+    g.beginPath(); const ph = r() * 6; for (let x = 0; x <= N; x += 16 * S) { const yy = y + Math.sin(x * 0.02 / S + ph) * 1.2 * S; x ? g.lineTo(x, yy) : g.moveTo(x, yy); } g.stroke();
+  }
+  grain(g, N, N, r, 12, 0.03, 34);   // sand and pores
+  // the trowelled margin: a smooth, slightly paler band round the slab with the edging tool's groove inside it
+  const m = 9 * S;
+  g.fillStyle = 'rgba(160,158,152,0.3)'; for (const [x, y, w, h] of [[0, 0, N, m], [0, N - m, N, m], [0, 0, m, N], [N - m, 0, m, N]]) g.fillRect(x, y, w, h);
+  g.strokeStyle = 'rgba(70,68,64,0.25)'; g.lineWidth = S; g.strokeRect(m, m, N - 2 * m, N - 2 * m);
+  g.strokeStyle = 'rgba(235,232,226,0.18)'; g.strokeRect(m + S, m + S, N - 2 * m - 2 * S, N - 2 * m - 2 * S);
+  // the joint itself (half on each edge, so neighbouring slabs share it) with dirt washed into it
+  for (let q = 0; q < 4; q++) { g.strokeStyle = `rgba(40,38,34,${[0.6, 0.18, 0.08, 0.04][q]})`; g.lineWidth = (2 + q * 2) * S; g.strokeRect(0, 0, N, N); }
+  // one fine crack from a corner, a couple of gum spots, a faint leaf stain (each slab repeats, so keep it subtle)
+  drawCrack(g, r, N, N, N * 0.02, N * 0.7, -0.6, 9, 12 * S, 0.7 * S, 0.3);
+  for (let k = 0; k < 3; k++) { const x = r() * N, y = r() * N, s = (1.5 + r() * 2) * S; g.fillStyle = `rgba(50,48,46,${0.25 + r() * 0.2})`; g.beginPath(); g.ellipse(x, y, s, s * 0.85, r() * 3, 0, 7); g.fill(); }
+  { const x = r() * N, y = r() * N; g.save(); g.translate(x, y); g.rotate(r() * 6); g.fillStyle = 'rgba(96,74,48,0.08)'; g.beginPath(); g.ellipse(0, 0, 14 * S, 6 * S, 0, 0, 7); g.fill(); g.restore(); }
+  grime(g, N, N, 227, 0.1, 0);
   return withNormal(tex(c), c, 2.2);
 }
 // a lived-in (not derelict) wall finish: 0 = striped paper, 1 = small dot paper, 2 = flat matte paint with roller stipple.

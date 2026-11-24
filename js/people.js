@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { C } from './state.js';
 import { tier } from './tex.js';
-import { Soldier, clamp, lerp, wrapPi, damp, addTurn } from './soldier.js';
+import { Soldier, clamp, lerp, wrapPi, damp, addTurn, aimBone } from './soldier.js';
 import { slotOf, adoptZombie, wake, Z, vestOn, dressZombie, startTurning, turnAmount, DIFF as ZD } from './zombies.js';
 import { Melee, MELEE } from './melee.js';
 import { refreshHitShapes } from './combat.js';
@@ -86,6 +86,7 @@ function restore(u) {
   if (u.uniform) { if (!u.zu) for (const [o, m, v] of u.look) { o.material = m; o.visible = v; } u.uniform = false; }
   LOOKS.outfit(u.s);   // their own clothes' colours back (after a paramedic's uniform or Ben's hoodie)
   if (u.bag) { if (u.bag.parent) u.bag.parent.remove(u.bag); u.bag = null; }
+  if (u.carry) { if (u.carry.parent) u.carry.parent.remove(u.carry); u.carry = null; } u.carryK = null; u.sitting = null; u.sitW = 0;   // [npcs] whatever they were carrying, and off the bench
   if (u.mel) { u.mel.hideAll(); }
   u.s.dead = false; u.s.resetActs(); u.s.lookAt = null; u.s.fly = null; u.s.animLod = false;
   if (u.phone) u.phone.visible = false;
@@ -160,7 +161,7 @@ function letGo(mesh, onto = null) {
   const gy = W.groundY ? W.groundY(p.x, p.z) : 0;
   mesh.position.set(p.x, gy + 0.035, p.z); mesh.rotation.set(rnd(-0.25, 0.25), rnd(0, 6.28), rnd(2.6, 3.4));   // it lands bun-down, the way dropped food always does
 }
-function clearProps() { PPL.camOn = null; for (const k of ['burger', 'spatula', 'mic', 'cam', 'benMug']) { const m = PPL[k]; if (m && m.parent) m.parent.remove(m); PPL[k] = null; } }
+function clearProps() { PPL.camOn = null; for (const k of ['burger', 'spatula', 'mic', 'cam', 'benMug']) { const m = PPL[k]; if (m && m.parent) m.parent.remove(m); PPL[k] = null; }  for (const m of PPL.dropped || []) if (m.parent) m.parent.remove(m); PPL.dropped = []; for (const c of X.world.containers || []) if (c.kind === 'bench') c.sit = null; }
 
 // everybody in their place, 10:30 on a Saturday morning
 export function castCalm() {
@@ -207,6 +208,7 @@ export function castCalm() {
     const Ln = LINES[li++ % LINES.length], a = rnd(Ln[2], Ln[3]);
     const [x, z] = linePos(Ln, a);
     reset(u, 'walker', '', x, z, Ln[0] === 'x' ? Math.PI / 2 : 0, 'walk', { line: Ln, t: rnd(0, 6) });
+    { const r = Math.random(); u.carryK = r < 0.16 ? 'coffee' : r < 0.32 ? 'groceries' : r < 0.42 ? 'paper' : null; }   // [npcs] a coffee from the Quick Stop, the shopping, the morning paper
   }
   for (const u of L) if (u.active && u.st === 'kneel') u.s.play('Fixing_Kneeling', { loop: true, fade: 0.01, snap: true, rate: rnd(0.8, 1.05) });
   syncList();
@@ -485,7 +487,7 @@ export function hurtNPC(u, dmg, by, opt = {}) {
   if (rise) startTurning(u.s, (u.i % 4) + 4 * Math.floor(Math.random() * 3));
   u.turnAt = mine ? (rise ? C.t + rnd(40, 100) : Infinity) : C.t + rnd(7, 14) * (PPL.fast || 1);
   u.ko = 0; u.hostile = false; u.heli = null; u.bleed = 0;
-  u.st = 'down'; u.trip = null; u.held = null; u.holdT = 0;
+  u.st = 'down'; u.trip = null; u.held = null; u.holdT = 0; if (u.carryK) dropCarry(u);   // [npcs]
   if (by && by.z && !by.isPlayer) PPL.bitten = (PPL.bitten || 0) + 1;   // the dead got them
   if (u.phone) u.phone.visible = false; if (u.h) { u.h.pz = null; u.h.ovr = null; }
   mourn(u);
@@ -1193,7 +1195,9 @@ function idleLife(u, dt, cmd, P, W, pd, stillish) {
   // the walk round the block: some of them text as they go
   if (calm && u.st === 'walk' && u.errand && u.errand.phone && u.errand.ph === 'go' && S.speed > 0.2 && armsFree(u)) { setPose(u, 'phone', 0.4); if (cmd.speed) cmd.speed *= 0.85; }
   // in the park: some sit down a while
-  if (calm && u.st === 'walk' && u.errand && u.errand.kind === 'park' && u.errand.ph === 'do' && u.errand.sit) cmd.crouch = true;
+  // (sitting: on a real bench now — see benchSeat / sitPose)   [npcs]
+  // [npcs] a coffee on the go: a sip now and then as they walk
+  if (calm && u.carryK === 'coffee' && !H.pz && (H.sipT = (H.sipT ?? rnd(3, 9)) - dt) <= 0) { H.sipT = rnd(8, 16); setPose(u, 'sipL', rnd(2, 2.8)); }
   // a fidget
   if (!stillish) return;
   H.fidT -= dt;
@@ -1211,6 +1215,7 @@ function idleLife(u, dt, cmd, P, W, pd, stillish) {
   const opts = [['phone', 1 + (p.age < 0.35 ? 1.6 : 0) + (p.mood === 'anxious' ? 0.6 : 0) - (listening ? 0.8 : 0), rnd(4, 10)], ['cross', 0.8 + (grumpy ? 1.5 : 0) + (listening ? 1 : 0), rnd(4, 9)], ['hips', 0.7 + (p.mood === 'cheerful' ? 0.6 : 0), rnd(3, 7)],
     ['scratch', 0.35 + p.nervous * 0.6, rnd(1.6, 2.4)], ['brow', 0.3 + (H.exert > 0.2 ? 2 : 0) + (calm ? 0 : 0.6), 1.5], ['stretch', 0.25 + (tired ? 0.9 : 0), 2.6], ['yawn', 0.15 + (tired ? 1.2 : 0), 2.3], ['none', 1.6, 0]];
   if (!calm) { opts[0][1] = u.role === 'bro' ? 0.5 : 0.25; opts[5][1] = 0.05; opts[6][1] = 0.02; }
+  if (u.carryK) { for (const o of opts) if (['phone', 'cross', 'hips', 'stretch', 'yawn'].includes(o[0])) o[1] = 0; if (u.carryK === 'coffee') opts.splice(opts.length - 1, 0, ['sipL', 2.4, rnd(2.2, 3)]); }   // [npcs] one hand full
   let tot = 0; for (const o of opts) tot += Math.max(0, o[1]);
   let r = Math.random() * tot, ch = opts[opts.length - 1];
   for (const o of opts) { r -= Math.max(0, o[1]); if (r <= 0) { ch = o; break; } }
@@ -1231,11 +1236,11 @@ function chatLife(u, dt) {
   const c = ch[u.h.chatI % ch.length];
   const [a, b] = Math.random() < 0.5 ? [u, v] : [v, u];
   u.h.chatT = rnd(9, 15) * (1.4 - (a.pers.chatty + b.pers.chatty) * 0.35);
-  a.say(c[0], 3.2); if (!a.s.up) a.s.playUp('Interact', { rate: rnd(0.7, 0.95), fade: 0.25, fadeAt: 1.4 });
+  a.say(c[0], 3.2);   // [npcs] (the hands go with the words: talkHands)
   setPose(b, 'nod', 1.6);
   const tR = (a.bubble ? a.bubble.t : 3.2) + 0.3, tL = tR + Math.max(2.6, 1.4 + String(c[1] || '').length * 0.07) + 0.4;   // the reply once the first line is read; the laugh once the reply is
   u.h.chatT = Math.max(u.h.chatT, tL + 1);
-  later2(() => { if (!b.alive || b.gone || PPL.phase !== 'calm' || b.st !== 'chat') return; b.say(c[1], 2.6); if (!b.s.up) b.s.playUp('Interact', { rate: 0.8, fade: 0.25, fadeAt: 1.2 }); setPose(a, 'nod', 1.4); }, tR);
+  later2(() => { if (!b.alive || b.gone || PPL.phase !== 'calm' || b.st !== 'chat') return; b.say(c[1], 2.6); setPose(a, 'nod', 1.4); }, tR);
   if (c[2]) later2(() => {   // the reply lands: the teller cracks up, and it gets the other one going
     if (!a.alive || a.gone || !b.alive || b.gone || PPL.phase !== 'calm' || b.st !== 'chat' || Math.random() > 0.8) return;
     setPose(a, 'laugh', 1.4); setPose(b, 'laugh', 1.2); vox(a, 'laugh', { pri: 1 }); if (!a.bubble) a.say(L_.laugh, 1.8);   // (the laugh first: the line then rides on it)
@@ -1420,11 +1425,187 @@ const POSES = {
     handAt(S, sd, 'Spine1', 0.17, 0.02, -0.05, q2.copy(bL).multiplyScalar(sd).addScaledVector(UP3, -0.3), q3.copy(UP3), 0.5, w);
     addTurn(S.B.Spine1, bF, 0.06 * w * -sd); bend(S, 0.08 * w, 0);
   },
+  sipL(S, w, t, u, dur) {   // [npcs] the coffee up to the mouth, a sip, the head tipping back a touch
+    const e = Math.sin(clamp(t / Math.max(0.6, dur), 0, 1) * Math.PI);
+    handAt(S, -1, 'Head', 0.15, -0.06, -0.02, q2.copy(UP3).multiplyScalar(0.35).addScaledVector(bL, -0.8).addScaledVector(bF, 0.25), q3.copy(bF).multiplyScalar(-1), 0.95, w);
+    nodHead(S, -0.12 * w * e);
+  },
   laugh(S, w, t) { const k = Math.sin(t * 15) * 0.05; nodHead(S, (-0.3 + k) * w); bend(S, 0, -0.06 * w + k * w); S.setMorph(['jawOpen', 'mouthOpen'], (0.45 + k * 4) * w); },
   nod(S, w, t) { nodHead(S, Math.sin(t * 6.5) * 0.13 * w); },
 };
 const HEAD_ONLY = new Set(['laugh', 'nod']), LEFT_ONLY = new Set(['phoneL', 'browL', 'scratchL']);
 PPL.setPose = (u, k, dur, data) => { u.h ||= newH(u); setPose(u, k, dur, data); };   // (tests and main.js can pose somebody)
+// ---------------------------------------------------------------- [npcs] benches, elbow room, talking hands, things carried
+// a free place on a park bench near (cx, cz): the spot in front of it to walk to, which way to face, the seat itself
+function benchSeat(u, cx, cz) {
+  const W = X.world, out = [];
+  for (const c of W.containers || []) {
+    if (c.kind !== 'bench' || Math.hypot(c.x - cx, c.z - cz) > 16) continue;
+    c.sit ||= [null, null];
+    for (let k = 0; k < 2; k++) { const v = c.sit[k]; if (v && v !== u && v.alive && !v.gone && v.errand && v.errand.seat && v.errand.seat.c === c) continue; out.push([c, k]); }
+  }
+  while (out.length) {
+    const [c, k] = out.splice(Math.floor(Math.random() * out.length), 1)[0];
+    const yaw = c.yaw || 0, bx = c.x, bz = c.z - 0.4;   // (world.js puts a bench's container 0.4 m off its middle)
+    const fx = Math.sin(yaw), fz = Math.cos(yaw), ax = Math.cos(yaw), az = -Math.sin(yaw);
+    const sg = ((cx - bx) * fx + (cz - bz) * fz) >= 0 ? 1 : -1;   // facing the playground
+    const off = k ? 0.45 : -0.45, sx = bx + ax * off, sz = bz + az * off; let at = null;
+    for (const d of [0.6, 0.75, 0.9, 1.05]) if (W.walkable(sx + fx * sg * d, sz + fz * sg * d)) { at = [sx + fx * sg * d, sz + fz * sg * d]; break; }   // (the route grid keeps a margin round the bench)
+    if (!at) continue;
+    c.sit[k] = u;
+    return { c, slot: k, x: sx, z: sz, y: (W.groundY ? W.groundY(at[0], at[1]) : 0) + 0.48, at, face: Math.atan2(fx * sg, fz * sg) };
+  }
+  return null;
+}
+PPL.benchSeat = (u, x, z) => benchSeat(u, x, z);   // (tests)
+function unseat(u, T) { if (T && T.c.sit && T.c.sit[T.slot] === u) T.c.sit[T.slot] = null; if (u.sitting === T) u.sitting = null; }
+// on the bench: settle down once they've turned round, stay put, get up before walking off
+function seatStep(u, dt, cmd) {
+  const T = u.sitting, S = u.s;
+  if (T && (u.st !== 'walk' || PPL.phase !== 'calm' || !u.errand || u.errand.seat !== T || !u.alive || u.gone)) unseat(u, T);
+  const want = u.sitting && Math.abs(wrapPi(T.face - S.yaw)) < 0.45 && S.speed < 0.3;
+  const moving = cmd.move != null && (cmd.speed || 0) > 0.1;
+  u.sitW = clamp((u.sitW || 0) + (want ? dt / 1.1 : -dt / (moving ? 0.3 : 0.9)), 0, 1);
+  if (u.sitting) { u.lastSeat = T; cmd.move = null; cmd.speed = 0; cmd.face = T.face; cmd.crouch = false; if (S.speed < 0.3) S.yaw = wrapPi(S.yaw + wrapPi(T.face - S.yaw) * Math.min(1, dt * 3)); }   // (round to face out, even mid-gesture)
+  else if (u.sitW > 0.02) { cmd.move = null; cmd.speed = 0; }   // (getting up first)
+  if (!u.sitW && !u.sitting) u.lastSeat = null;
+}
+// standing about on a calm day: nobody stands inside anybody else; a small step aside
+function spacing(u, dt, cmd) {
+  const S = u.s, H = u.h; if (!H || S.speed > 0.4 || u.st === 'kneel' || u.st === 'grill' || u.st === 'queue' || u.st === 'eat' || u.sitW) return;
+  H.spT = (H.spT || 0) - dt;
+  if (H.spT <= 0) {
+    H.spT = 0.35; H.spA = null; let ax = 0, az = 0;
+    for (const v of C.npcs || []) {
+      if (v === u || !v.s || v.gone) continue;
+      const dx = S.pos.x - v.s.pos.x, dz = S.pos.z - v.s.pos.z; if (Math.abs(dx) > 0.7 || Math.abs(dz) > 0.7) continue;
+      const d = Math.hypot(dx, dz); if (d < 1e-3) { ax += u.i % 2 ? 1 : -1; continue; }
+      if (d < 0.66) { const k = (0.66 - d) / 0.66; ax += dx / d * k; az += dz / d * k; }
+    }
+    if (ax || az) H.spA = Math.atan2(ax, az);
+  }
+  if (H.spA != null) { cmd.move = H.spA; cmd.speed = 0.5; }
+}
+// sat down: the hips onto the seat, thighs out level, shins down to the ground, hands resting on the legs
+function sitPose(u, S, w) {
+  const T = u.lastSeat, B = S.B; if (!T || !B.Hips || !B.LeftUpLeg || !B.LeftLeg || !B.LeftFoot || !B.RightUpLeg) return;
+  const e = w * w * (3 - 2 * w), Hp = B.Hips;
+  Hp.getWorldPosition(q1);
+  q2.set(lerp(q1.x, T.x + bF.x * 0.04, e), lerp(q1.y, T.y + 0.1, e), lerp(q1.z, T.z + bF.z * 0.04, e));
+  Hp.parent.worldToLocal(q2); Hp.position.copy(q2);
+  for (const sd of [1, -1]) {
+    const P = sd > 0 ? 'Right' : 'Left', th = B[P + 'UpLeg'], kn = B[P + 'Leg'], ft = B[P + 'Foot'], toe = B[P + 'ToeBase'];
+    q3.copy(bF).addScaledVector(UP3, -0.08).addScaledVector(bL, -sd * (0.14 + ((u.i * 13) % 5) * 0.02));   // knees a little apart (each their own way)
+    aimBone(th, kn, q3, e, true);
+    q3.copy(UP3).multiplyScalar(-1).addScaledVector(bF, 0.1 + ((u.i + (sd > 0 ? 0 : 3)) % 4) * 0.06).addScaledVector(bL, -sd * 0.05);
+    aimBone(kn, ft, q3, e, true);
+    if (toe) aimBone(ft, toe, q3.copy(bF).addScaledVector(UP3, -0.18), e, true);
+  }
+  bend(S, 0.06 * e, 0.05 * e);   // a bit of a slump
+  const pz = u.h && u.h.pz;
+  if (armsFree(u) && !(pz && pz.w > 0.05 && !HEAD_ONLY.has(pz.k)) && !(u.h && u.h.tgW > 0.05)) for (const sd of [1, -1]) {
+    if (sd < 0 && u.carryK && u.carryK !== 'coffee') continue;
+    bpos(S, sd > 0 ? 'RightLeg' : 'LeftLeg', q4).addScaledVector(bF, -0.13).addScaledVector(UP3, 0.07).addScaledVector(bL, sd * 0.02);
+    ik(S, sd, q4, q2.copy(bF).addScaledVector(UP3, -0.35).addScaledVector(bL, sd * 0.15), q3.copy(bL).multiplyScalar(-sd), 0.35, e * 0.9);
+  }
+}
+// talking: the hands go with the words (one hand, or both; a beat on the stressed words)
+function talkHands(u, S, dt) {
+  const H = u.h, k = S.talkK || 0;
+  const talking = (u.bubble || S.talkT > 0.4) && S.talkT > 0 && k >= 0.5 && k < 0.95 && (PPL.phase === 'calm' || u.st === 'idle' || u.st === 'stand');
+  const busy = !armsFree(u) || (H.pz && H.pz.w > 0.05 && !HEAD_ONLY.has(H.pz.k)) || S.speed > 1.3 || H.fear > 0.45 || u.st === 'queue';
+  H.tgW = clamp((H.tgW || 0) + (talking && !busy ? dt / 0.45 : -dt / 0.5), 0, 1);
+  if (H.tgW <= 0.001) { H.tg = null; return; }
+  const G = H.tg ||= { t: rnd(0, 5), n: 0, both: !u.carryK && Math.random() < 0.45, ax: 0, ay: 0, tx: 0, ty: 0, r: rnd(3.4, 4.8) };
+  G.t += dt; G.n -= dt;
+  if (G.n <= 0) { G.n = rnd(0.5, 1.3); G.tx = rnd(-0.05, 0.08); G.ty = rnd(-0.06, 0.08); if (Math.random() < 0.25) G.both = !G.both && !u.carryK; }
+  G.ax = damp(G.ax, G.tx, 5, dt); G.ay = damp(G.ay, G.ty, 5, dt);
+  const e0 = H.tgW * H.tgW * (3 - 2 * H.tgW), e = e0 * (S.speed > 0.3 ? 0.5 : 1);   // (walking and talking: smaller)
+  const beat = Math.pow(Math.abs(Math.sin(G.t * G.r)), 3) * 0.04 + Math.sin(G.t * 1.7) * 0.015;
+  handAt(S, 1, 'Spine1', 0.25 + G.ax, 0.03 + G.ay + beat, 0.17 + G.ax * 0.5, q2.copy(bF).addScaledVector(UP3, 0.3).addScaledVector(bL, 0.45), q3.copy(UP3).addScaledVector(bL, 0.5), 0.3, e);
+  if (G.both) handAt(S, -1, 'Spine1', 0.23 - G.ax * 0.5, 0.01 + G.ay * 0.6 + beat * 0.7, 0.16, q2.copy(bF).addScaledVector(UP3, 0.25).addScaledVector(bL, -0.45), q3.copy(UP3).addScaledVector(bL, -0.5), 0.3, e * 0.9);
+}
+// running for it and looking back: the whole upper body twists round, not just the head
+function lookBackTwist(u, S, dt) {
+  const H = u.h, on = (u.st === 'flee' || u.st === 'panic' || u.st === 'home') && u.lbT < 0 && u.lbT > -0.75 && S.speed > 1.4 && !!S.lookAt;
+  H.lean = damp(H.lean || 0, S.speed > 2.4 && H.fear > 0.4 ? H.fear : 0, 3, dt); if (H.lean > 0.02) bend(S, 0.07 * H.lean, 0.05 * H.lean, 0.04 * H.lean);   // running scared: head down, leaning into it
+  H.lbk = damp(H.lbk || 0, on ? 1 : 0, on ? 9 : 6, dt);
+  if (H.lbk < 0.01) return;
+  if (on) H.lbS = Math.sign(wrapPi(Math.atan2(S.lookAt.x - S.pos.x, S.lookAt.z - S.pos.z) - S.yaw)) || 1;
+  const a = (H.lbS || 1) * 0.34 * H.lbk, B = S.B;
+  addTurn(B.Spine, UP3, a * 0.5); addTurn(B.Spine1, UP3, a * 0.8); addTurn(B.Spine2, UP3, a); addTurn(B.Neck, UP3, a * 0.7);
+}
+// what they carry: a coffee, a bag of shopping, the paper (made once, shared materials)
+let CK = null;
+function carryKit() {
+  if (CK) return CK;
+  const cvs = (w, h, f) => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h; f(cv.getContext('2d'), w, h); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+  const kraft = cvs(128, 128, (g, w, h) => {
+    g.fillStyle = '#b08658'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 1400; i++) { g.fillStyle = Math.random() < 0.5 ? `rgba(70,45,20,${Math.random() * 0.13})` : `rgba(235,205,160,${Math.random() * 0.13})`; g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 3, 1); }   // paper fibre
+    g.strokeStyle = 'rgba(60,38,16,0.35)'; g.lineWidth = 1; for (const y of [9, 19]) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y + 2); g.stroke(); }   // the folded-over top
+    g.strokeStyle = 'rgba(60,38,16,0.18)'; for (let i = 0; i < 5; i++) { g.beginPath(); const x = Math.random() * w; g.moveTo(x, 20 + Math.random() * 30); g.lineTo(x + (Math.random() - 0.5) * 30, h); g.stroke(); }   // creases
+    g.fillStyle = 'rgba(32,74,44,0.8)'; g.font = 'bold 17px Helvetica, Arial, sans-serif'; g.textAlign = 'center'; g.fillText('QUICK', w / 2, 66); g.fillText('STOP', w / 2, 84);
+    g.fillRect(34, 90, 60, 2);
+  });
+  const news = cvs(128, 256, (g, w, h) => {
+    g.fillStyle = '#e4e0d6'; g.fillRect(0, 0, w, h);
+    g.fillStyle = '#1d1d1d'; g.font = 'bold 15px Georgia, serif'; g.textAlign = 'center'; g.fillText('The Hollow', w / 2, 20); g.fillText('Gazette', w / 2, 36);
+    g.fillRect(6, 42, w - 12, 2); g.font = 'bold 12px Georgia, serif'; g.fillText('COUNCIL OKs', w / 2, 60); g.fillText('NEW PARK', w / 2, 74);
+    g.fillStyle = '#8a8a86'; g.fillRect(8, 82, 52, 40);   // a photo
+    for (let c = 0; c < 2; c++) for (let y = 130; y < h - 6; y += 5) { g.fillStyle = `rgba(30,30,30,${0.35 + Math.random() * 0.25})`; g.fillRect(8 + c * 60, y, 50 - (Math.random() < 0.15 ? 20 : 0), 2); }
+    for (let y = 84; y < 122; y += 5) { g.fillStyle = 'rgba(30,30,30,0.4)'; g.fillRect(66, y, 54, 2); }
+  });
+  const M = o => new THREE.MeshStandardMaterial(o);
+  CK = {
+    kraft: M({ map: kraft, roughness: 0.92 }), news: M({ map: news, roughness: 0.95 }),
+    cup: M({ color: 0xf0ece3, roughness: 0.55 }), sleeve: M({ color: 0x8b5e36, roughness: 0.9 }), lid: M({ color: 0x1c1c1e, roughness: 0.35 }),
+    bread: M({ color: 0xc99350, roughness: 0.8 }), leaf: M({ color: 0x4f8a32, roughness: 0.75, flatShading: true }),
+    bagG: new THREE.BoxGeometry(0.27, 0.33, 0.16).translate(0, -0.225, 0), handG: new THREE.TorusGeometry(0.05, 0.007, 5, 10, Math.PI),
+    breadG: new THREE.CylinderGeometry(0.026, 0.026, 0.34, 8).rotateZ(0.32).translate(0.05, -0.08, 0.03), leafG: new THREE.IcosahedronGeometry(0.065, 0).translate(-0.06, -0.07, -0.02),
+    cupG: new THREE.CylinderGeometry(0.043, 0.032, 0.125, 14), sleeveG: new THREE.CylinderGeometry(0.0445, 0.039, 0.05, 14), lidG: new THREE.CylinderGeometry(0.0465, 0.045, 0.016, 14).translate(0, 0.068, 0),
+    paperG: new THREE.BoxGeometry(0.075, 0.3, 0.032),
+  };
+  return CK;
+}
+function carryMesh(k) {
+  const K = carryKit(), g = new THREE.Group(), add = (geo, m) => { const o = new THREE.Mesh(geo, m); o.castShadow = true; g.add(o); return o; };
+  if (k === 'coffee') { add(K.cupG, K.cup); add(K.sleeveG, K.sleeve); add(K.lidG, K.lid); }
+  else if (k === 'groceries') { add(K.bagG, K.kraft); const h = add(K.handG, K.kraft); h.position.y = -0.06; if (!tier()) { add(K.breadG, K.bread); add(K.leafG, K.leaf); } }   // (phones: just the bag)
+  else add(K.paperG, K.news);
+  g.userData.k = k;
+  return g;
+}
+// in the hand, every frame: the bag hangs plumb, the coffee stays upright (tipped up for a sip), the paper lies along the fingers
+function carryStep(u) {
+  const S = u.s, K = u.carryK; if (!K) return;
+  if (PPL.phase !== 'calm' || !u.alive || S.dead || ['flee', 'panic', 'home', 'run', 'ko', 'down'].includes(u.st) || u.hostile || u.trip) { dropCarry(u); return; }
+  const B = S.B, hand = B.LeftHand, fore = B.LeftForeArm; if (!hand || !fore) return;
+  const m = u.carry ||= S.pivot.add(carryMesh(K)) && S.pivot.children[S.pivot.children.length - 1];
+  m.visible = true;
+  S.curlFingers(-1, K === 'paper' ? 0.75 : 0.95, 1);
+  hand.getWorldPosition(q4); fore.getWorldPosition(q5); q5.subVectors(q4, q5).normalize();
+  if (B.LeftHandMiddle1) B.LeftHandMiddle1.getWorldPosition(q1); else q1.copy(q4).addScaledVector(q5, 0.07);
+  q1.addScaledVector(q5, 0.015);
+  S.pivot.updateWorldMatrix(true, false);
+  if (K === 'groceries' && (u.sitW || 0) > 0.5) { q1.copy(S.pos).addScaledVector(bL, 0.42).addScaledVector(bF, -0.05); q1.y = S.pos.y + 0.40; }   // sat down: the shopping on the ground beside them
+  m.position.copy(S.pivot.worldToLocal(q1));
+  if (K === 'paper') { const a = -S.yaw, c = Math.cos(a), s = Math.sin(a); q2.set(q5.x * c + q5.z * s, q5.y, -q5.x * s + q5.z * c); m.quaternion.setFromUnitVectors(UP3, q2.normalize()); }
+  else if (K === 'coffee') { const pz = u.h && u.h.pz, sip = pz && pz.k === 'sipL' ? pz.w * Math.sin(clamp(pz.t / pz.dur, 0, 1) * Math.PI) : 0; m.rotation.set(-0.95 * sip, 0, 0.12 * sip); }
+  else m.rotation.set(Math.sin(C.t * 3.1 + u.i) * 0.04 * Math.min(1, S.speed), 0.35, 0);   // a slight swing as they walk
+}
+// a fright: whatever they were carrying goes on the ground
+function dropCarry(u) {
+  const m = u.carry; u.carryK = null; u.carry = null; if (!m) return;
+  if (!m.parent || !u.s.visible) { if (m.parent) m.parent.remove(m); return; }
+  m.getWorldPosition(q1); m.parent.remove(m); X.scene.add(m); m.visible = true;
+  const k = m.userData.k, W = X.world, x = q1.x + rnd(-0.25, 0.25), z = q1.z + rnd(-0.25, 0.25), gy = W.groundY ? W.groundY(x, z) : 0;
+  if (k === 'groceries') { m.position.set(x, gy + 0.085, z); m.rotation.set(0, rnd(0, 6.28), Math.PI / 2 * (Math.random() < 0.5 ? 1 : -1)); }
+  else if (k === 'coffee') { m.position.set(x, gy + 0.042, z); m.rotation.set(Math.PI / 2, 0, rnd(0, 6.28)); }
+  else { m.position.set(x, gy + 0.017, z); m.rotation.set(Math.PI / 2, 0, rnd(0, 6.28)); }
+  (PPL.dropped ||= []).push(m); if (PPL.dropped.length > 14) { const o = PPL.dropped.shift(); if (o.parent) o.parent.remove(o); }
+  if (X.SND.touch) X.SND.touch(k === 'groceries' ? 'box' : 'misc', V(x, gy + 0.1, z));
+}
 // a phone in the hand (made once per person, shown only while it's out)
 // what's on their phone: a lock screen with the time and a couple of notifications
 let PHS = null;
@@ -1455,9 +1636,10 @@ function phoneOn(u, on) {
   if (u.phone) u.phone.visible = on;
 }
 function body(u, dt) {
-  const S = u.s, H = u.h, p = u.pers; if (!H || !p || S.dead || S.frozen || !u.alive) { if (u.phone) u.phone.visible = false; if (u.phoneL) u.phoneL.visible = false; return; }
+  const S = u.s, H = u.h, p = u.pers; if (!H || !p || S.dead || S.frozen || !u.alive) { if (u.phone) u.phone.visible = false; if (u.phoneL) u.phoneL.visible = false; if (u.carry && (S.dead || !u.alive)) dropCarry(u); return; }
   const B = S.B; if (!B.Spine2 || !B.Head) return;
   bF.set(Math.sin(S.yaw), 0, Math.cos(S.yaw)); bL.set(Math.cos(S.yaw), 0, -Math.sin(S.yaw));
+  if (u.sitW > 0.002 && u.lastSeat) sitPose(u, S, u.sitW);   // [npcs] sat on a bench
   const actW = S.act ? clamp(S.acts[S.act].w, 0, 1) : 0, free = 1 - actW, still = S.speed < 0.3 ? 1 : 0;
   // getting on a bit: a stoop, the head held forward
   if (p.age > 0.4 && free > 0.01) { const k = (p.age - 0.4) * free; bend(S, 0.2 * k, 0.16 * k); addTurn(B.Neck, bL, -0.14 * k); nodHead(S, -0.1 * k); }
@@ -1491,6 +1673,7 @@ function body(u, dt) {
     if (Z0.k !== 'phoneL' || Z0.w < 0.5) phoneLOn(u, false);
     if (Z0.t >= Z0.dur && Z0.w <= 0) { H.pz = null; phoneOn(u, false); }
   } else if (u.phone && u.phone.visible) phoneOn(u, false);
+  talkHands(u, S, dt); lookBackTwist(u, S, dt); if (u.carryK) carryStep(u); else if (u.carry) dropCarry(u);   // [npcs]
   // the eyes and the head: round to whatever they're looking at (on top of where the walk already points the head)
   const G = H.gaze;
   let ty = 0, tp = 0;
@@ -1562,6 +1745,8 @@ export function peopleStep(dt, focus) {
     const cmd = think(u, ddt, P, W) || {};
     if (u.gone) { changed = true; continue; }   // just went indoors
     human(u, ddt, cmd, P, W, S.pos.distanceTo(P.s.pos));
+    if (u.sitting || u.sitW) seatStep(u, ddt, cmd);   // [npcs] on a bench: stay put, facing out
+    if (PPL.phase === 'calm' && cmd.move == null && u.role !== 'market' && !u.sitting) spacing(u, ddt, cmd);   // [npcs] nobody stands inside anybody else
     cmd.aimYaw = S.yaw; cmd.combat = 0;
     if (u.limp && cmd.speed) cmd.speed *= 1 - 0.45 * u.limp;   // a bad leg
     if (u.infectAt && u.sickSaid && u.alive) {   // the fever taking hold: slower and slower, swaying, then down on their knees
@@ -1584,7 +1769,7 @@ export function peopleStep(dt, focus) {
     if (HELI.blocks(S.pos.x, S.pos.z, 0.3)) { if (HELI.blocks(ox, oz, 0.3)) HELI.pushOut(S.pos, 0.3); else { S.pos.x = ox; S.pos.z = oz; } }   // the parked helicopter is solid (and if it came down on them, out to its edge)
     if (PPL.ambs && PPL.ambs.length) offAmbs(S.pos);
     W.keepSide(u.safe ||= { x: S.pos.x, z: S.pos.z, set: true }, S.pos);
-    if (S.visible && d < 40) body(u, ddt); else if (u.phone && u.phone.visible) u.phone.visible = false;
+    if (S.visible && d < 40) body(u, ddt); else { if (u.phone && u.phone.visible) u.phone.visible = false; if (u.carry && u.carry.visible) u.carry.visible = false; }
     if (u.handT > 0 && S.visible && d < 30) {   // their hand on the knob as it opens
       u.handT += ddt; const k = u.handT < 0.3 ? u.handT / 0.3 : u.handT < 1.1 ? 1 : Math.max(0, 1 - (u.handT - 1.1) / 0.4);
       if (k <= 0) u.handT = 0; else { u.handK.getWorldPosition(tmp); const f = V(tmp.x - S.pos.x, 0, tmp.z - S.pos.z).normalize(), sd = V().crossVectors(f, V(0, 1, 0)).normalize(); S.reach(1, { p: tmp.clone(), f, s: sd, curl: 0.8, blend: true }, k * 0.9); }
@@ -1723,10 +1908,11 @@ function planErrand(u) {
     return { kind: 'window', at: [x, z], face: Math.PI, dur: rnd(4, 8) };
   }
   if (r < 0.7) {                // the park
-    for (let k = 0; k < 6; k++) { const x = -20 + rnd(-6, 6), z = -17 + rnd(-5, 5); if (W.walkable(x, z)) { const dur = rnd(6, 16); return { kind: 'park', at: [x, z], face: rnd(-3, 3), dur, sit: dur > 10 && Math.random() < 0.6 }; } }
+    if (Math.random() < 0.6) { const B = benchSeat(u, -20, -17); if (B) return { kind: 'park', at: B.at, face: B.face, dur: rnd(14, 30), seat: B };   }   // [npcs] a while on a park bench
+    for (let k = 0; k < 6; k++) { const x = -20 + rnd(-6, 6), z = -17 + rnd(-5, 5); if (W.walkable(x, z)) { const dur = rnd(6, 16); return { kind: 'park', at: [x, z], face: rnd(-3, 3), dur }; } }
   }
   const Ln = u.line || pick(LINES), [x, z] = linePos(Ln, rnd(Ln[2], Ln[3]));   // a walk round the block
-  return { kind: 'walk', at: [x, z], face: null, dur: rnd(1, 4), phone: Math.random() < 0.15 + (1 - ((u.pers && u.pers.age) || 0)) * 0.25 };
+  return { kind: 'walk', at: [x, z], face: null, dur: rnd(1, 4), phone: !u.carryK && Math.random() < 0.15 + (1 - ((u.pers && u.pers.age) || 0)) * 0.25 };
 }
 function walker(u, dt, P, W, cmd, pd) {
   const S = u.s;
@@ -1734,7 +1920,7 @@ function walker(u, dt, P, W, cmd, pd) {
   if (pd < 1.7 && u.path && u.path.length && C.t > (u.blockT || 0) && Math.abs(wrapPi(Math.atan2(P.s.pos.x - S.pos.x, P.s.pos.z - S.pos.z) - S.yaw)) < 0.6) {   // you're right in front of them: they stop ("oh — hi")
     u.blockT = C.t + 12; holdFor(u, 1.6); if (!u.bubble && Math.random() < 0.5) u.say((['Oh! Sorry.', 'Whoops — hi.', 'After you.']), 1.6); return cmd;
   }
-  if (pd < 1.1) { cmd.move = Math.atan2(S.pos.x - P.s.pos.x, S.pos.z - P.s.pos.z); cmd.speed = 0.8; return cmd; }
+  if (pd < 1.1 && !u.sitting) { cmd.move = Math.atan2(S.pos.x - P.s.pos.x, S.pos.z - P.s.pos.z); cmd.speed = 0.8; return cmd; }
   let E = u.errand;
   if (!E) { if (u.t > 0) return cmd; E = u.errand = planErrand(u); if (!E) { u.t = 2; return cmd; } E.ph = 'go'; goWalk(u, ...E.at); return cmd; }
   if (E.ph === 'in') { const r = entering(u, dt, cmd, pd, S.vw * u.pace()); if (r === true) { u.visitT = C.t + rnd(35, 80); u.errand = null; } else if (r === 'fail') { u.errand = null; u.t = 1; } return cmd; }
@@ -1748,12 +1934,13 @@ function walker(u, dt, P, W, cmd, pd) {
         const dur = rnd(5, 9);
         for (const [a, b] of [[u, v], [v, u]]) { a.errand = { kind: 'meet', ph: 'do', t: dur, face: Math.atan2(b.s.pos.x - a.s.pos.x, b.s.pos.z - a.s.pos.z), with: b }; a.path = null; a.s.lookAt = V(b.s.pos.x, 1.6, b.s.pos.z); }
         u.say(sayLines(u, 'greet'), 2.4); later2(() => v.alive && !v.gone && PPL.phase === 'calm' && v.say(sayLines(v, 'greet'), 2.4), 2.6);
-        S.playUp('Interact', { rate: 0.8, fade: 0.25, fadeAt: 1.2 });
+        if (u.h && armsFree(u) && Math.random() < 0.6) setPose(u, 'wave', 1.2);   // [npcs] a little wave hello, not a reach
         return cmd;
       }
     }
     if (!follow(u, S.vw * u.pace(), cmd, dt)) return cmd;
     E.ph = 'do'; E.t = E.dur;
+    if (E.seat) { if (Math.hypot(E.at[0] - S.pos.x, E.at[1] - S.pos.z) < 0.9 && E.seat.c.sit && E.seat.c.sit[E.seat.slot] === u) u.sitting = E.seat; else { unseat(u, E.seat); E.seat = null; E.t = rnd(2, 4); } }   // [npcs] turn, and down onto the bench
     if (E.kind === 'mail') { S.playUp('Interact', { rate: 0.75, fade: 0.25, fadeAt: 1.5 }); later2(() => X.SND.touch('misc', V(S.pos.x + Math.sin(E.face) * 0.5, 1.05, S.pos.z + Math.cos(E.face) * 0.5)), 0.6); later2(() => X.SND.touch('box', V(S.pos.x + Math.sin(E.face) * 0.5, 1.05, S.pos.z + Math.cos(E.face) * 0.5)), 1.6); }
     if (E.kind === 'knock') {   // three knocks, the hand doing it
       S.playUp('Interact', { rate: 1.5, fade: 0.12, fadeAt: 0.9 });
@@ -1763,7 +1950,8 @@ function walker(u, dt, P, W, cmd, pd) {
   }
   // doing it
   E.t -= dt; if (E.face != null) cmd.face = E.face;
-  if (E.kind === 'meet' && E.with && E.with.s) { cmd.face = Math.atan2(E.with.s.pos.x - S.pos.x, E.with.s.pos.z - S.pos.z); if (!E.said && E.t < 3.2) { E.said = true; if (Math.random() < 0.5) { u.say(sayLines(u, 'small'), 3); S.playUp('Interact', { rate: 0.8, fade: 0.25, fadeAt: 1.4 }); } } }
+  if (E.kind === 'meet' && E.with && E.with.s) { cmd.face = Math.atan2(E.with.s.pos.x - S.pos.x, E.with.s.pos.z - S.pos.z); if (!E.said && E.t < 3.2) { E.said = true; if (Math.random() < 0.5) u.say(sayLines(u, 'small'), 3); } }
+  if (E.seat && E.t <= 0) { if (u.sitting) unseat(u, E.seat); if ((u.sitW || 0) > 0.06) return cmd; }   // [npcs] up off the bench before walking on
   if (E.t <= 0) {
     S.lookAt = null;
     if (E.kind === 'knock' && Math.random() < 0.45 && !taken(E.h, u) && !E.h.front.broken) { E.ph = 'in'; enterHouse(u, E.h); u.path = []; u.enter.ph = 0; return cmd; }   // "It's open, come on in!"
@@ -1778,7 +1966,7 @@ function groupLife(u, dt, cmd) {
   cmd.face = Math.atan2(u.gc.x - S.pos.x, u.gc.z - S.pos.z);
   if (u === G[0] && PPL.talkT <= 0) {
     const cand = G.filter(v => v !== PPL.talker && v.alive && !(v.st === 'eat' && v.s.up)); PPL.talker = cand.length ? pick(cand) : null; PPL.talkT = rnd(2.8, 5.5);
-    if (PPL.talker) { PPL.talker.s.talkT = PPL.talkT * 0.8; PPL.talker.s.talkK = 0.7; if (Math.random() < 0.6 && !PPL.talker.s.up) PPL.talker.s.playUp('Interact', { rate: rnd(0.7, 0.95), fade: 0.3, fadeAt: 1.3 }); for (const v of G) if (v !== PPL.talker && v.h && v.alive) { const r = Math.random(); if (r < 0.2) later2(() => v.alive && PPL.phase === 'calm' && setPose(v, 'laugh', rnd(0.9, 1.5)), rnd(1.2, 2.5)); else if (r < 0.55) setPose(v, 'nod', rnd(1, 2)); } }
+    if (PPL.talker) { PPL.talker.s.talkT = PPL.talkT * 0.8; PPL.talker.s.talkK = 0.7; for (const v of G) if (v !== PPL.talker && v.h && v.alive) { const r = Math.random(); if (r < 0.2) later2(() => v.alive && PPL.phase === 'calm' && setPose(v, 'laugh', rnd(0.9, 1.5)), rnd(1.2, 2.5)); else if (r < 0.55) setPose(v, 'nod', rnd(1, 2)); } }
   }
   if (u.lookT > 0) return;
   const T = PPL.talker;
@@ -1807,7 +1995,7 @@ function think(u, dt, P, W) {
     if (pd < 3.2 && u.greetT <= 0 && u.st !== 'eat' && u.st !== 'grill' && X.G.state === 'play') { u.greetT = 40; if (!u.bubble && u.role !== 'market' && Math.random() < 0.45 + u.pers.chatty * 0.6) { u.say(u.role === 'dale' ? `Hey, ${X.G.pname || 'Sam'}!` : u.role === 'bro' ? pickU(u, BEN.hi).replace('Sam', X.G.pname || 'Sam') : sayLines(u, 'greet'), 2.6); if (armsFree(u) && u.h && Math.random() < 0.5) setPose(u, 'wave', 1.3); } S.lookAt = V(P.s.pos.x, P.s.pos.y + 1.65, P.s.pos.z); u.lookT = 3; }
     if (u.lookT > 0) { u.lookT -= dt; if (u.lookT <= 0) S.lookAt = null; else (S.lookAt ||= V()).set(P.s.pos.x, P.s.pos.y + 1.65, P.s.pos.z); }
     if (u.st === 'walk') return walker(u, dt, P, W, cmd, pd);
-    if (u.st === 'chat') { if (u.partner) cmd.face = Math.atan2(u.partner.s.pos.x - S.pos.x, u.partner.s.pos.z - S.pos.z); if (u.partner && !u.bubble && !u.partner.bubble && (!u.h || !u.h.gaze)) (u.h ||= newH(u)) && gazeUnit(u, u.partner, 0.5, 0); chatLife(u, dt); if (u.t <= 0 && !u.bubble) { u.t = rnd(3, 7); S.talkT = rnd(1.5, 3); if (Math.random() < 0.5) S.playUp('Interact', { rate: rnd(0.7, 1), fade: 0.25, fadeAt: 1.4 }); } return cmd; }
+    if (u.st === 'chat') { if (u.partner) cmd.face = Math.atan2(u.partner.s.pos.x - S.pos.x, u.partner.s.pos.z - S.pos.z); if (u.partner && !u.bubble && !u.partner.bubble && (!u.h || !u.h.gaze)) (u.h ||= newH(u)) && gazeUnit(u, u.partner, 0.5, 0); chatLife(u, dt); if (u.t <= 0 && !u.bubble) { u.t = rnd(3, 7); S.talkT = rnd(1.5, 3); S.talkK = 0.6; } return cmd; }
     if (u.st === 'grill') {   // Raj at the flat-top, turning burgers; now and then a look round at who's next
       if (u.t <= 0) { u.glance = !u.glance; u.t = u.glance ? rnd(1.6, 2.6) : rnd(5, 9); if (u.glance) { if (S.up) S.ups[S.up].target = 0; S.up = null; if (pd < 12 && Math.random() < 0.35) u.say((['Two more coming right up!', 'Cheese on that?', 'Best deal in town, my friend.', 'Two minutes!']), 2.4); } else S.playUp('Interact', { loop: true, rate: 0.7, fade: 0.3 }); }
       const J = PPL.cast.jesse;

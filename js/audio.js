@@ -9,6 +9,10 @@
 let ctx = null, master, sfxBus, musicBus, voiceBus, radioBus, reverb, farVerb, meter, duck, muffle;
 let noiseBuf = null, brownBuf = null, started = false, paused = false, roomVerb = null, indoor = 0;
 let windG, windF, breathF, breathG, heartT = 0;
+// [realism] where you are: outdoor echo vs a room's reflections (crossfaded by indoor), and an 'outside' bus whose lowpass
+// closes when you're under a roof, so birds, sirens, wind and far gunfire come through the walls dull
+let outSend = null, roomSend = null, fvRet = null, occ = null, occF = null;
+const LOWP = (() => { try { const u = navigator.userAgent || ''; return /iPhone|iPod/.test(u) || (/Android/i.test(u) && /Mobile/.test(u)) || /[?&]lowpower=1/.test(location.search); } catch (e) { return false; } })();   // phones: cheaper panning, fewer grains
 const S = { music: 0.7, sfx: 1 };
 const L = { x: 0, y: 1.6, z: 0, yaw: 0 };
 let mode = 'title';
@@ -55,9 +59,10 @@ export function init() {
   reverb = ctx.createConvolver(); reverb.buffer = makeOutdoor(2.2, 6, 2.4);
   const rv = ctx.createGain(); rv.gain.value = 0.45; reverb.connect(rv).connect(muffle);
   farVerb = ctx.createConvolver(); farVerb.buffer = makeOutdoor(3.4, 14, 1.2);
-  const fv = ctx.createGain(); fv.gain.value = 0.55; farVerb.connect(fv).connect(muffle);
+  const fv = ctx.createGain(); fv.gain.value = 0.55; farVerb.connect(fv).connect(muffle); fvRet = fv;
   sfxBus = ctx.createGain(); sfxBus.gain.value = S.sfx; sfxBus.connect(muffle);
-  const sr = ctx.createGain(); sr.gain.value = 0.22; sfxBus.connect(sr).connect(reverb);
+  const sr = ctx.createGain(); sr.gain.value = 0.22; sfxBus.connect(sr).connect(reverb); outSend = sr;
+  occ = ctx.createGain(); occF = ctx.createBiquadFilter(); occF.type = 'lowpass'; occF.frequency.value = 20000; occF.Q.value = 0.4; occ.connect(occF).connect(sfxBus);
   musicBus = ctx.createGain(); musicBus.gain.value = S.music * 1.3; musicBus.connect(master);
   const mr = ctx.createGain(); mr.gain.value = 0.35; musicBus.connect(mr).connect(reverb);
   voiceBus = ctx.createGain(); voiceBus.gain.value = 1.4; voiceBus.connect(sfxBus);
@@ -71,6 +76,7 @@ export function init() {
   radioBus.connect(hp).connect(pk).connect(ws).connect(lp).connect(rg).connect(master);
   noiseBuf = makeNoise(4, false); brownBuf = makeNoise(4, true);
   roomVerb = ctx.createConvolver(); roomVerb.buffer = makeRoom(0.9); const rmv = ctx.createGain(); rmv.gain.value = 0.5; roomVerb.connect(rmv).connect(muffle);
+  roomSend = ctx.createGain(); roomSend.gain.value = 0; sfxBus.connect(roomSend).connect(roomVerb);
   loadReal();
   Promise.all([0, 1, 2, 3, 4].map(i => fetchRetry(`sounds/step${i}.wav`).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b))))
     .then(bs => { stepBufs = bs; }).catch(e => console.log('steps not loaded', e));
@@ -89,9 +95,13 @@ export function listener(x, y, z, yaw) {
 }
 function at(pos, dest = sfxBus, ref = 3, roll = 1) {
   if (!pos) return dest;
-  const p = ctx.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = ref; p.rolloffFactor = roll; p.maxDistance = 600;
+  const p = ctx.createPanner(); p.panningModel = LOWP ? 'equalpower' : 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = ref; p.rolloffFactor = roll; p.maxDistance = 600;
   if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y ?? 1; p.positionZ.value = pos.z; } else p.setPosition(pos.x, pos.y ?? 1, pos.z);
-  p.connect(dest); return p;
+  // [realism] air soaks up the highs over distance: past ~30 m a sound loses its edge (400 m: a dull thud)
+  const d = Math.hypot(pos.x - L.x, pos.z - L.z);
+  if (d > 30) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.5; f.frequency.value = Math.max(900, 19000 / (1 + (d - 30) / 40)); p.connect(f).connect(dest); }
+  else p.connect(dest);
+  return p;
 }
 const dist = pos => pos ? Math.hypot(pos.x - L.x, pos.z - L.z) : 0;
 
@@ -150,6 +160,14 @@ export function step({ speed = 1.4, run = 0, crouch = 0, side = 0, pan = 0, pos 
     burst(t + 0.05, { f: 1800, q: 0.7, a: 0.02, d: 0.25, g: loud * 0.18, pan, pos, sweep: 0.5 });
     for (let i = 0; i < 3; i++) burst(t + 0.08 + Math.random() * 0.15, { f: 2500 + Math.random() * 2500, q: 4, d: 0.025, g: loud * 0.05, pan, pos });
   }
+  // [realism] what the sole meets (only for you and anyone close: no extra nodes for a crowd far off)
+  if (mine || (pos && dist(pos) < 14)) {
+    if (surface === 'gravel') { const n = LOWP ? 3 : 6; for (let i = 0; i < n; i++) burst(t + Math.random() * 0.07, { f: 2200 + Math.random() * 4000, q: 2.5, a: 0.001, d: 0.01 + Math.random() * 0.02, g: loud * 0.09, pan, pos }); }   // stones grinding under the heel
+    else if (surface === 'metal') { tone(t, 330 + Math.random() * 60, 0.18, loud * 0.05, 'triangle', sfxBus, pos, 0.001); tone(t, 920 + Math.random() * 120, 0.1, loud * 0.025, 'sine', sfxBus, pos, 0.001); }   // a hollow grate rings
+    else if (surface === 'wood') thump(t + 0.004, 150 + Math.random() * 30, 95, 0.09, loud * 0.18, { pan, pos, type: 'triangle' });   // floorboards: hollow underneath
+    else if ((surface === 'concrete' || surface === 'asphalt' || surface === 'tile') && run > 0.3) burst(t + 0.05, { f: 3000, q: 0.7, a: 0.01, d: 0.06, g: loud * 0.05, pan, pos, sweep: 0.5 });   // the sole scuffs as it pushes off
+    else if (surface === 'mud') burst(t + 0.04, { f: 520, q: 1.2, a: 0.015, d: 0.12, g: loud * 0.2, pan, pos, sweep: 1.6 });   // the suck as the boot pulls out
+  }
   // a shambler doesn't lift its feet: the other foot drags and scuffs along after the heel lands
   if (zombie && run < 0.5) { burst(t + 0.06, { f: 400 + Math.random() * 200, q: 0.7, a: 0.03, d: 0.18, g: loud * 0.15, pan, pos, brown: true }); burst(t + 0.08, { f: 1800 + Math.random() * 600, q: 0.6, a: 0.03, d: 0.14, g: loud * 0.05, pan, pos, sweep: 0.7 }); }
 }
@@ -203,6 +221,7 @@ export function gun(kind, pos = null) {
   if (kind === 'rpg') return rocketLaunch(pos);
   const P = GUN[kind] || GUN.rifle, d = dist(pos);
   if (pos && d > 260) return;
+  if (d < 120) hush(10);   // [realism] the crickets and birds stop after a shot
   const rec = { pistol: 'gun_pistol', shotgun: 'gun_shotgun', sniper: 'gun_rifle' }[kind];
   if (rec && hasReal(rec)) {
     const far = pos ? Math.min(1, d / 120) : 0, delay = pos ? d / 343 : 0;
@@ -327,6 +346,7 @@ export function explosion(pos, power = 1) {
   if (!ctx || paused) return;
   const d = dist(pos), delay = d / 343, t = ctx.currentTime + 0.005 + delay;
   const far = Math.min(1, d / 160);
+  if (d < 250) hush(18);
   const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 18000 * Math.pow(0.06, far);
   const g = ctx.createGain(); g.gain.value = 1.4 * power;
   const p = at(pos, sfxBus, 10, 0.8); lp.connect(g).connect(p);
@@ -579,6 +599,8 @@ export function zombie(kind, pos, pitch = 1, rate = 1.075) {   // rate: the Deat
     const dd = rs(cat, { pos, gain: g * (pitch < 1 ? 1.25 : 1), rate: prate * pitch, vary: 0.1, delay, ref: 2.5, roll: 1.1, room });
     voices.push(nw + delay + dd); lastDelay = delay; lastEnv = rsLastBuf && rsLastBuf.env ? envSlice(rsLastBuf.env, 0, rsLastRate) : null;
     if (kind === 'bite') { rs('hit_bone', { pos, gain: 0.9, delay: delay + 0.12 }); rs('squish', { pos, gain: 0.8, delay: delay + 0.1 }); }
+    // [realism] no two the same: a moan sometimes trails off into a wet rattle in the throat (a growl, slowed and quiet)
+    if ((kind === 'groan' || kind === 'moan') && d < 30 && Math.random() < 0.35) rs('z_growl', { pos, gain: 0.45, rate: 0.72 * pitch, vary: 0.06, delay: delay + dd * 0.82, ref: 2.5, roll: 1.1, room, lp: 2200 });
     if (kind === 'die') rs('bodyfall', { pos, gain: 0.7, delay: delay + DEATH_HIT / rate, ref: 3 });   // the body hits the floor when the hips do (rate = its Death_D rate)
     return dd + delay;
   }
@@ -595,6 +617,20 @@ export function zombie(kind, pos, pitch = 1, rate = 1.075) {   // rate: the Deat
   }
   lastDelay = delay; lastEnv = null;
   return D ? D + delay : 0;
+}
+// [realism] a zombie down on a body, eating: a slice of the real feeding recording (tearing, chewing, swallowing), its own
+// part each time; main.js calls this for each bite of the feeding dip (zombieChew). Returns how long the mouth works.
+const feedOn = [];
+export function feed(pos) {
+  if (!ctx || paused || !pos) return 0;
+  const d = dist(pos); if (d > 30) return 0;
+  const nw = ctx.currentTime; for (let i = feedOn.length - 1; i >= 0; i--) if (feedOn[i] < nw) feedOn.splice(i, 1);
+  if (!hasReal('z_feed') || feedOn.length >= 3) return zombie('bite', pos, 1);
+  const delay = d / 343, buf = R.z_feed[0], len = 0.6 + Math.random() * 0.6, off = Math.random() * Math.max(0, buf.duration - len - 0.1);
+  const dd = rs('z_feed', { pos, gain: 1.1, rate: 1, vary: 0.08, delay, offset: off, dur: len, ref: 2.5, room: indoor > 0.3 && d < 12 ? 0.35 : 0 });
+  if (Math.random() < 0.35) rs('squish', { pos, gain: 0.45, delay: delay + Math.random() * 0.3 });
+  feedOn.push(nw + delay + len); lastDelay = delay; lastEnv = null;
+  return dd ? len : 0;
 }
 function gurgle(t, pos, g) { for (let i = 0; i < 8; i++) { const tt = t + i * 0.07 + Math.random() * 0.04; thump(tt, 300 + Math.random() * 250, 120, 0.05, 0.12 * g, { pos }); burst(tt, { f: 700, q: 3, d: 0.04, g: 0.08 * g, pos }); } }
 // wet: torn flesh, a crunch of bone
@@ -825,7 +861,7 @@ export function start() {
   const ws = loop(brownBuf);
   windF = ctx.createBiquadFilter(); windF.type = 'bandpass'; windF.frequency.value = 400; windF.Q.value = 0.4;
   windG = ctx.createGain(); windG.gain.value = 0.18;
-  ws.connect(windF).connect(windG).connect(sfxBus); ws.start(0, Math.random());
+  ws.connect(windF).connect(windG).connect(occ || sfxBus); ws.start(0, Math.random());
   const bs = loop(noiseBuf);
   breathF = ctx.createBiquadFilter(); breathF.type = 'bandpass'; breathF.frequency.value = 900; breathF.Q.value = 0.8;
   breathG = ctx.createGain(); breathG.gain.value = 0;
@@ -850,13 +886,22 @@ export function setRain(k) {
     const bg = ctx.createGain(); bg.gain.value = 0; body.connect(bf).connect(bg).connect(sfxBus);
     rainA = { hg, bg, hp };
     // drips and patter
-    setInterval(() => { if (!rainA || paused || rainA.k < 0.05) return; const t = ctx.currentTime; for (let i = 0; i < 6 * rainA.k; i++) { const tt = t + Math.random() * 0.4; if (indoor > 0.5) thump(tt, 180 + Math.random() * 120, 90, 0.04, 0.03 * rainA.k); else burst(tt, { f: 2800 + Math.random() * 4500, q: 1.5 + Math.random() * 2, a: 0.0008, d: 0.006 + Math.random() * 0.012, g: 0.035 * rainA.k, pan: Math.random() * 1.6 - 0.8 }); } }, 400);   // each drop a tiny tick of filtered noise (stereo-panned: no HRTF panner per drop)
+    setInterval(() => { if (!rainA || paused || rainA.k < 0.05) return; const t = ctx.currentTime; for (let i = 0; i < 6 * rainA.k; i++) { const tt = t + Math.random() * 0.4; if (indoor > 0.5) thump(tt, 180 + Math.random() * 120, 90, 0.04, 0.03 * rainA.k); else burst(tt, { f: 2800 + Math.random() * 4500, q: 1.5 + Math.random() * 2, a: 0.0008, d: 0.006 + Math.random() * 0.012, g: 0.035 * rainA.k, pan: Math.random() * 1.6 - 0.8 }); }
+      // [realism] drops landing in puddles ('plip': the pitch jumps up as the bubble rings), and on the window glass when you're inside
+      const np = Math.round((LOWP ? 1 : 2.5) * rainA.k * Math.random() + (Math.random() < rainA.k * 0.5 ? 1 : 0));
+      for (let i = 0; i < np; i++) { const tt = t + Math.random() * 0.4; if (indoor > 0.5) tone(tt, 2600 + Math.random() * 1800, 0.02, 0.012 * rainA.k, 'sine', sfxBus, null, 0.0005); else plip(tt, Math.random() * 1.6 - 0.8, 0.03 * rainA.k); }
+    }, 400);   // each drop a tiny tick of filtered noise (stereo-panned: no HRTF panner per drop)
   }
   rainA.k = k;
   const t = ctx.currentTime, inside = indoor;
   rainA.hg.gain.setTargetAtTime(k * 0.22 * (1 - inside * 0.8), t, 0.6);
   rainA.bg.gain.setTargetAtTime(k * (0.1 + inside * 0.25), t, 0.6);
   rainA.hp.frequency.setTargetAtTime(inside > 0.5 ? 1200 : 9000, t, 0.4);
+}
+function plip(t, pan, g) {
+  const o = ctx.createOscillator(), f = 900 + Math.random() * 1600; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * (1.6 + Math.random() * 0.6), t + 0.035);
+  const e = ctx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(g, t + 0.002); e.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+  const p = ctx.createStereoPanner(); p.pan.value = pan; o.connect(e).connect(p).connect(occ || sfxBus); o.start(t); o.stop(t + 0.05);
 }
 export function thunder(close = 0.5) {
   if (!ctx || paused) return;
@@ -865,7 +910,7 @@ export function thunder(close = 0.5) {
   const s = ctx.createBufferSource(); s.buffer = brownBuf; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(900 * close + 200, t); f.frequency.exponentialRampToValueAtTime(90, t + 4);
   const e = ctx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(0.9 * close + 0.2, t + 0.15); for (let k = 1; k < 6; k++) e.gain.linearRampToValueAtTime((0.4 + Math.random() * 0.6) * (0.9 * close + 0.2) * (1 - k / 7), t + k * 0.6); e.gain.exponentialRampToValueAtTime(0.0001, t + 5.5);
   s.connect(f).connect(e).connect(at(p, farVerb, 80, 0.3)); s.start(t, Math.random() * 2); s.stop(t + 6);
-  const g2 = ctx.createGain(); g2.gain.value = 0.6; e.connect(g2).connect(sfxBus);
+  const g2 = ctx.createGain(); g2.gain.value = 0.6; e.connect(g2).connect(occ || sfxBus);
 }
 let ambT = 0;
 function farPos(r0 = 150, r1 = 450) { const a = Math.random() * Math.PI * 2, r = r0 + Math.random() * (r1 - r0); return { x: L.x + Math.cos(a) * r, y: 6, z: L.z + Math.sin(a) * r }; }
@@ -879,12 +924,14 @@ function outPos(r0 = 150, r1 = 300) {
 function ambient() {
   if (!ctx || paused) return;
   const t = ctx.currentTime;
-  windF.frequency.setTargetAtTime(300 + Math.sin(t * 0.13) * 120 + Math.sin(t * 0.37) * 80, t, 1.5);
-  windG.gain.setTargetAtTime((0.13 + Math.sin(t * 0.21) * 0.05) * (1 - indoor * 0.7), t, 1.5);
-  // crickets
-  if (nightK > 0.4 && Math.random() < 0.8) { for (let i = 0; i < 3; i++) { const tt = t + Math.random() * 0.5, f = 4200 + Math.random() * 600; for (let k = 0; k < 3; k++) tone(tt + k * 0.05, f, 0.035, 0.012 * nightK * (1 - indoor * 0.8), 'sine', sfxBus, { x: L.x + (Math.random() - 0.5) * 40, y: 0.2, z: L.z + (Math.random() - 0.5) * 40 }, 0.002); } }
   // which place we're in (world.ambient: suburb | desert | jungle | prison | city): each has its own bed of real recordings
   const set = ambSet();
+  envTick(t);
+  // [realism] wind comes in gusts (a random walk, not a sine): the low roar and the leaves in the trees rise and fall together
+  const gk = windGust(set);
+  windF.frequency.setTargetAtTime(240 + gk * 380 + Math.sin(t * 0.37) * 40, t, 1.2);
+  windG.gain.setTargetAtTime((0.07 + gk * 0.12) * (1 - indoor * 0.7), t, 1.2);
+  living(t, set);
   if (set !== 'suburb' && mowerG) mowerG.gain.setTargetAtTime(0, t, 0.8);
   if (set !== 'suburb' && mode === 'play') mapAmb(set, t);
   // a normal Saturday: birds in the trees, a lawnmower a few streets over, a dog, a car door
@@ -893,27 +940,198 @@ function ambient() {
   if (ambT > 0 || mode !== 'play') return;
   ambT = 3 + Math.random() * 7;
   const k = Math.random();
-  if (k < 0.18) { // a siren, far away
-    const p = farPos(300, 600), o = ctx.createOscillator(); o.type = 'sine';
-    for (let i = 0; i < 6; i++) { o.frequency.setValueAtTime(650, t + i * 1.6); o.frequency.linearRampToValueAtTime(1150, t + i * 1.6 + 0.8); o.frequency.linearRampToValueAtTime(650, t + i * 1.6 + 1.6); }
-    const e = ctx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(0.05, t + 2); e.gain.linearRampToValueAtTime(0, t + 9.5);
-    o.connect(e).connect(at(p, farVerb, 60, 1)); o.start(t); o.stop(t + 10);
+  if (k < 0.18) { // a siren, far away (sometimes two, out of step): a real wail through a horn, its echo off the town
+    farSiren(t, farPos(300, 600), 10 + Math.random() * 6); if (Math.random() < 0.3) farSiren(t + 1.3 + Math.random() * 2, farPos(300, 600), 9 + Math.random() * 5);
+  } else if (k < 0.27 && set !== 'city' && set !== 'jungle') { // dogs left behind in the yards: barking at something, howling at night
+    const p = outPos(160, 320); if (nightK > 0.5 && Math.random() < 0.35) howl(t, p, 0.05); else bark(t, p, 0.07, Math.random() < 0.4);
+  } else if (k < 0.32 && nightK < 0.35) { // crows: the dead town feeds them
+    crow(t, outPos(90, 200), 0.05, 2 + Math.floor(Math.random() * 4));
   } else if (k < 0.34) { // gunfire across town: someone else is still alive
     const p = farPos(200, 500), n = 1 + Math.floor(Math.random() * 6);
-    for (let i = 0; i < n; i++) { const tt = i * (0.25 + Math.random() * 0.6); if (hasReal('gun_far')) rs('gun_far', { pos: p, gain: 0.5, delay: tt, lp: 1500, ref: 80, roll: 1 }); else burst(t + tt, { f: 600, q: 0.6, d: 0.12, g: 0.3, pos: p, ref: 60 }); }
+    for (let i = 0; i < n; i++) { const tt = i * (0.25 + Math.random() * 0.6); if (hasReal('gun_far')) rs('gun_far', { pos: p, gain: 0.5, delay: tt, lp: 1500, ref: 80, roll: 1, dest: occ || sfxBus, verb: 0.35 }); else burst(t + tt, { f: 600, q: 0.6, d: 0.12, g: 0.3, pos: p, ref: 60 }); }
   } else if (k < 0.46) { // a scream
-    const p = farPos(120, 300); if (hasReal('z_yell')) { rs('z_yell', { pos: p, gain: 0.5, lp: 2500, ref: 40, rate: 0.9 }); return; } zthroat(t + 0.1, p, { f0: 600 + Math.random() * 200, f1: 380, dur: 1.4, vowel: 'aa', vowel2: 'eh', gain: 0.25, rasp: 0.3, scream: 0.7, jitter: 0.06 });
+    const p = farPos(120, 300); if (hasReal('z_yell')) { rs('z_yell', { pos: p, gain: 0.5, lp: 2500, ref: 40, rate: 0.9, dest: occ || sfxBus, verb: 0.3 }); return; } zthroat(t + 0.1, p, { f0: 600 + Math.random() * 200, f1: 380, dur: 1.4, vowel: 'aa', vowel2: 'eh', gain: 0.25, rasp: 0.3, scream: 0.7, jitter: 0.06 });
   } else if (k < 0.66 && hasReal('z_moan')) { // the dead, out past the fence where you can't see them (nothing inside town moans without a body)
-    rs('z_moan', { pos: outPos(130, 220), gain: 0.6, lp: 1400, ref: 30, rate: 0.85 });
+    rs('z_moan', { pos: outPos(130, 220), gain: 0.6, lp: 1400, ref: 30, rate: 0.85, dest: occ || sfxBus });
   } else if (k < 0.85) { // a helicopter passing far off — it isn't coming for you
     const p = farPos(250, 400), s = ctx.createBufferSource(); s.buffer = brownBuf; s.loop = true;
     const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 300;
     const am = ctx.createGain(); am.gain.value = 0.5; const l = ctx.createOscillator(); l.frequency.value = 11; const lg = ctx.createGain(); lg.gain.value = 0.5; l.connect(lg).connect(am.gain);
     const e = ctx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(0.35, t + 5); e.gain.linearRampToValueAtTime(0, t + 12);
-    s.connect(f).connect(am).connect(e).connect(at(p, sfxBus, 60, 1)); s.start(t); l.start(t); s.stop(t + 12.2); l.stop(t + 12.2);
+    s.connect(f).connect(am).connect(e).connect(at(p, occ || sfxBus, 60, 1)); s.start(t); l.start(t); s.stop(t + 12.2); l.stop(t + 12.2);
   } else if (nightK > 0.5) { // an owl
-    const p = outPos(130, 200); for (let i = 0; i < 2; i++) { const tt = t + i * 0.5; const o = ctx.createOscillator(); o.frequency.setValueAtTime(420, tt); o.frequency.linearRampToValueAtTime(380, tt + 0.35); const e = ctx.createGain(); e.gain.setValueAtTime(0, tt); e.gain.linearRampToValueAtTime(0.04, tt + 0.05); e.gain.exponentialRampToValueAtTime(0.0001, tt + 0.4); o.connect(e).connect(at(p, sfxBus, 60)); o.start(tt); o.stop(tt + 0.45); }
+    const p = outPos(130, 200); for (let i = 0; i < 2; i++) { const tt = t + i * 0.5; const o = ctx.createOscillator(); o.frequency.setValueAtTime(420, tt); o.frequency.linearRampToValueAtTime(380, tt + 0.35); const e = ctx.createGain(); e.gain.setValueAtTime(0, tt); e.gain.linearRampToValueAtTime(0.04, tt + 0.05); e.gain.exponentialRampToValueAtTime(0.0001, tt + 0.4); o.connect(e).connect(at(p, occ || sfxBus, 60)); o.start(tt); o.stop(tt + 0.45); }
   }
+}
+// ---------------------------------------------------------------- [realism] the living soundscape
+// The room you're in: outdoors the shots echo off the houses; indoors a room's dense reflections take over and the
+// world outside (birds, sirens, wind, far guns) comes through the walls dull.
+function envTick(t) {
+  const k = indoor;
+  if (outSend) outSend.gain.setTargetAtTime(0.22 * (1 - 0.75 * k), t, 0.3);
+  if (roomSend) roomSend.gain.setTargetAtTime(0.16 * k, t, 0.3);
+  if (fvRet) fvRet.gain.setTargetAtTime(0.55 * (1 - 0.45 * k), t, 0.3);
+  if (occF) occF.frequency.setTargetAtTime(20000 * Math.pow(0.045, k), t, 0.3);   // indoors: ~900 Hz
+}
+let gust = 0.4, gustTo = 0.4, quietT = 0;
+const TREES = { suburb: 1, jungle: 1.4, desert: 0.12, prison: 0.3, city: 0.35 };
+function windGust(set) {
+  if (Math.random() < 0.09) gustTo = Math.pow(Math.random(), 1.5) * (set === 'desert' ? 1.25 : 1);
+  gust += (gustTo - gust) * 0.2;
+  return gust;
+}
+export function hush(sec = 8) { if (ctx) quietT = Math.max(quietT, ctx.currentTime + sec); }   // a loud bang: the crickets and birds go quiet for a while
+// looped beds built once from code (no files): field crickets, a far trill chorus, cicadas, tree frogs
+function synthBuf(sec, sr, fill) { const b = ctx.createBuffer(1, Math.floor(sec * sr), sr); fill(b.getChannelData(0), sr, b.length); return b; }
+function cricketBuf(f, every, pulses) {   // a field cricket: chirps of 3-5 sine pulses (~4.5 kHz), ~2-3 chirps a second, never quite even
+  return synthBuf(5.3 + Math.random() * 1.4, 22050, (d, sr, n) => {
+    let t0 = Math.random() * every;
+    while (t0 < n / sr - 0.3) {
+      const amp = 0.6 + Math.random() * 0.4, ff = f * (0.99 + Math.random() * 0.02);
+      for (let p = 0; p < pulses; p++) {
+        const ps = Math.floor((t0 + p * 0.034) * sr), pl = Math.floor(0.019 * sr);
+        for (let i = 0; i < pl && ps + i < n; i++) { const e = Math.sin(Math.PI * i / pl); d[ps + i] += Math.sin(2 * Math.PI * ff * (1 - 0.03 * i / pl) * i / sr) * e * e * amp * (p === 0 ? 0.7 : 1); }
+      }
+      t0 += every * (0.85 + Math.random() * 0.3);
+    }
+  });
+}
+function trillBuf() {   // tree crickets / katydids far off: a continuous pulsing shimmer that swells and fades
+  return synthBuf(7.7, 22050, (d, sr, n) => {
+    const f1 = 2850, f2 = 3420;
+    for (let i = 0; i < n; i++) { const t = i / sr, pulse = Math.max(0, Math.sin(2 * Math.PI * 46 * t)), sw = 0.55 + 0.45 * Math.sin(2 * Math.PI * t / n * sr * 2); d[i] = (Math.sin(2 * Math.PI * f1 * t) * 0.6 + Math.sin(2 * Math.PI * f2 * t + 1) * 0.4) * pulse * pulse * sw * 0.5; }
+  });
+}
+function cicadaBuf() {   // a cicada: a buzzing whine that swells for a few seconds, holds, then cuts off; a pause; again
+  return synthBuf(9.4, 22050, (d, sr, n) => {
+    const on = 6.2, ph = Math.random() * 6;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr; if (t > on) break;
+      const env = Math.min(1, t / 2.6) * (t > on - 0.5 ? (on - t) / 0.5 : 1), buzz = 0.5 + 0.5 * Math.sign(Math.sin(2 * Math.PI * 172 * t + ph)) * 0.8;
+      d[i] = (Math.sin(2 * Math.PI * 4300 * t) * 0.5 + Math.sin(2 * Math.PI * 5650 * t + 0.4) * 0.3 + (Math.random() * 2 - 1) * 0.35) * buzz * env * 0.55;
+    }
+  });
+}
+function frogBuf() {   // tree frogs: two-note 'ko-KEE' calls and rattling croaks, scattered
+  return synthBuf(8.6, 22050, (d, sr, n) => {
+    const call = (t0, f0, f1, len, rough, g) => { const s0 = Math.floor(t0 * sr), L0 = Math.floor(len * sr); let ph = 0; for (let i = 0; i < L0 && s0 + i < n; i++) { const k = i / L0, f = f0 + (f1 - f0) * k; ph += 2 * Math.PI * f / sr; const e = Math.sin(Math.PI * k) ** 0.6, am = rough ? 0.5 + 0.5 * Math.sign(Math.sin(2 * Math.PI * 85 * i / sr)) : 1; d[s0 + i] += (Math.sin(ph) + 0.3 * Math.sin(2 * ph)) * e * am * g; } };
+    for (let t = Math.random() * 0.4; t < n / sr - 0.6; t += 0.25 + Math.random() * 0.7) {
+      if (Math.random() < 0.55) { const g = 0.25 + Math.random() * 0.5, b = 0.9 + Math.random() * 0.25; call(t, 1050 * b, 1150 * b, 0.09, false, g); call(t + 0.13, 1900 * b, 2250 * b, 0.12, false, g); }
+      else { const g = 0.2 + Math.random() * 0.3; for (let r = 0; r < 3; r++) call(t + r * 0.11, 620 + Math.random() * 80, 560, 0.07, true, g); }
+    }
+  });
+}
+let BEDS = null;
+function bed(buf, pan) { const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; const g = ctx.createGain(); g.gain.value = 0; const p = ctx.createStereoPanner(); p.pan.value = pan; s.connect(g).connect(p).connect(occ || sfxBus); s.start(ctx.currentTime + 0.05, Math.random() * buf.duration); return g; }
+function living(t, set) {
+  if (!BEDS) BEDS = { cr: [bed(cricketBuf(4500, 0.36, 4), -0.6), bed(cricketBuf(4150, 0.47, 3), 0.55), ...(LOWP ? [] : [bed(cricketBuf(4800, 0.29, 5), 0.1)])], tr: bed(trillBuf(), 0), ci: bed(cicadaBuf(), 0.3), fr: bed(frogBuf(), -0.2) };
+  const hr = (typeof window !== 'undefined' && window.ZA && window.ZA.G && typeof window.ZA.G.hour === 'number') ? window.ZA.G.hour % 24 : hour;
+  const night = Math.min(1, Math.max(0, (nightK - 0.25) / 0.5)), day = 1 - Math.min(1, nightK / 0.35);
+  const q = t < quietT ? 0.15 : 1, rain = rainA && rainA.k > 0.3 ? 0.35 : 1, open = 1 - indoor * 0.5, tau = t < quietT ? 0.4 : 3;
+  const crK = { suburb: 1, desert: 0.8, jungle: 0.6, prison: 0.5, city: 0.35 }[set] ?? 0.7;
+  BEDS.cr.forEach((g, i) => g.gain.setTargetAtTime(0.03 * crK * night * q * rain * open * (i === 2 ? 0.6 : 1), t, tau));
+  BEDS.tr.gain.setTargetAtTime(0.022 * ({ jungle: 1.6, suburb: 0.7, desert: 0.3 }[set] || 0.25) * night * q * rain * open, t, tau);
+  const warm = hr > 10 && hr < 19.5 ? 1 : 0;
+  BEDS.ci.gain.setTargetAtTime(0.02 * ({ desert: 1, jungle: 0.9, suburb: 0.35 }[set] || 0.15) * day * warm * q * rain * open, t, tau);
+  BEDS.fr.gain.setTargetAtTime(0.03 * ({ jungle: 1, prison: 0.3, suburb: 0.12 }[set] || 0) * night * q * open, t, tau);
+  // the leaves overhead hiss with each gust (a second, bright layer of the wind)
+  if (!leafG && occ) { const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 3800; f.Q.value = 0.5; leafG = ctx.createGain(); leafG.gain.value = 0; s.connect(f).connect(leafG).connect(occ); s.start(0, Math.random() * 3); }
+  if (leafG) leafG.gain.setTargetAtTime(0.045 * (TREES[set] ?? 0.5) * Math.pow(gust, 1.6) * (1 - indoor * 0.6), t, 0.9);
+  // birds by day: a dawn chorus at first light, fewer at midday, more again towards evening; fewer once the town's dead
+  if (mode === 'play' && nightK < 0.35 && t > quietT && !(rainA && rainA.k > 0.5)) {
+    const dawn = hr > 5 && hr < 9 ? 2.4 : hr > 16.5 && hr < 20 ? 1.5 : 1, calm = peace > 0.5 ? 1 : 0.55;
+    if (Math.random() < 0.16 * dawn * calm * (LOWP ? 0.6 : 1)) {
+      const p = { x: L.x + (Math.random() - 0.5) * 70, y: 5 + Math.random() * 6, z: L.z + (Math.random() - 0.5) * 70 }, r = Math.random();
+      if (set === 'jungle') { if (r < 0.5) warble(t, p, 0.03, 2600); else if (r < 0.75) whistle(t, p, 0.03); else chirp(t, p, 2200 + Math.random() * 2600, 3 + Math.floor(Math.random() * 4), 0.025); }
+      else if (r < 0.4) warble(t, p, 0.022 + Math.random() * 0.015, 2000 + Math.random() * 900);
+      else if (r < 0.55 && set !== 'prison') dove(t, outPos(40, 90), 0.05);
+      else if (r < 0.62 && set === 'suburb') woodpecker(t, outPos(50, 110), 0.12);
+      else chirp(t, p, 2600 + Math.random() * 2400, 2 + Math.floor(Math.random() * 5), 0.018 + Math.random() * 0.02);
+    }
+  }
+}
+let leafG = null;
+// one bird call through a single positional node (all its notes share it)
+function callBus(p, g = 1, ref = 12) { const b = ctx.createGain(); b.gain.value = g; b.connect(at(p, occ || sfxBus, ref)); return b; }
+function warble(t, p, g, base) {   // a robin-like phrase: 4-9 quick sliding whistled notes
+  const bus = callBus(p, 1); const n = 4 + Math.floor(Math.random() * 6); let tt = t;
+  for (let i = 0; i < n; i++) {
+    const f1 = base * (0.85 + Math.random() * 0.55), f2 = f1 * (0.7 + Math.random() * 0.6), d = 0.06 + Math.random() * 0.1;
+    const o = ctx.createOscillator(); o.frequency.setValueAtTime(f1, tt); o.frequency.exponentialRampToValueAtTime(f2, tt + d);
+    const e = ctx.createGain(); e.gain.setValueAtTime(0, tt); e.gain.linearRampToValueAtTime(g * (0.6 + Math.random() * 0.4), tt + 0.012); e.gain.exponentialRampToValueAtTime(0.0001, tt + d);
+    o.connect(e).connect(bus); o.start(tt); o.stop(tt + d + 0.02); tt += d + 0.03 + Math.random() * 0.07;
+  }
+}
+function whistle(t, p, g) {   // a long falling jungle whistle, two or three times
+  const bus = callBus(p, 1, 20);
+  for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) { const tt = t + i * 0.7, f = 2400 + Math.random() * 900; const o = ctx.createOscillator(); o.frequency.setValueAtTime(f, tt); o.frequency.exponentialRampToValueAtTime(f * 0.62, tt + 0.45); const e = ctx.createGain(); e.gain.setValueAtTime(0, tt); e.gain.linearRampToValueAtTime(g, tt + 0.04); e.gain.setValueAtTime(g, tt + 0.3); e.gain.exponentialRampToValueAtTime(0.0001, tt + 0.5); o.connect(e).connect(bus); o.start(tt); o.stop(tt + 0.52); }
+}
+function dove(t, p, g) {   // a mourning dove: 'coo-OOO-oo ... oo ... oo', soft and hollow
+  const bus = ctx.createGain(); bus.gain.value = 1; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1100; bus.connect(lp).connect(at(p, occ || sfxBus, 20));
+  const b = 0.92 + Math.random() * 0.12;
+  for (const [o0, d, f0, f1, f2, a] of [[0, 0.32, 470, 540, 520, 0.6], [0.42, 0.62, 560, 640, 470, 1], [1.25, 0.42, 470, 455, 430, 0.8], [1.9, 0.42, 470, 455, 430, 0.75], [2.55, 0.4, 465, 450, 425, 0.7]]) {
+    const tt = t + o0, o = ctx.createOscillator(); o.frequency.setValueAtTime(f0 * b, tt); o.frequency.linearRampToValueAtTime(f1 * b, tt + d * 0.4); o.frequency.linearRampToValueAtTime(f2 * b, tt + d);
+    const h = ctx.createGain(); h.gain.value = 0.15; const o2 = ctx.createOscillator(); o2.frequency.setValueAtTime(f0 * b * 2, tt); o2.frequency.linearRampToValueAtTime(f1 * b * 2, tt + d * 0.4); o2.frequency.linearRampToValueAtTime(f2 * b * 2, tt + d);
+    const e = ctx.createGain(); e.gain.setValueAtTime(0, tt); e.gain.linearRampToValueAtTime(g * a, tt + 0.08); e.gain.setValueAtTime(g * a, tt + d - 0.12); e.gain.linearRampToValueAtTime(0, tt + d);
+    o.connect(e); o2.connect(h).connect(e); e.connect(bus); o.start(tt); o2.start(tt); o.stop(tt + d + 0.02); o2.stop(tt + d + 0.02);
+  }
+}
+function woodpecker(t, p, g) {   // a drum roll on a dead trunk: fast knocks, slowing and fading
+  const bus = callBus(p, 1, 20), n = 12 + Math.floor(Math.random() * 10), rate = 15 + Math.random() * 6;
+  for (let i = 0; i < n; i++) { const tt = t + i / (rate * (1 - i / n * 0.25)); thump(tt, 1500, 650, 0.022, g * (1 - i / n * 0.6), { dest: bus, type: 'triangle' }); }
+}
+function crow(t, p, g, n) {   // carrion crows: harsh, nasal 'caaw's
+  const bus = ctx.createGain(); bus.gain.value = g; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3600; bus.connect(lp).connect(at(p, occ || sfxBus, 25));
+  const vs = ctx.createGain(); vs.gain.value = 0.5; bus.connect(vs).connect(farVerb);
+  const f0 = 540 + Math.random() * 90;
+  for (let i = 0; i < n; i++) {
+    const tt = t + i * (0.42 + Math.random() * 0.18), d = 0.24 + Math.random() * 0.1;
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f0 * 0.92, tt); o.frequency.linearRampToValueAtTime(f0, tt + 0.05); o.frequency.exponentialRampToValueAtTime(f0 * 0.8, tt + d);
+    const am = ctx.createGain(); am.gain.value = 0.65; const r = ctx.createOscillator(); r.type = 'square'; r.frequency.value = 70 + Math.random() * 20; const rg = ctx.createGain(); rg.gain.value = 0.35; r.connect(rg).connect(am.gain);
+    const e = ctx.createGain(); e.gain.setValueAtTime(0, tt); e.gain.linearRampToValueAtTime(1, tt + 0.02); e.gain.setValueAtTime(0.9, tt + d * 0.6); e.gain.exponentialRampToValueAtTime(0.0001, tt + d);
+    o.connect(am);
+    for (const [f, q, a] of [[1250, 4, 1], [2100, 5, 0.6], [3100, 6, 0.25]]) { const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q; const bg = ctx.createGain(); bg.gain.value = a * 2.4; am.connect(bp).connect(bg).connect(e); }
+    e.connect(bus); o.start(tt); r.start(tt); o.stop(tt + d + 0.02); r.stop(tt + d + 0.02);
+  }
+}
+function bark(t, p, g, big) {   // a dog in a yard a few streets over: short sharp 'woofs', echoing off the houses
+  const bus = ctx.createGain(); bus.gain.value = g; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400; bus.connect(lp).connect(at(p, occ || sfxBus, 40));
+  const vs = ctx.createGain(); vs.gain.value = 0.7; bus.connect(vs).connect(farVerb);
+  const n = 2 + Math.floor(Math.random() * 4), f0 = (big ? 250 : 410) * (0.92 + Math.random() * 0.16); let tt = t;
+  for (let i = 0; i < n; i++) {
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f0 * 0.8, tt); o.frequency.linearRampToValueAtTime(f0 * 1.18, tt + 0.03); o.frequency.exponentialRampToValueAtTime(f0 * 0.65, tt + 0.17);
+    const e = ctx.createGain(); e.gain.setValueAtTime(0, tt); e.gain.linearRampToValueAtTime(1, tt + 0.006); e.gain.setValueAtTime(0.85, tt + 0.045); e.gain.exponentialRampToValueAtTime(0.0001, tt + 0.18);
+    for (const [f, q, a] of [[big ? 560 : 720, 3, 1], [big ? 1200 : 1550, 4, 0.55]]) { const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q; const bg = ctx.createGain(); bg.gain.value = a * 2.5; o.connect(bp).connect(bg).connect(e); }
+    e.connect(bus); o.start(tt); o.stop(tt + 0.2);
+    burst(tt, { f: big ? 900 : 1300, q: 0.9, a: 0.004, d: 0.07, g: 0.35, dest: bus });
+    tt += (i % 3 === 2 ? 0.7 : 0.26) + Math.random() * 0.2;
+  }
+}
+function howl(t, p, g) {   // a dog howling at night, far away: rising, holding, sliding down, with the echo hanging after it
+  const bus = ctx.createGain(); bus.gain.value = g; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; bus.connect(lp).connect(at(p, occ || sfxBus, 60));
+  const vs = ctx.createGain(); vs.gain.value = 1; bus.connect(vs).connect(farVerb);
+  const b = 0.9 + Math.random() * 0.2, d = 2.6 + Math.random() * 1.2;
+  const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(400 * b, t); o.frequency.linearRampToValueAtTime(590 * b, t + 0.6); o.frequency.linearRampToValueAtTime(560 * b, t + d * 0.7); o.frequency.exponentialRampToValueAtTime(380 * b, t + d);
+  const v = ctx.createOscillator(); v.frequency.value = 5 + Math.random(); const vg = ctx.createGain(); vg.gain.value = 7; v.connect(vg).connect(o.frequency);
+  const e = ctx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(1, t + 0.35); e.gain.setValueAtTime(1, t + d * 0.75); e.gain.linearRampToValueAtTime(0, t + d);
+  for (const [f0, f1, q, a] of [[650, 800, 5, 1], [1050, 1250, 6, 0.4]]) { const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q; bp.frequency.setValueAtTime(f0, t); bp.frequency.linearRampToValueAtTime(f1, t + d * 0.6); const bg = ctx.createGain(); bg.gain.value = a * 3; o.connect(bp).connect(bg).connect(e); }
+  e.connect(bus); o.start(t); v.start(t); o.stop(t + d + 0.05); v.stop(t + d + 0.05);
+}
+// tests / ?audiotest: play one far-off call now (kind: bark|howl|crow|dove|warble|woodpecker|whistle|siren|plip)
+export function ambTest(kind, r = 120) {
+  if (!ctx) return; const t = ctx.currentTime + 0.05, p = { x: L.x + r, y: 6, z: L.z };
+  ({ bark: () => bark(t, p, 0.07, false), howl: () => howl(t, p, 0.05), crow: () => crow(t, p, 0.05, 3), dove: () => dove(t, p, 0.05), warble: () => warble(t, p, 0.03, 2300), woodpecker: () => woodpecker(t, p, 0.12), whistle: () => whistle(t, p, 0.03), siren: () => farSiren(t, p, 12), plip: () => { for (let i = 0; i < 20; i++) plip(t + i * 0.1, 0, 0.03); } }[kind] || (() => { }))();
+}
+export const ambState = () => BEDS ? { cr: BEDS.cr.map(g => +g.gain.value.toFixed(4)), tr: +BEDS.tr.gain.value.toFixed(4), ci: +BEDS.ci.gain.value.toFixed(4), fr: +BEDS.fr.gain.value.toFixed(4), leaf: leafG ? +leafG.gain.value.toFixed(4) : 0, occ: occF ? Math.round(occF.frequency.value) : 0, room: roomSend ? +roomSend.gain.value.toFixed(3) : 0, gust: +gust.toFixed(2) } : null;
+function farSiren(t, p, dur) {   // a far emergency siren: the slow wail (up ~2 s, down ~3 s) through a horn, drifting as it drives
+  const o = ctx.createOscillator(); o.type = 'sawtooth'; const o2 = ctx.createOscillator(); o2.type = 'square'; const g2 = ctx.createGain(); g2.gain.value = 0.3; o2.connect(g2);
+  const lo = 640 + Math.random() * 40, hi = 1320 + Math.random() * 80, cyc = 4.6 + Math.random() * 1.2;
+  for (const osc of [o, o2]) { osc.frequency.setValueAtTime(lo, t); for (let c = 0; c * cyc < dur; c++) { const c0 = t + c * cyc; osc.frequency.linearRampToValueAtTime(hi, c0 + cyc * 0.42); osc.frequency.exponentialRampToValueAtTime(lo, c0 + cyc); } osc.detune.setValueAtTime(25, t); osc.detune.linearRampToValueAtTime(-25, t + dur); }
+  const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2200; const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 480;
+  const e = ctx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(0.05, t + 2.5); e.gain.setValueAtTime(0.05, t + dur - 3); e.gain.linearRampToValueAtTime(0, t + dur);
+  o.connect(f); g2.connect(f); f.connect(hp).connect(e).connect(at(p, occ || sfxBus, 60, 1));
+  const vs = ctx.createGain(); vs.gain.value = 0.6; e.connect(vs).connect(farVerb);
+  o.start(t); o2.start(t); o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
 }
 // ---------------------------------------------------------------- per-map ambience (recordings only; a missing file just stays quiet)
 let ambName = null, ambMapT = 0, stad = null, stadTried = false, stadBed = null, hour = 12, bellDay = -1;
@@ -1093,18 +1311,19 @@ export function setPeace(k) {
     const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 54; const og = ctx.createGain(); og.gain.value = 0.05; o.connect(og).connect(f);
     mowerG = ctx.createGain(); mowerG.gain.value = 0;
     // it's in a yard across the creek west of town, past the fence: heard from where it is, never from inside your head
-    s.connect(f).connect(am).connect(mowerG).connect(at(MOWER, sfxBus, 25, 1)); s.start(); l.start(); o.start();
+    s.connect(f).connect(am).connect(mowerG).connect(at(MOWER, occ || sfxBus, 25, 1)); s.start(); l.start(); o.start();
     setInterval(() => { if (ctx && mowerG) { l.frequency.setTargetAtTime(25 + Math.sin(ctx.currentTime * 0.4) * 3, ctx.currentTime, 0.5); } }, 500);
   }
   mowerG.gain.setTargetAtTime(k > 0.5 ? MOWER_G * (1 - indoor * 0.8) : 0, ctx.currentTime, 1.2);
 }
 function chirp(t, p, f0, n, g = 0.03) {
+  const bus = callBus(p, 1);   // [realism] one positional node per call (was one per note), through the outside bus
   for (let i = 0; i < n; i++) {
     const tt = t + i * (0.09 + Math.random() * 0.06), o = ctx.createOscillator(); o.type = 'sine';
     const f = f0 * (0.9 + Math.random() * 0.25);
     o.frequency.setValueAtTime(f, tt); o.frequency.exponentialRampToValueAtTime(f * (1.25 + Math.random() * 0.5), tt + 0.05); o.frequency.exponentialRampToValueAtTime(f * 0.85, tt + 0.08);
     const e = ctx.createGain(); e.gain.setValueAtTime(0, tt); e.gain.linearRampToValueAtTime(g, tt + 0.01); e.gain.exponentialRampToValueAtTime(0.0001, tt + 0.09);
-    o.connect(e).connect(at(p, sfxBus, 12)); o.start(tt); o.stop(tt + 0.1);
+    o.connect(e).connect(bus); o.start(tt); o.stop(tt + 0.1);
   }
 }
 function peaceAmb(t) {
@@ -1115,8 +1334,8 @@ function peaceAmb(t) {
   // (no dog or kids: those were built from the zombie throat and sounded like the dead; recorded ones can come back as 'dog'/'kids')
   if (k < 0.15 && hasReal('dog')) rs('dog', { pos: outPos(150, 260), gain: 0.5, lp: 1500, ref: 40 });
   else if (k < 0.3 && hasReal('kids')) rs('kids', { pos: outPos(150, 260), gain: 0.4, lp: 1500, ref: 40 });
-  else if (k < 0.5) { const p = outPos(150, 300); if (hasReal('door_close')) rs('door_close', { pos: p, gain: 0.5, lp: 1200, ref: 40 }); }   // a car door in the next subdivision over
-  else if (k < 0.7) { const p = outPos(150, 300), s = ctx.createBufferSource(); s.buffer = brownBuf; s.loop = true; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500; const e = ctx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(0.12, t + 2.5); e.gain.linearRampToValueAtTime(0, t + 6); s.connect(f).connect(e).connect(at(p, sfxBus, 60)); s.start(t); s.stop(t + 6.2); }   // a car going by on the county road past the fence
+  else if (k < 0.5) { const p = outPos(150, 300); if (hasReal('door_close')) rs('door_close', { pos: p, gain: 0.5, lp: 1200, ref: 40, dest: occ || sfxBus }); }   // a car door in the next subdivision over
+  else if (k < 0.7) { const p = outPos(150, 300), s = ctx.createBufferSource(); s.buffer = brownBuf; s.loop = true; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 500; const e = ctx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(0.12, t + 2.5); e.gain.linearRampToValueAtTime(0, t + 6); s.connect(f).connect(e).connect(at(p, occ || sfxBus, 60)); s.start(t); s.stop(t + 6.2); }   // a car going by on the county road past the fence
 }
 // the Emergency Alert System: the two-tone attention signal, on every phone and TV at once
 export function eas(dur = 8) {

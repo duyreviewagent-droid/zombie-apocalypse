@@ -49,6 +49,16 @@ function plasterTex(base, seed, patches = 1) {
     }
     g.strokeStyle = rgb(base, 0.6, 0.55); g.lineWidth = 0.8;
     for (let i = 0; i < 14; i++) { let x = r() * w, y = r() * h; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 8; k++) { x += (r() - 0.5) * 22; y += r() * 14; g.lineTo(x, y); } g.stroke(); }
+    // [realism] rain erosion: wandering runnels the rare storms cut down the mud render (a dark groove with a lit lip,
+    // so the normal map reads them as real grooves), trowel sweeps, and broad sun-bleached / shaded areas
+    for (let i = 0; i < 10; i++) {
+      let x = 12 + r() * (w - 24), y = 8 + r() * h * 0.4; const len = h * (0.2 + r() * 0.35), wd = 1.5 + r() * 2.5; g.lineCap = 'round';
+      const pts = [[x, y]]; while (y < pts[0][1] + len) { y += 6 + r() * 8; x += (r() - 0.5) * 5; pts.push([x, y]); }
+      for (const [dx, col, lw] of [[1.2, rgb(base, 1.12, 0.45), wd * 0.6], [0, rgb(base, 0.68, 0.5), wd]]) { g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); pts.forEach(([px, py], k) => k ? g.lineTo(px + dx, py) : g.moveTo(px + dx, py)); g.stroke(); }
+    }
+    g.lineCap = 'butt';
+    for (let i = 0; i < 26; i++) { const rad = 30 + r() * 50, x = rad + 6 + r() * (w - 2 * rad - 12), y = rad + 6 + r() * (h - 2 * rad - 12); g.strokeStyle = rgb(base, r() < 0.5 ? 0.9 : 1.08, 0.12); g.lineWidth = 3 + r() * 5; g.beginPath(); g.arc(x, y, rad, -0.4 - r(), 0.4 + r()); g.stroke(); }
+    blotch(g, w, h, 8, rgb(base, 1.1, 0.14), 80, 160, r); blotch(g, w, h, 8, rgb(base, 0.86, 0.14), 80, 160, r);
   });
 }
 function mudBrickTex() {
@@ -76,7 +86,7 @@ function sandstoneTex() {
     for (let ri = 0; ri < rows.length - 1; ri++) {
       const y0 = rows[ri], y1 = rows[ri + 1]; let x = -r() * 60;
       while (x < w) {
-        const sw = 70 + r() * 110, x1 = Math.min(x + sw, w + 0.01), k = 0.84 + r() * 0.24, tint = r() < 0.25 ? [204, 150, 104] : r() < 0.5 ? [208, 178, 132] : [196, 164, 120];
+        const sw = 70 + r() * 110, x1 = Math.min(x + sw, w + 0.01), k = 0.9 + r() * 0.13, tint = r() < 0.2 ? [200, 160, 118] : r() < 0.5 ? [204, 176, 136] : [196, 168, 128];   // [realism] one quarry, close shades
         // the stone may wrap round the right edge (so the texture still tiles)
         for (const ox of x + sw > w ? [0, -w] : [0]) {
           const a = x + ox + 2.5, b = x + ox + sw - 2.5, jt = (r() - 0.5) * 3;
@@ -92,6 +102,10 @@ function sandstoneTex() {
       }
     }
     speckle(g, w, h, 9000, ['rgba(80,56,30,0.28)', 'rgba(240,220,180,0.3)'], r, 1.4);
+    // [realism] weathering: wind-blown sand settled over the stones, grime in low spots, sun-bleached faces, lichen dots
+    blotch(g, w, h, 34, 'rgba(206,178,136,0.32)', 18, 70, r); blotch(g, w, h, 26, 'rgba(96,70,44,0.16)', 14, 55, r); blotch(g, w, h, 14, 'rgba(250,236,206,0.14)', 30, 90, r);
+    for (let i = 0; i < 70; i++) { g.fillStyle = `rgba(${r() < 0.5 ? '110,100,70' : '70,60,44'},${0.12 + r() * 0.16})`; g.beginPath(); g.arc(r() * w, r() * h, 1 + r() * 3.5, 0, 7); g.fill(); }
+    speckle(g, w, h, 5000, ['rgba(196,168,124,0.4)', 'rgba(60,44,28,0.22)'], r, 1);
   });
 }
 function sandTex() {
@@ -294,6 +308,13 @@ function tileTex(a, b) {   // courtyard / floor tiles: terracotta squares
   return canvas(256, 256, (g, w, h) => {
     g.fillStyle = '#5a4030'; g.fillRect(0, 0, w, h);
     for (let y = 0; y < h; y += 64) for (let x = 0; x < w; x += 64) { g.fillStyle = r() < 0.5 ? a : b; g.fillRect(x + 2, y + 2, 60, 60); blotch(g, 0, 0, 0, ''); g.fillStyle = 'rgba(255,240,220,0.08)'; g.fillRect(x + 4, y + 4, 56, 6); }
+    // [realism] each hand-made tile its own shade, worn hollow in the middle, chipped corners, dirt packed in the joints
+    for (let y = 0; y < h; y += 64) for (let x = 0; x < w; x += 64) {
+      g.fillStyle = r() < 0.5 ? `rgba(255,235,210,${r() * 0.12})` : `rgba(40,20,10,${r() * 0.14})`; g.fillRect(x + 2, y + 2, 60, 60);
+      const gr = g.createRadialGradient(x + 32, y + 32, 4, x + 32, y + 32, 34); gr.addColorStop(0, 'rgba(255,230,200,0.1)'); gr.addColorStop(1, 'rgba(60,30,15,0.12)'); g.fillStyle = gr; g.fillRect(x + 2, y + 2, 60, 60);
+      for (let c = 0; c < 4; c++) if (r() < 0.3) { const cx = x + 2 + (c & 1) * 60, cy = y + 2 + (c >> 1) * 60; g.fillStyle = '#5a4030'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + ((c & 1) ? -1 : 1) * (3 + r() * 6), cy); g.lineTo(cx, cy + ((c >> 1) ? -1 : 1) * (3 + r() * 6)); g.fill(); }
+    }
+    g.fillStyle = 'rgba(150,120,84,0.5)'; for (let k = 0; k < h; k += 64) { g.fillRect(0, k, w, 2); g.fillRect(k, 0, 2, h); }
     speckle(g, w, h, 3000, ['rgba(40,24,12,0.25)', 'rgba(255,230,200,0.2)'], r, 1.3);
   });
 }
@@ -346,16 +367,16 @@ export function makeMats(TX) {
   M.plasterBlue = std({ ...rel(plasterTex([150, 176, 196], 398, 0), 0.6, 1.6), roughness: 0.95 });
   M.mudBrick = std({ ...rel(mudBrickTex(), 0.9, 2.4), roughness: 1 });
   M.sandstone = std({ ...rel(sandstoneTex(), 1.0, 2.6), roughness: 0.95 });
-  M.sand = std({ map: sandTex(), roughness: 1 });
+  M.sand = std({ ...rel(sandTex(), 0.7, 1.8), roughness: 1 });   // [realism] ripples and pebbles in relief (desktop)
   M.rock = std({ ...rel(rockTex(), 1.0, 2.2), roughness: 1 });
   // the boulders: the same strata, a touch paler and dustier (sun-bleached sandstone)
   M.boulder = std({ ...rel(rockTex(), 1.2, 2.6), color: 0xeadcc4, roughness: 1 });
-  M.beam = std({ map: woodTex(), roughness: 0.9 });
+  M.beam = std({ ...rel(woodTex(), 0.8, 2.2), roughness: 0.9 });   // [realism] split, checked grain in relief
   M.blueWood = std({ map: plankTex([46, 92, 140], 131), roughness: 0.8 });
   M.greenWood = std({ map: plankTex([60, 110, 90], 132), roughness: 0.8 });
   M.greyWood = std({ map: plankTex([150, 138, 118], 133), roughness: 0.9 });
   M.redWood = std({ map: plankTex([140, 56, 40], 134), roughness: 0.8 });
-  M.tile = std({ map: tileTex('#b0603c', '#a85636'), roughness: 0.75 });
+  M.tile = std({ ...rel(tileTex('#b0603c', '#a85636'), 0.5, 1.6), roughness: 0.8 });
   M.tileB = std({ map: tileTex('#d8d0bc', '#3a5a7a'), roughness: 0.5 });
   M.earth = std({ map: canvas(256, 256, (g, w, h) => { g.fillStyle = '#9a7a58'; g.fillRect(0, 0, w, h); const r = rng(141); blotch(g, w, h, 30, 'rgba(70,50,30,0.25)', 10, 50, r); speckle(g, w, h, 5000, ['rgba(50,36,24,0.35)', 'rgba(200,170,130,0.3)'], r, 1.5); }), roughness: 1 });
   M.awn0 = std({ map: clothTex('#b8402a', '#e8dcc0', 151), side: THREE.DoubleSide, roughness: 0.95 });
@@ -364,12 +385,18 @@ export function makeMats(TX) {
   M.awn3 = std({ map: clothTex('#3a6a3a', '#e4d6b4', 154), side: THREE.DoubleSide, roughness: 0.95 });
   M.frond = std({ map: frondTex(), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85 });
   M.frondDead = std({ map: frondDeadTex(), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 1 });
-  M.palmBark = std({ map: palmBarkTex(), roughness: 1 });
+  M.palmBark = std({ ...rel(palmBarkTex(), 1.0, 2.6), roughness: 1 });   // [realism] the stubs of old frond bases stand out
   M.asphalt = std({ map: asphaltTex(), roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   M.paintW = std({ color: 0xe6dcc4, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   M.paintY = std({ color: 0xd0a030, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   M.gravel = std({ map: TX && TX.gravelTexture ? TX.gravelTexture() : sandTex(), color: 0xc8b090, roughness: 1 });
-  M.wadi = std({ map: canvas(512, 512, (g, w, h) => { g.fillStyle = '#a88a66'; g.fillRect(0, 0, w, h); const r = rng(161); for (let i = 0; i < 900; i++) { const s = 2 + r() * 9; g.fillStyle = rgb([150, 130, 110], 0.6 + r() * 0.6); g.beginPath(); g.ellipse(r() * w, r() * h, s, s * (0.6 + r() * 0.4), r() * 3, 0, 7); g.fill(); } g.strokeStyle = 'rgba(70,50,30,0.5)'; g.lineWidth = 1; for (let i = 0; i < 80; i++) { let x = r() * w, y = r() * h; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += (r() - 0.5) * 50; y += (r() - 0.5) * 50; g.lineTo(x, y); } g.stroke(); } }), roughness: 1 });
+  // [realism] the splash zone at the foot of the walls: dirt and damp fading upward (v 0 = ground, 1 = top), ragged
+  M.splash = std({ map: canvas(256, 128, (g, w, h) => { const r = rng(171); g.clearRect(0, 0, w, h);
+    for (let x = 0; x < w; x += 2) { const top = h * (0.25 + 0.3 * Math.abs(Math.sin(x * 0.031 + 1.3)) + 0.25 * r()); const gr = g.createLinearGradient(0, h, 0, h - top); gr.addColorStop(0, 'rgba(96,70,46,0.8)'); gr.addColorStop(0.55, 'rgba(118,90,62,0.42)'); gr.addColorStop(1, 'rgba(130,100,70,0)'); g.fillStyle = gr; g.fillRect(x, h - top, 2, top); }
+    for (let i = 0; i < 900; i++) { const y = h - Math.pow(r(), 2) * h * 0.7; g.fillStyle = `rgba(${r() < 0.5 ? '70,50,32' : '150,120,86'},${0.15 + r() * 0.3})`; g.fillRect(r() * w, y, 1 + r() * 2, 1 + r() * 2); }
+  }), transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  M.splash.map.wrapT = THREE.ClampToEdgeWrapping;
+  M.wadi = std({ ...rel(canvas(512, 512, (g, w, h) => { g.fillStyle = '#a88a66'; g.fillRect(0, 0, w, h); const r = rng(161); for (let i = 0; i < 900; i++) { const s = 2 + r() * 9; g.fillStyle = rgb([150, 130, 110], 0.6 + r() * 0.6); g.beginPath(); g.ellipse(r() * w, r() * h, s, s * (0.6 + r() * 0.4), r() * 3, 0, 7); g.fill(); } g.strokeStyle = 'rgba(70,50,30,0.5)'; g.lineWidth = 1; for (let i = 0; i < 80; i++) { let x = r() * w, y = r() * h; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += (r() - 0.5) * 50; y += (r() - 0.5) * 50; g.lineTo(x, y); } g.stroke(); } }), 1.0, 2.6), roughness: 1 });   // [realism] cobbles and dried-mud cracks in relief
   M.corr = std({ map: corrTex([170, 160, 150]), roughness: 0.6, metalness: 0.5 });
   M.corrRust = std({ map: corrTex([150, 80, 44]), roughness: 0.8, metalness: 0.3 });
   const pm = (c, o = {}) => std({ ...(TX && TX.paintedMetalTexture ? { map: TX.paintedMetalTexture(c) } : { color: new THREE.Color(c[0] / 255, c[1] / 255, c[2] / 255) }), ...o });
@@ -458,7 +485,11 @@ export function makeGeo() {
       const ridge = new THREE.BoxGeometry(0.28, 0.02, 0.18).translate(0, 0.21, 0);
       return mergeGeometries([body, handle, spout, ridge].map(g => g.toNonIndexed()));
     })(),
-    scrub: (() => { const g = new THREE.IcosahedronGeometry(0.5, 1); const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setY(i, Math.max(0, y) * 0.8); p.setX(i, p.getX(i) * (1 + 0.3 * Math.sin(i))); } g.computeVertexNormals(); return g; })(),
+    // [realism] a creosote / saltbush clump: three ragged lobes (spiky, uneven outline) instead of one smooth dome
+    scrub: (() => {
+      const lobe = (rr, ox, oz, hh, sd) => { const g = new THREE.IcosahedronGeometry(rr, 1); const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), n = 0.72 + 0.22 * Math.sin(x * 23 + z * 17 + sd) * Math.sin(y * 19 - x * 13) + 0.14 * Math.sin(z * 31 + y * 7 + sd); p.setXYZ(i, x * n + ox, Math.max(-0.02, y * n * hh + rr * 0.35), z * n + oz); } return g; };
+      const g = mergeGeometries([lobe(0.42, 0, 0, 1.05, 1), lobe(0.3, 0.26, 0.14, 0.9, 2), lobe(0.28, -0.2, -0.2, 0.85, 3)].map(x => x.toNonIndexed())); g.computeVertexNormals(); return g;
+    })(),
     tuft: (() => { const a = []; for (let k = 0; k < 3; k++) a.push(new THREE.PlaneGeometry(0.7, 0.5).translate(0, 0.25, 0).rotateY(k * Math.PI / 3)); return mergeGeometries(a); })(),
     fruit: new THREE.SphereGeometry(0.06, 8, 6),
     melon: new THREE.SphereGeometry(0.15, 10, 8).scale(1, 0.85, 1.2),
@@ -471,7 +502,8 @@ export function makeGeo() {
     cushion: new THREE.BoxGeometry(0.6, 0.12, 0.6).translate(0, 0.06, 0),
     lantern: new THREE.CylinderGeometry(0.08, 0.1, 0.24, 6).translate(0, -0.12, 0),
     rug: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
-    stone: new THREE.DodecahedronGeometry(0.3, 0),
+    // [realism] a weathered river stone: rounded, lumpy, flattened (not a crisp dodecahedron)
+    stone: (() => { const g = new THREE.IcosahedronGeometry(0.3, 1); const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i), z = p.getZ(i), n = 0.85 + 0.18 * Math.sin(x * 11 + z * 7) + 0.08 * Math.sin(y * 17 + x * 9); p.setXYZ(i, x * n * 1.1, y * n * 0.7, z * n); } g.computeVertexNormals(); return g; })(),
     teapot: lathe([[0, 0], [0.06, 0], [0.08, 0.05], [0.07, 0.1], [0.03, 0.13], [0.035, 0.16], [0, 0.17]], 10),
     sphere: new THREE.SphereGeometry(1, 20, 12),
     hemi: new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),

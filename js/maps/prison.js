@@ -262,6 +262,17 @@ export function buildMap(K) {
       }
       for (let z = -33; z <= 33; z += 6) { strip(K, cx + r * 9.1, 3.18, cz + z, Math.PI / 2); strip(K, cx + r * 4, 7.58, cz + z, Math.PI / 2, 1.6); }
     }
+    // [prison-real] the roof structure, left exposed like every real cell house: open-web steel joists across the
+    // span (between the light rows), a galvanised supply duct hung beneath them, conduit along the joists (all merged)
+    for (let k = 0; k <= 10; k++) {
+      const jz = cz - 30 + k * 6, xa = cx - 13.6, xb = cx + 13.6, n = 30, st = (xb - xa) / n;
+      bx(xa, 7.47, jz - 0.05, xb, 7.6, jz + 0.05, 'pBars'); bx(xa, 6.98, jz - 0.04, xb, 7.06, jz + 0.04, 'pBars');
+      for (let i = 0; i < n; i++) { const x0 = xa + i * st, x1 = x0 + st; K.wbeam(i % 2 ? [x0, 7.04, jz] : [x0, 7.5, jz], i % 2 ? [x1, 7.5, jz] : [x1, 7.04, jz], 0.03, 0.03, MAT.pBars, false); }
+      K.wbeam([xa, 7.0, jz + 0.08], [xb, 7.0, jz + 0.08], 0.025, 0.025, MAT.pSteel, false);   // conduit
+    }
+    K.wbeam([cx + 1.8, 6.62, cz - 39.4], [cx + 1.8, 6.62, cz + 39.4], 0.9, 0.56, MAT.pSteel, false);
+    for (let k = 0; k <= 10; k++) { const jz = cz - 30 + k * 6; for (const sd of [-1, 1]) bx(cx + 1.8 + sd * 0.47 - 0.012, 6.32, jz - 0.03, cx + 1.8 + sd * 0.47 + 0.012, 6.99, jz + 0.03, 'darkMetal'); bx(cx + 1.3, 6.3, jz - 0.03, cx + 2.3, 6.34, jz + 0.03, 'darkMetal');
+      if (k % 2 === 0) { bx(cx + 1.5, 6.32, jz + 2.7, cx + 2.1, 6.34, jz + 3.3, 'darkMetal'); for (let q = 0; q < 4; q++) bx(cx + 1.53, 6.315, jz + 2.75 + q * 0.14, cx + 2.07, 6.32, jz + 2.8 + q * 0.14, 'black'); } }   // diffusers
     // the bubble: an octagonal officers' station in the middle of the dayroom
     K.xadd(G.oct, MAT.pSteel, K.mat4(cx, 0, cz, 0, 2.2, 1.1, 2.2));
     K.xadd(G.oct, MAT.glass, K.mat4(cx, 1.1, cz, 0, 2.15, 1.4, 2.15));
@@ -272,8 +283,8 @@ export function buildMap(K) {
     // the dayroom: bolted-down tables, a TV on the end wall, payphones, the count board
     for (const lx of [-4.2, 4.2]) for (const lz of [-19, -13, -7, 7, 13, 19]) messTable(K, cx + lx, cz + lz, Math.PI / 2);
     // painted floor lines: the yellow "out of bounds" line in front of the cells, a box round the bubble
-    for (const r of [-1, 1]) bx(cx + r * 9.45 - 0.05, 0.02, cz - 34, cx + r * 9.45 + 0.05, 0.034, cz + 34, 'yellowPaint');
-    for (const [a, b, c2, d2] of [[-3.1, -3.1, 3.1, -3.0], [-3.1, 3.0, 3.1, 3.1], [-3.1, -3.1, -3.0, 3.1], [3.0, -3.1, 3.1, 3.1]]) bx(cx + a, 0.02, cz + b, cx + c2, 0.034, cz + d2, 'yellowPaint');
+    for (const r of [-1, 1]) bx(cx + r * 9.45 - 0.05, 0.02, cz - 34, cx + r * 9.45 + 0.05, 0.034, cz + 34, 'pLineY');   // [prison-real] worn paint
+    for (const [a, b, c2, d2] of [[-3.1, -3.1, 3.1, -3.0], [-3.1, 3.0, 3.1, 3.1], [-3.1, -3.1, -3.0, 3.1], [3.0, -3.1, 3.1, 3.1]]) bx(cx + a, 0.02, cz + b, cx + c2, 0.034, cz + d2, 'pLineY');
     // the end wall: a notice board, a fire extinguisher in its red box, a wall clock
     bx(cx + 4.2, 1.3, cz - 39.84, cx + 6.2, 2.4, cz - 39.8, 'cabinet'); for (let i = 0; i < 5; i++) bx(cx + 4.35 + i * 0.37, 1.55 + (i % 2) * 0.35, cz - 39.8, cx + 4.6 + i * 0.37, 1.85 + (i % 2) * 0.35, cz - 39.79, 'white');
     bx(cx - 6.4, 1.0, cz - 39.85, cx - 5.9, 1.7, cz - 39.7, 'redPaint'); K.xadd(G.pipe, MAT.redPaint, K.mat4(cx - 6.15, 1.05, cz - 39.6, 0, 0.08, 0.5, 0.08));
@@ -307,7 +318,7 @@ export function buildMap(K) {
       for (const [a0, b0, a1, b1] of rs) K.slab(a0, b0, a1, b1, 'gravel', 'gravel', 0.012); }
     // basketball court
     K.slab(-33, 11, -3, 29, 'pCourt', 'concrete');
-    const line = (a, b, c, d) => bx(a, 0.02, b, c, 0.035, d, 'white');
+    const line = (a, b, c, d) => bx(a, 0.02, b, c, 0.035, d, 'pLineW');   // [prison-real] worn court paint
     line(-32.5, 11.4, -3.5, 11.5); line(-32.5, 28.5, -3.5, 28.6); line(-32.6, 11.4, -32.5, 28.6); line(-3.5, 11.4, -3.4, 28.6); line(-18.05, 11.4, -17.95, 28.6);
     for (const e of [-1, 1]) {
       const hx = -18 + e * 13.4;
@@ -321,7 +332,7 @@ export function buildMap(K) {
       K.xadd(G.cone, MAT.chrome, K.mat4(hx - e * 0.3, 2.65, 20, 0, 0.22, 0.4, 0.22));
     }
     // the 3-point arcs and the centre circle (thin painted segments)
-    const arc = (cx, cz, rad, a0, a1, n) => { for (let i = 0; i < n; i++) { const t0 = a0 + (a1 - a0) * i / n, t1 = a0 + (a1 - a0) * (i + 1) / n; const ax = cx + rad * Math.cos(t0), az = cz + rad * Math.sin(t0), bx2 = cx + rad * Math.cos(t1), bz2 = cz + rad * Math.sin(t1); K.box((ax + bx2) / 2, 0.02, (az + bz2) / 2, 0.05, 0.036, Math.hypot(bx2 - ax, bz2 - az) / 2 + 0.01, Math.atan2(bx2 - ax, bz2 - az), 'white'); } };
+    const arc = (cx, cz, rad, a0, a1, n) => { for (let i = 0; i < n; i++) { const t0 = a0 + (a1 - a0) * i / n, t1 = a0 + (a1 - a0) * (i + 1) / n; const ax = cx + rad * Math.cos(t0), az = cz + rad * Math.sin(t0), bx2 = cx + rad * Math.cos(t1), bz2 = cz + rad * Math.sin(t1); K.box((ax + bx2) / 2, 0.02, (az + bz2) / 2, 0.05, 0.036, Math.hypot(bx2 - ax, bz2 - az) / 2 + 0.01, Math.atan2(bx2 - ax, bz2 - az), 'pLineW'); } };
     for (const e of [-1, 1]) { const rx = -18 + e * 13.4 - e * 0.3; arc(rx, 20, 6.75, e > 0 ? Math.PI / 2 : -Math.PI / 2, e > 0 ? Math.PI * 1.5 : Math.PI / 2, 24); }
     arc(-18, 20, 1.8, 0, Math.PI * 2, 20);
     // the weight pile: rubber mats, benches, a dumbbell rack, a pull-up / dip station

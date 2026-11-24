@@ -9,6 +9,7 @@
 // Coordinates: metres, y up, ground y = 0 on the valley floor (K.terrain carves the river, raises the mountain and
 // the ridges, slopes the beach into the sea).
 import { jungleKit, jungleDecor, rng, smooth, clamp, lerp, fbm } from './jungle.kit.js';
+import { tier } from '../tex.js';   // [realism] phones / tablets: the cheaper path (no extra rock lumps, one mist layer)
 
 // the river's centre line (x at a given z) — also used by the story / tests
 export const RIVER_X = z => -25 + 22 * Math.sin((z + 95) * 0.022);
@@ -55,6 +56,8 @@ export function buildMap(K) {
   const J = jungleKit(K), M = J.M, G = J.G, W = K.W;
   K.TILE.rock ??= 4;
   const R = rng(20261122), rr = (a, b) => a + R() * (b - a);
+  // [realism] the detail pass has its own dice (so the layout drawn from R — trees, props, spots — never shifts)
+  const lite = tier() > 0, R2 = rng(7031), r2 = (a, b) => a + R2() * (b - a);
   const mat4 = K.mat4;
   const P = (x, z, yaw) => { const c = Math.cos(yaw), s = Math.sin(yaw); return (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c]; };
   // ---- designed props (decor.js): camp cots, lab benches with glassware, shelves of supplies, footlockers ----
@@ -147,6 +150,19 @@ export function buildMap(K) {
     const [a, b] = [L[i], L[i + 1]], n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 1.6);
     for (let k = 0; k <= n; k++) { const x = lerp(a[0], b[0], k / n), z = lerp(a[1], b[1], k / n); if (Math.abs(T(x, z)) < 0.05) K.paint(x + rr(-0.3, 0.3), z + rr(-0.3, 0.3), 1.7, 'dirt', 0.55); }
   }
+  // [realism] the trails are churned mud: dark wet ruts and standing rainwater in the dips (flat decals, no collision)
+  { const pg = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    for (const L of TRAILS) for (let i = 0; i + 1 < L.length; i++) {
+      const [a, b] = [L[i], L[i + 1]], n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 2.5);
+      for (let k = 0; k < n; k++) {
+        const t = (k + R2()) / n, x = lerp(a[0], b[0], t) + r2(-0.5, 0.5), z = lerp(a[1], b[1], t) + r2(-0.5, 0.5);
+        if (Math.abs(T(x, z)) > 0.03 || z > 104) continue;
+        K.paint(x, z, r2(0.9, 1.6), 'mud', 0.35);
+        if (R2() < 0.22 && Math.abs(T(x + 1, z)) < 0.03 && Math.abs(T(x - 1, z)) < 0.03 && Math.abs(T(x, z + 1)) < 0.03 && Math.abs(T(x, z - 1)) < 0.03) {
+          const s2 = r2(0.9, 2.2); K.inst(pg, M.jPuddle, mat4(x, 0.02, z, R2() * 6.28, s2, 1, s2 * r2(0.55, 0.95)), false); K.paint(x, z, s2 * 0.8, 'mud', 0.6);
+        }
+      }
+    } }
   // the flat clearings: no big trees here
   const CLEAR = [[-100, -60, -50, -8], [66, -46, 118, 8], [36, 84, 80, 112], [14, 100, 50, 118], [-100, 44, -66, 76], [-84, 88, -56, 112], [28, -100, 60, -80], [88, -100, 112, -84]];
   const cleared = (x, z, m = 0) => CLEAR.some(r => inRect(r, x, z, m));
@@ -184,7 +200,31 @@ export function buildMap(K) {
       // the water goes dark with the sky (no glowing white sheets at midnight)
       const d = W.daylight ?? 1, k = 0.25 + 0.75 * d; fallCol.setScalar(k); foamM.color.setScalar(0.3 + 0.7 * d);
       M.jSea.color.copy(seaCol).multiplyScalar(0.45 + 0.55 * d); M.jRiver.color.copy(rivCol).multiplyScalar(0.45 + 0.55 * d);
+      M.jRiver.envMapIntensity = 0.15 + 0.85 * d;   // [realism] (its own forest env: dims with the day, no bright sky at night)
     });
+    // [realism] mist lying on the river: two thin layers of drifting wisps over the water (one on phones), thick at
+    // dawn, thin by midday, grey at night; soft at the banks and at both ends (one mesh, alpha by vertex)
+    {
+      const pos = [], uv = [], col = [], idx = [], layers = lite ? [[0.0, 1]] : [[-0.05, 1], [0.55, 0.7]]; let base = 0;
+      for (const [yo, ka] of layers) {
+        let v = 0, prev = null, i = 0;
+        for (let z = -92; z <= 126; z += 3, i++) {
+          const xc = RIVER_X(z), dx = RIVER_X(z + 1) - xc, Ln = Math.hypot(dx, 1), nx = 1 / Ln, nz = -dx / Ln, fe = smooth(-92, -80, z) * (1 - smooth(112, 126, z));
+          if (prev) v += Math.hypot(xc - prev[0], z - prev[1]) / 14; prev = [xc, z];
+          for (const [o, a] of [[-6.6, 0], [-3.2, 1], [3.2, 1], [6.6, 0]]) { pos.push(xc + nx * o, yo, z + nz * o); uv.push(o / 14 + yo, v * (yo > 0 ? 0.7 : 1)); col.push(1, 1, 1, a * fe * ka); }
+          if (i) { const q0 = base + (i - 1) * 4; for (let q = 0; q < 3; q++) idx.push(q0 + q, q0 + 1 + q, q0 + 4 + q, q0 + 1 + q, q0 + 5 + q, q0 + 4 + q); }
+        }
+        base = pos.length / 3;
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); g.setIndex(idx);
+      const mist = new THREE.Mesh(g, M.jMist); mist.renderOrder = 6; mist.frustumCulled = true; g.computeBoundingSphere(); K.level.add(mist);
+      M.jMist.alphaMap.repeat.set(1, 1);
+      W.anims.push((dt, t) => {
+        M.jMist.alphaMap.offset.set(t * 0.006, -t * 0.012);
+        const h = W.time ?? 12, d = W.daylight ?? 1, dawn = Math.max(0, 1 - Math.abs(h - 6.5) / 3), dusk = Math.max(0, 1 - Math.abs(h - 19.5) / 3);
+        M.jMist.opacity = clamp(0.28 + dawn * 0.5 + dusk * 0.2 + (h < 5 || h > 21 ? 0.15 : 0), 0, 0.8); M.jMist.color.setScalar(0.22 + 0.7 * d);
+      });
+    }
     // deep water is a barrier: invisible boxes down the deep middle of the channel (the ford has none), the pool, the sea
     for (let z = -94; z < 128; z += 3) {
       if (Math.abs(z + 1.5 - 100) < 6.5) continue;
@@ -212,7 +252,19 @@ export function buildMap(K) {
       const rp = ring.geometry.attributes.position, ru = ring.geometry.attributes.uv; for (let i = 0; i < rp.count; i++) { const x = rp.getX(i), z = rp.getZ(i), rr0 = Math.hypot(x, z); ru.setXY(i, Math.atan2(z, x) / Math.PI * 3, (rr0 - 1.2) / 4); }
       ring.position.set(-25, -0.52, -97.2); ring.scale.set(1.3, 1, 0.7); ring.renderOrder = 2; K.level.add(ring);
       W.anims.push((dt, t) => { ring.rotation.y = Math.sin(t * 0.3) * 0.05; ring.material.map.offset.x = t * 0.05; ring.material.color.setScalar(0.3 + 0.7 * (W.daylight ?? 1)); }); }
-    for (const [x, z] of [[-25, -96.5], [-22, -96], [-28, -96.3]]) K.emitter({ x, y: -0.2, z, kind: 'smoke', rate: 2.5, t: 0 });
+    // [realism] spray: fine white mist boiling up where the water lands (one points cloud, each drop fading in and
+    // out as it rises and drifts downstream; was grey smoke puffs that read as a dirty pink smear on the fall)
+    { const N = lite ? 26 : 64, pos = new Float32Array(N * 3), col = new Float32Array(N * 4).fill(1), st = [];
+      for (let i = 0; i < N; i++) st.push({ x: -25 + r2(-5, 5), z: -97.4 + r2(-0.8, 1.6), t: R2() * 3, sp: r2(0.5, 1.0), dx: r2(-0.5, 0.5), dz: r2(0.2, 0.9) });
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 4));
+      M.jSpray.vertexColors = true;
+      const spray = new THREE.Points(g, M.jSpray); spray.frustumCulled = false; spray.renderOrder = 5; K.level.add(spray);
+      W.anims.push((dt, t, f) => {
+        if (f && Math.hypot(f.x + 25, f.z + 95) > 80) { if (spray.visible) spray.visible = false; return; } spray.visible = true;
+        for (let i = 0; i < N; i++) { const p = st[i]; p.t += dt * p.sp; if (p.t > 3) p.t -= 3; const k = p.t / 3; pos[i * 3] = p.x + p.dx * p.t * 1.4; pos[i * 3 + 1] = -0.45 + Math.sqrt(k) * 4.2; pos[i * 3 + 2] = p.z + p.dz * p.t * 1.6; col[i * 4 + 3] = Math.sin(k * Math.PI) * 0.9; }
+        g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true; M.jSpray.color.setScalar(0.3 + 0.7 * (W.daylight ?? 1));
+      });
+    }
     for (let i = 0; i < 14; i++) { const a = R() * 6.28, d = rr(8, 11); K.rock(-25 + Math.cos(a) * d, -92 + Math.sin(a) * d * 0.8, rr(0.8, 2.2)); }
   }
 
@@ -224,7 +276,7 @@ export function buildMap(K) {
     if (!(b > 40.5 && a < 49.5) && !(b > 97 && a < 105)) K.solid((a + b) / 2, -99, 4, 1.2, 0, 9, 'concrete');
   }
   for (let x = -138; x < 138; x += rr(4, 7)) { if (Math.abs(x - 45) < 7 || Math.abs(x - 101) < 7 || Math.abs(x + 25) < 16) continue; K.rock(x, -97.6 + rr(-0.6, 0.6), rr(1.8, 3.6), { flat: 0.8 }); }
-  const caveFloor = [];
+  const caveFloor = [], wallLumps = [];   // ([realism] where the rock lumps go, filled in by the walls below)
   const caveSet = { houses: [] };
   CAVE.forEach((C, ci) => {
     const [x0, z0, x1, z1] = C.r, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, hx = (x1 - x0) / 2, hz = (z1 - z0) / 2;
@@ -242,6 +294,7 @@ export function buildMap(K) {
         const j = R() * 0.8, th = 1.6 + R() * 1.4, yaw = (o[0] ? Math.PI / 2 : 0) + rr(-0.14, 0.14);
         const ccx = px + o[0] * (th / 2 - j), ccz = pz + o[1] * (th / 2 - j);
         K.block(ccx, 0, ccz, step / 2 + 0.5, C.h + 0.6, th / 2, yaw, 'jCave', 'concrete');
+        wallLumps.push([px - o[0] * j, pz - o[1] * j, o, step, C.h]);
         if (R() < 0.7) K.rock(px - o[0] * (j + 0.3), pz - o[1] * (j + 0.3), rr(1.0, 2.4), { mat: 'jCave', flat: rr(0.6, 1.3) });
         if (C.h > 5 && R() < 0.6) K.xadd(K.GEO.blob, M.jCave, mat4(px - o[0] * j, rr(C.h * 0.4, C.h * 0.8), pz - o[1] * j, R() * 6, rr(1.2, 2.2), rr(1, 2), rr(1.2, 2.2)));
       }
@@ -269,8 +322,8 @@ export function buildMap(K) {
   });
   // craggy boulder shapes for the cliff faces: a lumpy sphere, flattened into rough ledges (strata), faceted,
   // UVs projected from the side so the rock texture runs in horizontal bands
-  const CRAG = [0, 1, 2, 3].map(k => {
-    const g0 = new THREE.IcosahedronGeometry(1, 3), p = g0.attributes.position, v = new THREE.Vector3();
+  const cragGeo = (k, det) => {
+    const g0 = new THREE.IcosahedronGeometry(1, det), p = g0.attributes.position, v = new THREE.Vector3();
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i);
       const n = fbm(v.x * 1.6 + k * 7.1, v.z * 1.6 + v.y * 1.3 - k * 3.3);
@@ -283,8 +336,26 @@ export function buildMap(K) {
     for (let i = 0; i < q.count; i++) { uv[i * 2] = (q.getX(i) + q.getZ(i)) * 0.5; uv[i * 2 + 1] = q.getY(i) * 0.5; }
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.computeVertexNormals();
     return g;
-  });
+  };
+  const CRAG = [0, 1, 2, 3].map(k => cragGeo(k, 3));
   const crag = (x, y, z, sx, sy, sz, mat) => K.xadd(CRAG[Math.floor(R() * 4)], mat, mat4(x, y, z, R() * 6, sx, sy, sz));
+  // [realism] break up the flat-faced rock blocks: ledged lumps of rock bulging out of the cave walls (a footing of
+  // fallen rock along the floor, a bulge higher up) and over the waterfall's cliff (round the falling water, never
+  // in front of it; a broken lip along the top). Drawn only, merged; phones skip it.
+  if (!lite) {
+    const LUMP = [4, 5, 6].map(k => cragGeo(k, 2)), lump = (x, y, z, yaw, sx, sy, sz, mat) => K.xadd(LUMP[Math.floor(R2() * 3)], mat, mat4(x, y, z, yaw, sx, sy, sz));
+    for (const [px, pz, o, step, h] of wallLumps) {
+      const yaw = (o[0] ? Math.PI / 2 : 0) + r2(-0.25, 0.25), fx = px + o[0] * 0.15, fz = pz + o[1] * 0.15;
+      lump(fx, r2(0.1, 0.35), fz, yaw, step / 2 + r2(0.1, 0.5), r2(0.5, 1.0), r2(0.45, 0.6), R2() < 0.5 ? M.jCaveWet : M.jCave);
+      lump(fx + o[0] * 0.1, r2(h * 0.35, h * 0.75), fz + o[1] * 0.1, yaw + 0.3, step / 2 + r2(-0.2, 0.4), r2(0.8, 1.6), r2(0.4, 0.55), M.jCave);
+    }
+    for (let x = -42; x < -7; x += r2(2.2, 3.4)) {
+      const inFall = x > -30.5 && x < -19.5;
+      lump(x, r2(12.6, 14.2), -100.8 + r2(-0.4, 0.4), r2(-0.3, 0.3), r2(1.8, 2.8), r2(1.0, 1.8), r2(1.6, 2.4), K.MAT.rock);
+      if (!inFall) { lump(x, r2(0.5, 4), -99.2, r2(-0.3, 0.3), r2(1.6, 2.4), r2(1.8, 3.2), r2(0.9, 1.3), R2() < 0.4 ? M.jCaveWet : K.MAT.rock); lump(x + r2(-1, 1), r2(6, 10.5), -99.6, r2(-0.3, 0.3), r2(1.6, 2.6), r2(1.6, 2.8), r2(0.8, 1.1), R2() < 0.5 ? M.jCliff : K.MAT.rock); }
+      else lump(x, r2(1, 11), -99.95, r2(-0.2, 0.2), r2(1.4, 2.0), r2(1.4, 2.2), 0.55, M.jCaveWet);   // the wet rock behind the sheets
+    }
+  }
   function heightAtNoCave(x, z) { const n = fbm(x * 0.035 + 11, z * 0.035 - 4); return Math.max(smooth(-97, -106, z + (n - 0.5) * 5) * (12 + n * 12) + smooth(-112, -150, z) * 12, 0); }
   // the mouth: a ragged arch of boulders, vines over it, the team's warning sign and their cable of work lights
   {
