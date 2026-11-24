@@ -67,8 +67,9 @@
   canvas#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
   #load { position: fixed; inset: 0; display: grid; place-content: center; gap: 14px; text-align: center; background: #000; transition: opacity 1.2s; z-index: 20; }
   body.ready #load { opacity: 0; pointer-events: none; }
-  #ldZed { position: absolute; left: 50%; top: max(2vh, env(safe-area-inset-top, 0px)); transform: translateX(-50%); width: 300px; height: 260px; max-height: 34vh; max-width: 92vw; object-fit: contain; pointer-events: none; }
-  @media (max-height: 560px) { #ldZed { width: 34vh !important; height: 30vh !important; top: 1vh; } #load .ldlogo { margin-top: 20vh; font-size: 40px !important; } }
+  #load.ldz { background: transparent !important; }   /* the real zombie dances on the game canvas behind, top middle */
+  #load.ldz .ldlogo { margin-top: min(38vh, 400px); }
+  @media (max-height: 560px) { #load.ldz .ldlogo { margin-top: 30vh; font-size: 40px !important; } #load.ldz { gap: 8px !important; } }
   #load .bar { width: 220px; height: 2px; background: #1a1a1a; }
   #loadbar { height: 2px; width: 0; background: #8a1a14; transition: width .2s; }
   #loadtext { font-size: 11px; letter-spacing: .3em; color: #777; text-transform: uppercase; }
@@ -1004,7 +1005,7 @@ body.bagopen #caption, body.bagopen #help, body.bagopen #clock, body:has(#bag.sh
 <div id="scope"></div>
 <div id="fade"></div>
 
-<div id="load"><canvas id="ldZed" width="360" height="170" aria-hidden="true"></canvas><div class="ldlogo">ZOMBIE_<span>APOCALYPSE</span></div><div class="bar"><div id="loadbar"></div></div><div id="loadtext">loading</div><div id="loadtip">Only the head kills for sure.</div></div>
+<div id="load"><div class="ldlogo">ZOMBIE_<span>APOCALYPSE</span></div><div class="bar"><div id="loadbar"></div></div><div id="loadtext">loading</div><div id="loadtip">Only the head kills for sure.</div></div>
 
 <div class="screen" id="title"><div id="ash"></div><div class="col">
   <h1>ZOMBIE_<span>APOCALYPSE</span></h1>
@@ -1188,60 +1189,6 @@ body.bagopen #caption, body.bagopen #help, body.bagopen #clock, body:has(#bag.sh
 </script>
 <script async src="three/es-module-shims.js"></script>
 <script type="importmap">{ "imports": { "three": "./three/three.module.js", "three/addons/": "./three/addons/" } }</script>
-<script type="module">
-// the loading screen's dancer: a little 3D zombie (lit, shaded, with a shadow) bopping at the top of the screen while the town builds
-import * as THREE from 'three';
-const cv = document.getElementById('ldZed');
-if (cv) try {
-  const W = 300, H = 260, dpr = Math.min(2, devicePixelRatio || 1);
-  const R = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true, powerPreference: 'low-power' });
-  R.setPixelRatio(dpr); R.setSize(W, H, false); R.shadowMap.enabled = true; R.outputColorSpace = THREE.SRGBColorSpace;
-  const S = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 50); cam.position.set(0, 1.15, 4.7); cam.lookAt(0, 0.92, 0);
-  S.add(new THREE.HemisphereLight(0xdfe6ff, 0x3a2016, 2.2));
-  const key = new THREE.SpotLight(0xffe0c8, 95, 20, 0.6, 0.5); key.position.set(1.5, 5, 3); key.castShadow = true; key.shadow.mapSize.set(512, 512); S.add(key);
-  const rim = new THREE.DirectionalLight(0xff4030, 1.6); rim.position.set(-3, 2, -2); S.add(rim);
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(1.6, 32), new THREE.ShadowMaterial({ opacity: 0.55 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; S.add(floor);
-  const M = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
-  const skin = M(0x7fa36a), skin2 = M(0x5d7f4f), shirt = M(0x6b3a32), pants = M(0x2f3a4a), shoe = M(0x1c1a18), blood = M(0x6a0e0a), eye = new THREE.MeshStandardMaterial({ color: 0xfff6c0, emissive: 0x8a1a10, emissiveIntensity: 0.6 }), hairM = M(0x2a1e14);
-  const mesh = (g, m, x = 0, y = 0, z = 0, p = S) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.castShadow = true; p.add(o); return o; };
-  const grp = (x, y, z, p) => { const g = new THREE.Group(); g.position.set(x, y, z); p.add(g); return g; };
-  const cap = (r, l) => new THREE.CapsuleGeometry(r, l, 6, 12);
-  const root = grp(0, 0, 0, S), hips = grp(0, 0.95, 0, root);
-  mesh(new THREE.BoxGeometry(0.42, 0.22, 0.24), pants, 0, 0, 0, hips);
-  const torso = grp(0, 0.1, 0, hips);
-  const chest = mesh(new THREE.BoxGeometry(0.48, 0.58, 0.27), shirt, 0, 0.3, 0, torso);
-  mesh(new THREE.SphereGeometry(0.085, 12, 8), blood, 0.12, 0.36, 0.13, torso).scale.set(1, 1.3, 0.3);
-  for (let i = 0; i < 5; i++) mesh(new THREE.ConeGeometry(0.05, 0.11, 4), shirt, -0.2 + i * 0.1, 0.0, 0.0, torso).rotation.x = Math.PI;   // torn hem
-  const neck = grp(0, 0.62, 0, torso); mesh(cap(0.06, 0.06), skin2, 0, 0.04, 0, neck);
-  const head = grp(0, 0.2, 0, neck);
-  mesh(new THREE.SphereGeometry(0.19, 20, 16), skin, 0, 0.02, 0, head).scale.set(1, 1.12, 1);
-  mesh(new THREE.SphereGeometry(0.2, 16, 8, 0, Math.PI * 2, 0, 1.1), hairM, 0, 0.06, -0.02, head);
-  const e1 = mesh(new THREE.SphereGeometry(0.045, 10, 8), eye, -0.07, 0.04, 0.16, head), e2 = mesh(new THREE.SphereGeometry(0.035, 10, 8), eye, 0.08, 0.02, 0.165, head);
-  const mouth = mesh(new THREE.BoxGeometry(0.11, 0.04, 0.03), M(0x2a0c08), 0.01, -0.09, 0.17, head);
-  const arm = side => { const sh = grp(side * 0.3, 0.52, 0, torso); mesh(cap(0.065, 0.24), shirt, 0, -0.16, 0, sh); const el = grp(0, -0.33, 0, sh); mesh(cap(0.058, 0.22), skin, 0, -0.14, 0, el); mesh(new THREE.SphereGeometry(0.07, 10, 8), skin2, 0, -0.3, 0, el); return { sh, el }; };
-  const leg = side => { const hp = grp(side * 0.12, -0.05, 0, hips); mesh(cap(0.085, 0.32), pants, 0, -0.22, 0, hp); const kn = grp(0, -0.44, 0, hp); mesh(cap(0.075, 0.3), pants, 0, -0.2, 0, kn); mesh(new THREE.BoxGeometry(0.15, 0.09, 0.27), shoe, 0, -0.43, 0.05, kn); return { hp, kn }; };
-  const L = arm(-1), Ra = arm(1), LL = leg(-1), RL = leg(1);
-  const t0 = performance.now(); let raf;
-  const frame = now => {
-    if (document.body.classList.contains('ready')) { cancelAnimationFrame(raf); setTimeout(() => { R.dispose(); R.forceContextLoss && R.forceContextLoss(); cv.remove(); }, 1400); return; }
-    const t = Math.max(0, (now - t0) / 1000), b = t * 2.2 * Math.PI, ph = Math.floor(t / 4) % 4;   // (the first frame's timestamp can be a hair before t0)
-    root.position.x = Math.sin(t * 0.8) * 0.55;
-    root.rotation.y = ph === 3 ? ((t % 4) / 4) * Math.PI * 4 : Math.sin(t * 0.8 + Math.PI / 2) * 0.6;   // faces where it's shuffling; a twirl every 16 s
-    const bob = Math.abs(Math.sin(b)) * 0.07; hips.position.y = 0.95 - bob;
-    torso.rotation.z = Math.sin(b / 2) * 0.12; torso.rotation.x = 0.12 + Math.sin(b) * 0.05;
-    head.rotation.z = Math.sin(b) * 0.3 - 0.15; head.rotation.x = Math.sin(b * 2) * 0.12;
-    mouth.scale.y = 1 + Math.abs(Math.sin(b)) * 2.5; e1.scale.setScalar(1 + Math.sin(t * 7) * 0.08);
-    const st = Math.sin(b), kick = ph === 1 ? Math.max(0, st) * 0.9 : 0;
-    LL.hp.rotation.x = -0.35 * st - kick; LL.kn.rotation.x = 0.5 * Math.max(0, st) + kick * 0.6;
-    RL.hp.rotation.x = 0.35 * st; RL.kn.rotation.x = 0.5 * Math.max(0, -st);
-    const pose = [[-1.45, -1.45, 0.2, 0.2], [-2.6 - Math.sin(b) * 0.5, -0.4 - Math.sin(b + 1) * 0.4, 0.6, 0.3], [-3.0 - Math.sin(b) * 0.2, -3.0 + Math.sin(b) * 0.2, 0.4, 0.4], [-1.6, -1.2, 0.3, 0.3]][ph];
-    L.sh.rotation.x = pose[0]; Ra.sh.rotation.x = pose[1]; L.el.rotation.x = -pose[2]; Ra.el.rotation.x = -pose[3];
-    L.sh.rotation.z = -0.15 + (ph === 2 ? Math.sin(b) * 0.3 : 0); Ra.sh.rotation.z = 0.15 - (ph === 2 ? Math.sin(b) * 0.3 : 0);
-    R.render(S, cam); raf = requestAnimationFrame(frame);
-  };
-  raf = requestAnimationFrame(frame);
-} catch (e) { cv.remove(); }
-</script>
 
 <script type="module" src="js/main.js"></script>
 </body>

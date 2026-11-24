@@ -10,6 +10,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { zombieKind } from './soldier.js';   // [ldz]
+import { dressZombie } from './zombies.js';   // [ldz]
 import { Soldier, prepareKind, clamp, lerp, smooth, damp, wrapPi, dampAngle } from './soldier.js';
 import { WEAPONS, SLOTS, Arms, makeWeaponMesh } from './weapons.js';
 import { MELEE, MELEE_ORDER, Melee, analyseSwings } from './melee.js';
@@ -266,6 +268,47 @@ const tick = () => new Promise(r => setTimeout(r, 0));
 const ZOMBIES = Q.has('zn') ? +Q.get('zn') : MOB ? Math.round(34 * MOB.poolScale) : 34;
 let TIPS = ['Only the head kills for sure.', 'Gunshots bring the whole street.', 'Close a door behind you. They\'ll have to beat it down.', 'At night they can barely see you — unless your flashlight is on.', 'Rain covers the sound of your footsteps.', 'Grabbed? Mash Space before it bites.', 'A thrown bottle draws them away.', 'Bandage a cut before you bleed out.', 'The big ones don\'t stagger. Don\'t trade blows.', 'Crouch to move quietly.'];
 let tipI = 0; const tipTimer = setInterval(() => { const e = $('loadtip'); if (!e) return; e.style.opacity = 0; setTimeout(() => { e.textContent = TIPS[tipI++ % TIPS.length]; e.style.opacity = 1; }, 600); }, 3200);
+// [ldz] the loading screen's dancer: one of the game's own zombies (the real body, its zombie skin and clothes, the
+// Dance_Simple / Zombie_Idle / Zombie_Scratch moves) drawn by the game's own renderer in a box at the top middle of the
+// screen while the rest loads — no second WebGL context (iOS), gone the moment loading ends
+let LDZ = null;
+function startLoadZombie() {
+  try {
+    const kind = zombieKind(KINDS.human), ls = new THREE.Scene();
+    ls.add(new THREE.HemisphereLight(0xcfd6ff, 0x2a1410, 1.3));
+    const key = new THREE.SpotLight(0xffe6cc, 110, 20, 0.6, 0.5); key.position.set(1.4, 4.5, 3); key.target.position.set(0, 1, 0); ls.add(key, key.target);
+    const rim = new THREE.DirectionalLight(0xff3020, 2.2); rim.position.set(-3, 2.5, -2.5); ls.add(rim);
+    const s2 = new Soldier(kind, ls, { clone: true });
+    LOOKS.applyLook(s2, LOOKS.lookFor('loadz', 'human'), { zombie: true }); dressZombie(s2, 5);
+    s2.place(0, 0, 0); s2.pivot.updateMatrixWorld(true);
+    const mx = s2.mixer; mx.stopAllAction();
+    const A = n => kind.clips[n] ? mx.clipAction(kind.clips[n]) : null;
+    const moves = [['Dance_Simple', 7], ['Zombie_Scratch', 2.4], ['Dance_Simple', 7], ['Zombie_Idle', 2.6]].map(([n, d]) => [A(n), d]).filter(m => m[0]);
+    if (!moves.length) return;
+    const cam = new THREE.PerspectiveCamera(28, 1, 0.1, 30); cam.position.set(0, 1.0, 4.6); cam.lookAt(0, 0.9, 0);
+    let i = 0, cur = moves[0][0], t = 0, last = performance.now(); cur.play();
+    $('load').classList.add('ldz');
+    const tick2 = now => {
+      if (!LDZ) return;
+      const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
+      if (t > moves[i][1]) { t = 0; i = (i + 1) % moves.length; const nx = moves[i][0]; if (nx !== cur) { nx.reset().play(); cur.crossFadeTo(nx, 0.4, false); cur = nx; } }
+      s2.pivot.rotation.y = Math.sin(now / 1000 * 0.5) * 0.5;
+      mx.update(dt);
+      const W = renderer.domElement.clientWidth, H = renderer.domElement.clientHeight, bw = Math.min(360, W * 0.6), bh = Math.min(380, H * 0.36);
+      cam.aspect = bw / bh; cam.updateProjectionMatrix();
+      renderer.setScissorTest(false); renderer.setClearColor(0x090505, 1); renderer.clear();
+      renderer.setViewport((W - bw) / 2, H - bh - 8, bw, bh); renderer.setScissor((W - bw) / 2, H - bh - 8, bw, bh); renderer.setScissorTest(true);
+      renderer.render(ls, cam);
+      renderer.setScissorTest(false); renderer.setViewport(0, 0, W, H);
+      LDZ.raf = requestAnimationFrame(tick2);
+    };
+    LDZ = { s2, ls, raf: requestAnimationFrame(tick2) };
+  } catch (e) { console.warn('loading zombie', e); LDZ = null; }
+}
+function stopLoadZombie() {
+  if (!LDZ) return; cancelAnimationFrame(LDZ.raf); try { LDZ.s2.pivot.removeFromParent(); } catch { }
+  LDZ = null; renderer.setScissorTest(false); renderer.setViewport(0, 0, renderer.domElement.clientWidth, renderer.domElement.clientHeight); $('load').classList.remove('ldz');
+}
 async function load() {
   const g = {};
   await Promise.all(files.map(async f => { g[f] = await loadGLB(f); }));
@@ -277,6 +320,7 @@ async function load() {
   for (const k of ['human', 'butler', 'coach', 'michelle']) {
     $('loadtext').textContent = k === 'human' ? 'waking you up' : 'raising the dead'; await tick();
     KINDS[k] = prepareKind(g[k], motion, moves);
+    if (k === 'human') startLoadZombie();   // [ldz] the real zombie dances at the top of the loading screen from here on
     if (k === 'michelle') cleanFemale(KINDS.michelle.root);
     $('loadbar').style.width = (55 + Object.keys(KINDS).length * 8) + '%';
   }
@@ -358,6 +402,7 @@ async function load() {
   Z.pool.forEach(u => sleep(u));
   PEOPLE.PPL.list.forEach(u => u.s.setVisible(false));
   $('loadbar').style.width = '100%';
+  stopLoadZombie();   // [ldz]
 }
 
 // ---------------------------------------------------------------- footsteps (and the noise they make)
