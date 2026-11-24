@@ -201,7 +201,11 @@ export class Melee {
       const m = this.meshes[id], T = this.TL;
       tB.copy(UPV).applyQuaternion(m.quaternion); tC.copy(ZV).applyQuaternion(m.quaternion);
       T.p.copy(m.position).addScaledVector(tB, -0.075); T.f.copy(tC); T.s.copy(tB);
-      sol.reach(-1, T, w2);
+      // only where the left arm can really get to it: not at full stretch, not round behind the back (a wind-up)
+      const ls = sol.B.LeftArm.getWorldPosition(tD), yaw = sol.yaw + (sol.twist || 0);
+      const far = ls.distanceTo(T.p), back = (T.p.x - ls.x) * Math.sin(yaw) + (T.p.z - ls.z) * Math.cos(yaw);
+      const ok = (1 - Math.min(1, Math.max(0, (far - 0.5) / 0.1))) * Math.min(1, Math.max(0, (back + 0.05) / 0.12));
+      if (w2 * ok > 0.01) sol.reach(-1, T, w2 * ok);
     }
   }
   // just move the weapon to where the right hand is now (after a reach has moved the hand, say)

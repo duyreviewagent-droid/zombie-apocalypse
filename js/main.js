@@ -1940,8 +1940,13 @@ function makeAmbulance() {
   const g = buildCar('van', ambPaint, { ambulance: true, red: ambRed }); scene.add(g);
   const lbl = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.42), new THREE.MeshStandardMaterial({ map: TX.labelTexture(['AMBULANCE'], '#f2f2ee', '#b01810', 512, 128, 'bold 74px Helvetica'), roughness: 0.4 }));
   for (const sx of [-1, 1]) { const l = lbl.clone(); l.position.set(sx * 1.005, 1.75, -0.6); l.rotation.y = sx * Math.PI / 2; g.add(l); }
-  const red = new THREE.MeshStandardMaterial({ color: 0x500000, emissive: 0xff1a10, emissiveIntensity: 0 }), wht = new THREE.MeshStandardMaterial({ color: 0x505050, emissive: 0xffffff, emissiveIntensity: 0 });
-  for (const [m, x] of [[red, -0.55], [wht, 0], [red, 0.55]]) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.22), m); b.position.set(x, 2.52, 1.05); g.add(b); }
+  const red = new THREE.MeshStandardMaterial({ color: 0x6a0a06, emissive: 0xff1a10, emissiveIntensity: 0, roughness: 0.12, metalness: 0.1 }), wht = new THREE.MeshStandardMaterial({ color: 0xb8bcc0, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.12, metalness: 0.1 });
+  // a real light bar: a dark housing with chrome end caps, rounded lenses (red, white, red) sitting in it
+  { const house = new THREE.MeshStandardMaterial({ color: 0x1b1d20, roughness: 0.5, metalness: 0.3 }), chrome = new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.18, metalness: 0.9 });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.07, 0.3), house); base.position.set(0, 2.49, 1.05); g.add(base);
+    for (const sx of [-1, 1]) { const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.05, 14).rotateZ(Math.PI / 2), chrome); cap.position.set(sx * 0.875, 2.55, 1.05); g.add(cap); }
+    const lens = new THREE.CapsuleGeometry(0.068, 0.4, 4, 12).rotateZ(Math.PI / 2);
+    for (const [m, x] of [[red, -0.56], [wht, 0], [red, 0.56]]) { const b = new THREE.Mesh(lens, m); b.position.set(x, 2.56, 1.05); b.scale.z = 1.45; g.add(b); } }
   const live = makeDrivable(g, 'van');   // real wheels that turn, a body that pitches, brake lights
   return { g, red, wht, light: ambLight, live, prevSpeed: 0, parts: g.userData.parts || [] };
 }
@@ -2588,7 +2593,7 @@ function survive(dt) {
 const DROPPED = [];
 function dropHeld(info = {}) {
   const src = P.arms.cur ? P.arms.guns[P.arms.cur] : MEL.cur && MEL.cur !== 'fists' ? MEL.meshes[MEL.cur] : null;
-  if (!src || !src.visible || !src.parent) return;
+  if (!src || !src.parent || DRIVE.active() || G.inAmb) return;   // (it may already be hidden by the hit that killed you: it's still what you held)
   src.updateWorldMatrix(true, true);
   const m = src.clone(true); src.matrixWorld.decompose(m.position, m.quaternion, m.scale); m.visible = true;
   m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = true; } });
