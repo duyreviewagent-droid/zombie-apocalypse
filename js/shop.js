@@ -226,6 +226,8 @@ function injectUI() {
   .zsIt button:hover:not([disabled]) { background: rgba(232,200,96,.34); } .zsIt button[disabled] { cursor: default; border-color: #4a463e; background: transparent; color: #a39d90; }
   #shop .btns.sticky { margin-top: 14px; }
   @media (max-width: 700px), (max-height: 560px) { .zsGrid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 6px; } .zsIt { padding: 7px 8px; gap: 4px; } .zsWallet { margin: 4px 0 8px; padding: 6px 10px; } .zshop .sub { margin: 0 0 4px; } }
+  @media (max-height: 430px) { #shop .zshop { padding-top: 10px !important; } .zshop h2 { font-size: 24px !important; margin: 0 !important; } .zshop .sub { display: none; } .zshop .eyebrow { font-size: 9px; margin: 0; }
+    .zsWallet { margin: 4px 0 6px; padding: 3px 8px; font-size: 13px; } .zsWallet .ic { width: 16px; height: 16px; } .zsD { display: none; } #shop .btns.sticky { margin-top: 8px; padding-top: 6px; padding-bottom: 8px; } #shop .btns.sticky button.m { padding: 8px; } }
   #vitals .zlxHud { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-family: 'Oswald', sans-serif; font-size: 14px; color: #f0e6c8; letter-spacing: .04em; }
   #vitals .zlxHud .ic { width: 16px; height: 16px; color: #e8c860; } #vitals .zlxHud.bump { animation: zlxBump .5s ease; }
   @keyframes zlxBump { 30% { transform: scale(1.12); color: #fff; } }

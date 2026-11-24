@@ -32,7 +32,7 @@ export function init(ctx) {
   BOSSH.heavyHit = heavyHit;
   BOSSH.step = bossStep;
   const t = X.Q && X.Q.get('boss'); if (t && BOSS_TYPES[t]) testBoss = { type: t, at: null };
-  if (window.ZA) Object.assign(window.ZA, { spawnBoss, BOSS: { live, quake, grid: () => grid, path: gridPath, knockPlayer, stats: () => [...live].map(u => ({ type: u.bossT, hp: Math.round(u.hp), maxHp: Math.round(u.maxHp), size: +u.s.root.scale.x.toFixed(2), sizeK: +u.sizeK.toFixed(2), walk: +u.walkSpeed.toFixed(2), run: +u.runSpeed.toFixed(2), runner: u.runner, dmgK: u.dmgK, alive: u.alive, x: +u.s.pos.x.toFixed(1), z: +u.s.pos.z.toFixed(1) })) } });
+  if (window.ZA) Object.assign(window.ZA, { spawnBoss, BOSS: { live, quake, pending: () => pendingGiant, clearPending: () => { pendingGiant = null; }, grid: () => grid, path: gridPath, knockPlayer, stats: () => [...live].map(u => ({ type: u.bossT, hp: Math.round(u.hp), maxHp: Math.round(u.maxHp), size: +u.s.root.scale.x.toFixed(2), sizeK: +u.sizeK.toFixed(2), walk: +u.walkSpeed.toFixed(2), run: +u.runSpeed.toFixed(2), runner: u.runner, dmgK: u.dmgK, alive: u.alive, x: +u.s.pos.x.toFixed(1), z: +u.s.pos.z.toFixed(1) })) } });
 }
 const giantUp = () => { for (const u of live) if (u.giant && u.alive && u.active) return u; return null; };
 
@@ -148,6 +148,8 @@ function showBar(u) {
 @media (max-width:620px),(max-height:520px){#bossBar{top:calc(env(safe-area-inset-top,0px) + 58px)}#bossBar b{font-size:17px}#bossBar.giant b{font-size:22px}#bossBar .tr{height:8px}}`;
     document.head.appendChild(st); document.body.appendChild(bar);
   }
+  const bigEl = document.getElementById('big'), hide = !!(bigEl && +bigEl.style.opacity > 0.05);   // (out of the way of a big announcement)
+  if (bar._hide !== hide) { bar._hide = hide; bar.style.visibility = hide ? 'hidden' : ''; }
   if (u !== barU) {
     barU = u; bar.classList.toggle('on', !!u);
     if (u) { bar.classList.toggle('giant', !!u.giant); bar.querySelector('b').textContent = BOSS_TYPES[u.bossT].name; }
