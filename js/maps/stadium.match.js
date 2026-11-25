@@ -13,6 +13,8 @@
 import * as THREE from 'three';
 import { Soldier, aimBone } from '../soldier.js';
 import { tier } from '../tex.js';
+import * as LOOKS from '../looks.js';
+let MK_N = 0;
 
 const PX = 52.5, PZ = 34, GOAL_Z = 3.66;
 const lumOf = (map) => {   // a texture's mean linear brightness (for the recolour; ~1 for no texture)
@@ -57,7 +59,13 @@ export function makeMatch(K, { S, KINDS, HOME, AWAY, stewards = [] }) {
   // (the footballers and the referee are the body in a T-shirt and shorts; the stewards anybody)
   const mk = (i, top, bottom, scale = 1, sporty = false) => {
     const kind = sporty && KINDS.coach ? KINDS.coach : KINDS[bodies[i % bodies.length]], s = new Soldier(kind, level, { clone: true });
-    s.update(1 / 60, {}); wear(s, top, bottom); s.root.scale.setScalar(scale * rnd(0.96, 1.04)); s.animLod = true;
+    s.update(1 / 60, {}); s.root.scale.setScalar(scale * rnd(0.96, 1.04)); s.animLod = true;
+    // everybody their own face, skin, hair and build (looks.js: nobody's anybody's twin — nor yours), then the kit /
+    // the hi-vis dyed over the clothes; no hats (a dark hat over a red top is your look)
+    let looked = false;
+    try { const body = kind === KINDS.coach ? 'coach' : kind === KINDS.butler ? 'butler' : 'human', L = LOOKS.lookFor('stadium:' + (MK_N++) + ':' + body, body); LOOKS.applyLook(s, { ...L, hat: 'none' }); LOOKS.outfit(s, top, bottom); looked = true; } catch (e) { looked = false; }
+    if (!looked) wear(s, top, bottom);
+    s.update(1 / 60, {});
     return s;
   };
   // ---- the ball ----

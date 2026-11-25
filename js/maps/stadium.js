@@ -90,7 +90,7 @@ export function buildMap(K) {
   add('sdLocker', std({ map: T.locker, roughness: 0.6 }), 2);
   add('sdConc', std({ map: K.TX.concreteTexture(0.85), color: 0xb8b4aa, roughness: 0.55 }), 4);   // polished concourse floor
   add('sdSteel', std({ color: 0xa8adb2, roughness: 0.45, metalness: 0.6 }));   // (painted steel: a white one glared under the floodlights)
-  add('sdFin', std({ color: 0x5a6068, roughness: 0.72, metalness: 0.2, envMapIntensity: 0.3 }));   // the façade's steel fins: matt dark grey (shiny ones glared white as light strips at night)
+  add('sdFin', std({ color: 0x2c3036, roughness: 0.55, metalness: 0.5, envMapIntensity: 0.4 }));   // the façade's steel fins: matt dark grey (shiny ones glared white as light strips at night)
   add('sdGlassBand', std({ color: 0x1a2430, roughness: 0.08, metalness: 0.6, envMapIntensity: 1.5 }), 4);
   add('sdRoofTop', std({ map: K.TX.corrugatedTexture([170, 176, 182]), roughness: 0.5, metalness: 0.6 }), 4);
   add('sdRoofUnder', std({ map: K.TX.corrugatedTexture([206, 208, 210]), roughness: 0.7, metalness: 0.3 }), 3);   // (the underside of the profiled steel deck)
@@ -1137,7 +1137,11 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
       const pose = far.seated ? 'sit' : 'stand', meshes = REAL.filter(r => r.pose === pose), cap = NEAR.cap[pose];
       if (!meshes.length) continue;
       const cand = [];
-      for (let i = 0; i < far.list.length; i++) { const f = far.list[i]; if (f.left) continue; const dx = f.x - focus.x, dz = f.z - focus.z, dy = f.y - (focus.y || 0), d2 = dx * dx + dz * dz + dy * dy; if (d2 < R2) cand.push([d2, i]); }
+      // (a fan's body is fixed by who he is — never re-dealt as more bodies bake: until his is ready he stays the far
+      //  figure. Whoever's already a real body stays one a little further out and ahead in the queue: no flicker
+      //  between the two at the edge of the circle as you walk about)
+      const bodyOf = f => meshes.find(r => r.kind === KIND_IDS[Math.min(KIND_IDS.length - 1, Math.floor(f.kind * KIND_IDS.length))]);
+      for (let i = 0; i < far.list.length; i++) { const f = far.list[i]; if (f.left || !bodyOf(f)) continue; const dx = f.x - focus.x, dz = f.z - focus.z, dy = f.y - (focus.y || 0), d2 = (dx * dx + dz * dz + dy * dy) * (f.near ? 0.7 : 1); if (d2 < R2) cand.push([d2, i]); }
       cand.sort((a, b) => a[0] - b[0]); const want = new Set(cand.slice(0, cap).map(c => c[1]));
       let dirty = fresh;
       far.list.forEach((f, i) => { const w = want.has(i); if (w === f.near) return; f.near = w; dirty = true; if (w) for (const im of far.parts) im.setMatrixAt(i, ZERO); else { place(f); for (const im of far.parts) im.setMatrixAt(i, mtx); } });
@@ -1145,7 +1149,7 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
       for (const im of far.parts) im.instanceMatrix.needsUpdate = true;
       for (const r of meshes) r.im.count = 0;
       for (const i of want) {
-        const f = far.list[i], r = meshes[Math.min(meshes.length - 1, Math.floor(f.kind * meshes.length))], k = r.im.count++;
+        const f = far.list[i], r = bodyOf(f), k = r.im.count++;
         place(f); r.im.setMatrixAt(k, mtx);
         r.attrs.iShirt.setXYZ(k, f.shirt.r, f.shirt.g, f.shirt.b); r.attrs.iLegs.setXYZ(k, f.legs.r, f.legs.g, f.legs.b);
         r.attrs.iSkin.setXYZ(k, f.skin.r, f.skin.g, f.skin.b); r.attrs.iHair.setXYZ(k, f.hair.r, f.hair.g, f.hair.b); r.attrs.aRank.setX(k, f.rank);
