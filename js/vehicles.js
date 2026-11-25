@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { detailPatch } from './tex.js';   // [design3]
 
 const M = {};
 const canvasTex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t; };
@@ -27,14 +28,17 @@ function mats() {
   M.mirror = new THREE.MeshStandardMaterial({ color: 0xb4bcc4, roughness: 0.02, metalness: 1 });
   // [realism] tyres: tread blocks and grooves across the crown, a raised lettering band and moulding rings on the sidewalls
   // (lathe uvs: u round the tyre, v across the profile — sidewall, shoulder, tread 0.44..0.56, shoulder, sidewall)
-  const tyreT = canvasTex(512, 64, (g, w, h) => {
+  const tyreT = canvasTex(512, 128, (g, w, h) => {
     g.fillStyle = '#222'; g.fillRect(0, 0, w, h);
     const tr0 = h * 0.42, tr1 = h * 0.58;
     g.fillStyle = '#2b2b2b'; g.fillRect(0, tr0, w, tr1 - tr0);
     g.fillStyle = '#0c0c0c';
-    for (let i = 0; i < 64; i++) { const x = i * w / 64; g.fillRect(x, tr0, 2.2, tr1 - tr0); g.fillRect(x + 4, h * 0.47, 3, 1.4); g.fillRect(x + 1, h * 0.53, 3, 1.4); }   // sipes and lugs
-    g.fillRect(0, h * 0.495, w, 1.3);   // the centre groove
-    for (const y of [h * 0.2, h * 0.8]) { g.fillStyle = '#2e2e2e'; g.fillRect(0, y - 2, w, 4); g.fillStyle = '#3a3a3a'; for (let x = 0; x < w; x += 6 + (x * 7 % 5)) g.fillRect(x, y - 1.5, 3, 3); }   // raised lettering band
+    for (let i = 0; i < 64; i++) { const x = i * w / 64; g.fillRect(x, tr0, 2.2, tr1 - tr0); g.fillRect(x + 4, h * 0.47, 3, h * 0.022); g.fillRect(x + 1, h * 0.53, 3, h * 0.022); }   // sipes and lugs
+    g.fillRect(0, h * 0.49, w, h * 0.02);   // the centre groove
+    for (const y of [h * 0.17, h * 0.83]) {   // [design3] raised sidewall lettering: maker, model and size, twice round
+      g.fillStyle = '#272727'; g.fillRect(0, y - h * 0.045, w, h * 0.09);
+      g.save(); g.translate(0, y); if (y > h / 2) g.scale(1, -1); g.font = `bold ${h * 0.085 | 0}px Helvetica`; g.textBaseline = 'middle';
+      g.fillStyle = '#4a4a4a'; g.fillText('ROADMASTER', 8, 0); g.font = `${h * 0.07 | 0}px Helvetica`; g.fillText('ALL SEASON  P205/65 R16  91H', w * 0.42, 0); g.restore(); }
     g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(0, h * 0.08, w, 1); g.fillRect(0, h * 0.92, w, 1);
     g.fillStyle = 'rgba(120,110,95,0.10)'; for (let i = 0; i < 160; i++) g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 3, 1);   // road dust
   });
@@ -67,6 +71,12 @@ function mats() {
   M.reverse = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.1, metalness: 0.2 });
   M.under = new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 1, side: THREE.DoubleSide });   // underside, liners, carpet
   M.seat = new THREE.MeshStandardMaterial({ color: 0x2a2724, roughness: 0.9 });
+  // [design3] nothing plain inside or under the car either: woven seat cloth in stitched pleats, grained dash and trim
+  // plastic, gritty underbody, worn metal on the rims and discs (box-projected detail maps: shared, no new draw calls)
+  M.seat.color.setHex(0x3a3630); detailPatch(M.seat, 'fabric', { scale: 1.6, pleat: true });
+  detailPatch(M.trim, 'plastic', { scale: 2 }); detailPatch(M.plastic, 'plastic', { scale: 2 });
+  M.under.color.setHex(0x1a1918); detailPatch(M.under, 'rough');
+  detailPatch(M.rim, 'metal', { scale: 3, mid: 0.5 }); detailPatch(M.disc, 'metal', { scale: 3, mid: 0.5 });
   // [realism] a burnt-out shell: soot-black metal with grey ash, blistered paint flecks and rust bleeding through;
   // bare rust is mottled orange-brown with dark pitting; rust patches have ragged edges (alpha-tested)
   const blot = (g, n, col, r0, r1, w, h) => { for (let i = 0; i < n; i++) { g.fillStyle = col(); g.beginPath(); const x = Math.random() * w, y = Math.random() * h, r = r0 + Math.random() * (r1 - r0); for (let a = 0; a < 6.3; a += 0.5) { const rr = r * (0.6 + Math.random() * 0.5); g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.fill(); } };
@@ -90,7 +100,7 @@ function mats() {
     g.fillStyle = '#000'; g.fillRect(0, 0, w, h); g.fillStyle = '#fff'; g.beginPath(); for (let a = 0; a < 6.3; a += 0.25) { const rr = w * (0.3 + Math.random() * 0.17); g.lineTo(w / 2 + Math.cos(a) * rr, h / 2 + Math.sin(a) * rr); } g.fill();
     for (let i = 0; i < 18; i++) { g.beginPath(); const a = Math.random() * 6.3, d = w * (0.3 + Math.random() * 0.15); g.arc(w / 2 + Math.cos(a) * d, h / 2 + Math.sin(a) * d, 3 + Math.random() * 9, 0, 7); g.fill(); }
   }) });
-  M.white = new THREE.MeshStandardMaterial({ color: 0xe4e4e0, roughness: 0.5 });
+  M.white = new THREE.MeshStandardMaterial({ color: 0xe4e4e0, roughness: 0.5 }); M.white.userData.dt = 'paint';   // [design3]
   M.star = new THREE.MeshStandardMaterial({ map: canvasTex(128, 128, (g) => {   // the blue Star of Life
     g.translate(64, 64); g.fillStyle = '#1550b8'; for (let k = 0; k < 3; k++) { g.save(); g.rotate(k * Math.PI / 3); g.fillRect(-15, -58, 30, 116); g.restore(); }
     g.strokeStyle = '#fff'; g.lineWidth = 5; g.beginPath(); g.moveTo(0, -40); g.lineTo(0, 42); g.stroke(); g.beginPath(); g.moveTo(-4, -30); g.bezierCurveTo(14, -24, 12, -10, 0, -6); g.bezierCurveTo(-12, -2, -12, 10, 0, 14); g.bezierCurveTo(10, 18, 10, 28, 2, 32); g.lineWidth = 4; g.stroke();
@@ -601,6 +611,7 @@ function bikeMats() {
   BK.chrome = new THREE.MeshStandardMaterial({ color: 0xbfc3c8, roughness: 0.22, metalness: 1 });
   BK.chain = new THREE.MeshStandardMaterial({ color: 0x3c3d40, roughness: 0.5, metalness: 0.8 });
   BK.saddle = new THREE.MeshStandardMaterial({ color: 0x2a211c, roughness: 0.6 });
+  detailPatch(BK.black, 'rough', { scale: 2, mid: 0.6 }); detailPatch(BK.saddle, 'fabric', { scale: 2, pleat: true }); detailPatch(BK.chain, 'metal', { scale: 3, mid: 0.4 });   // [design3]
   return BK;
 }
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);

@@ -1344,6 +1344,39 @@ export function detailTexture(kind = 'paint') {
     const t = tex(c, { srgb: false, aniso: 4 }); t.colorSpace = THREE.NoColorSpace; return t;
   });
 }
+// [design3] put a detail map on a plain material: box-projected in object space (1 tile = 1 m / scale), with the
+// fine detail's contrast raised and a procedural mid-scale layer (blotches, faded patches, run-down streaks at
+// 0.3–3 m) so a wall, fence or door still reads as a real surface from 10–20 m away. opts.pleat: seat pleats
+// (stitched channels every ~9 cm). Shared materials only — no new draw calls; one program per kind/scale.
+export function detailPatch(m, kind, o = {}) {
+  m.map = detailTexture(kind);
+  const sc = (o.scale || 1).toFixed(3), pleat = !!o.pleat, mid = (o.mid ?? ({ glaze: 0.4, plastic: 0.6, fabric: 0.7, metal: 1.2, woodOld: 1.2, rough: 1.1 }[kind] ?? 1)).toFixed(3);
+  const k0 = String(m.customProgramCacheKey()), prev = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    if (prev) prev.call(m, sh, r);
+    sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      { vec3 dP = transformed, dN = objectNormal;
+        #ifdef USE_INSTANCING
+          dP = (instanceMatrix * vec4(dP, 1.0)).xyz; dN = mat3(instanceMatrix) * dN;
+        #endif
+        vec3 aN = abs(dN);
+        vMapUv = (aN.y > aN.x && aN.y > aN.z ? dP.xz : (aN.x > aN.z ? dP.zy : dP.xy)) * ${sc}; }`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      float dtH(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float dtN(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(dtH(i), dtH(i + vec2(1, 0)), f.x), mix(dtH(i + vec2(0, 1)), dtH(i + vec2(1, 1)), f.x), f.y); }`)
+      .replace('#include <map_fragment>', `
+      { vec2 uvM = vMapUv / ${sc};
+        vec3 d = 1.0 - (1.0 - texture2D(map, vMapUv).rgb) * 1.6;                       // the fine detail, a bit bolder
+        float b = dtN(uvM * 0.45) * 0.55 + dtN(uvM * 1.3 + 7.1) * 0.3 + dtN(uvM * 3.7 + 3.3) * 0.15;   // blotches and faded patches
+        float st = dtN(vec2(uvM.x * 5.0, uvM.y * 0.35) + 11.0);                         // streaks running down
+        d *= 1.0 + ((b - 0.5) * 0.26 - smoothstep(0.62, 0.9, st) * 0.08) * ${mid};
+        ${pleat ? 'float pl = abs(fract(uvM.x * 11.0) - 0.5); d *= mix(0.6, 1.0, smoothstep(0.02, 0.1, pl));' : ''}
+        diffuseColor.rgb *= clamp(d, 0.45, 1.2); }`);
+  };
+  m.customProgramCacheKey = () => k0 + '|dt3' + sc + mid + pleat;
+  m.color.multiplyScalar(1.08); m.needsUpdate = true;
+  return m;
+}
 // [design2] melamine: the faced board inside cupboards, drawers and closets — a warm white with a faint printed
 // grain, and (row 'edge') the PVC edge banding along a shelf's front: a slightly darker strip with a fine line
 export function melamineTexture(edge = false) {
