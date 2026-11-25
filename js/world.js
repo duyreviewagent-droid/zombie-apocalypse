@@ -579,15 +579,12 @@ export function makeWorld(scene, renderer) {
       else if (K && k === 'can') ref = inst(K.canG, K.can[b], m);
       else if (K && k === 'box') ref = inst(b % 3 ? K.boxG : K.chipsG, b % 3 ? K.box[b] : K.chips[b % 5], m);
       else if (K && k === 'bottle') ref = inst(K.bottleG, K.bottle[b % K.bottle.length], m);
-      else if (k === 'can') ref = inst(GEO.can, MAT['can' + Math.floor(Math.random() * 3)], m);
-      else if (k === 'jar') ref = inst(GEO.jar, MAT.jarGlass, m);
-      else if (k === 'bottle') ref = inst(GEO.bottle, MAT['bottle' + Math.floor(Math.random() * 2)], m);
-      else if (k === 'box') ref = inst(GEO.cereal, MAT['book' + Math.floor(Math.random() * 6)], m);
+      else if (k === 'can' || k === 'jar' || k === 'bottle' || k === 'box') ref = designedItem(k, m, Math.random);   // [items]
       else if (k === 'book') ref = inst(bookGeo(Math.floor(Math.random() * 4) * 2, 'px', true), MAT.books, mat4(x, y, z, ry, 0.17, 0.23, 0.065));   // a hardback, its spine (and title) to the room
       else if (k === 'cloth') ref = inst(GEO.folded, MAT['fabric' + Math.floor(Math.random() * 5)], m);
       else if (k === 'trash') ref = inst(GEO.bag, MAT.trashBag, m);
-      else if (k === 'carton') ref = inst(GEO.carton, MAT.white, m);
-      else ref = inst(GEO.item, MAT['book' + Math.floor(Math.random() * 6)], m);
+      else if (k === 'carton') ref = designedItem('carton', m, Math.random);   // [items]
+      else ref = designedItem('item', m, Math.random);
       c.items.push(propItem(ref, k === 'trash' ? 'cloth' : k === 'book' ? 'box' : k));
     }
   }
@@ -2154,7 +2151,7 @@ export function makeWorld(scene, renderer) {
       const tr = new THREE.Mesh(FURN.get('t' + key), MAT.cabinet); tr.receiveShadow = true; inner.add(tr);
       const pull = new THREE.Mesh(FURN.get('p' + key), mat === MAT.walnut || mat === MAT.oak ? (MAT.brass || (MAT.brass = std({ color: 0xb08a4a, roughness: 0.3, metalness: 0.9 }))) : MAT.chrome); pull.position.set(0, h * 0.55, 0); g.add(pull);
       // something in the drawer
-      for (let k = 0; k < 3; k++) { const o = new THREE.Mesh(GEO.item, MAT['book' + Math.floor(r() * 6)]); o.position.set((r() - 0.5) * (w - 0.2), 0.06, -0.08 - r() * (d - 0.2)); o.rotation.y = r() * 3; o.scale.set(0.8 + r(), 0.6, 0.8 + r()); inner.add(o); (U.items ||= []).push(propItem({ mesh: o }, 'misc')); }
+      for (let k = 0; k < 3; k++) { const o = new THREE.Mesh(GEO.item, itemKit().dvd[Math.floor(r() * 8)]); /* [items] */ o.position.set((r() - 0.5) * (w - 0.2), 0.06, -0.08 - r() * (d - 0.2)); o.rotation.y = r() * 3; o.scale.set(0.8 + r(), 0.6, 0.8 + r()); inner.add(o); (U.items ||= []).push(propItem({ mesh: o }, 'misc')); }
       return { o: g, kind: 'slide', d: dist, knob: pull, inner };
     }
     // things on shelves: cans, boxes, jars, bottles
@@ -2163,16 +2160,14 @@ export function makeWorld(scene, renderer) {
         const bx = -U.W / 2 + 0.08 + (k + 0.5) / n * (U.W - 0.16) + (r() - 0.5) * 0.04, bz = (r() - 0.5) * depth;
         const [x, z] = U.world(bx, bz), kind = kinds[Math.floor(r() * kinds.length)];
         let ref;
-        if (kind === 'can') ref = inst(GEO.can, MAT['can' + Math.floor(r() * 3)], mat4(x, U.y0 + y, z, r() * 6));
-        else if (kind === 'jar') ref = inst(GEO.jar, MAT.jarGlass, mat4(x, U.y0 + y, z, r() * 6));
-        else if (kind === 'bottle') ref = inst(GEO.bottle, MAT['bottle' + Math.floor(r() * 2)], mat4(x, U.y0 + y, z, r() * 6));
-        else if (kind === 'carton') ref = inst(GEO.carton, MAT.white, mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.3));
+        if (kind === 'can' || kind === 'jar' || kind === 'bottle') ref = designedItem(kind, mat4(x, U.y0 + y, z, r() * 6), r);   // [items] printed, labelled things
+        else if (kind === 'carton') ref = designedItem('carton', mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.3), r);
         else if (kind === 'cloth') ref = inst(GEO.folded, MAT['fabric' + Math.floor(r() * 5)], mat4(x, U.y0 + y, z, yaw + flip * U.th));
         // a DVD case stood on its edge, an amber pill bottle, a printed pack of tablets (low things for low shelves)
-        else if (kind === 'dvd') ref = inst(GEO.item, MAT['book' + Math.floor(r() * 6)], mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.1, 0.14, 3.8, 0.96));
+        else if (kind === 'dvd') ref = designedItem('dvd', mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.1, 0.14, 3.8, 0.96), r);
         else if (kind === 'pills') { const K = prodKit(); ref = inst(K.pillG, K.pill, mat4(x, U.y0 + y, z, r() * 6)); }
         else if (kind === 'meds') { const K = prodKit(); ref = inst(K.medG, K.med[Math.floor(r() * 4)], mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.2)); }
-        else ref = inst(GEO.cereal, MAT['book' + Math.floor(r() * 6)], mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.2));
+        else ref = designedItem('box', mat4(x, U.y0 + y, z, yaw + flip * U.th + (r() - 0.5) * 0.2), r);
         if (ref) (U.items ||= []).push(propItem(ref, kind === 'cereal' || kind === 'box' || kind === 'dvd' || kind === 'meds' ? 'box' : kind === 'pills' ? 'bottle' : kind));
       }
     }
@@ -3412,8 +3407,49 @@ export function makeWorld(scene, renderer) {
     for (const zs of [-1, 1]) for (let x2 = -98; x2 <= 98; x2 += 9 + r() * 6) { if (Math.abs(x2) < 36) continue; const z2 = zs * (34.5 + r() * 3); if (W.boxes.some(b => Math.abs(b.x - x2) < b.r + 1.5 && Math.abs(b.z - z2) < b.r + 1.5)) continue; tree(x2, z2, 1.0 + r() * 0.45, r() < 0.5 ? 0 : 1); }
   }
   // ---------------- store stock: rows of real things on the shelves ----------------
-  const PROD = {};
+  var PROD;   // (var, filled on first use: the houses' cupboards ask for products before this line is reached)
+  // [items] what's in the cupboards and drawers: the same printed, labelled products the Quick Stop sells (cans with
+  // brands, cereal boxes, bottles), plus milk/juice cartons, labelled jars and DVD cases — no plain coloured blocks
+  function itemKit() {
+    const ITM = itemKit.c || (itemKit.c = {});   // (a function's own cache: the houses are built before this line is reached)
+    if (ITM.carton) return ITM;
+    const K = prodKit(), cvs = (w, h, f) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); f(g, w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
+    const txt = (g, s, x, y, px, col, w = 900) => { g.fillStyle = col; g.font = `${w} ${px}px Oswald, Arial Narrow, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(s, x, y); };
+    // cartons: milk, orange juice, apple juice, chocolate milk — printed on all four sides, a white gable top
+    ITM.carton = [['MILK', '#f4f4f0', '#1a4aa0', '#7ab0e8'], ['ORANGE', '#f8a020', '#ffffff', '#3a8a2a'], ['APPLE', '#c8e070', '#a01818', '#ffffff'], ['CHOCO', '#6a3a20', '#f4e0c0', '#c8a070']].map(([n, bg, fg, ac]) => {
+      const side = new THREE.MeshStandardMaterial({ roughness: 0.6, map: cvs(64, 160, (g, w, h) => { g.fillStyle = bg; g.fillRect(0, 0, w, h); g.fillStyle = ac; g.fillRect(0, h * 0.62, w, h * 0.12); g.beginPath(); g.ellipse(w / 2, h * 0.42, w * 0.34, h * 0.12, 0, 0, 7); g.fill(); txt(g, n, w / 2, h * 0.2, 15, fg); txt(g, '1 L', w / 2, h * 0.86, 12, fg, 600); }) });
+      const top = new THREE.MeshStandardMaterial({ color: 0xf0eee8, roughness: 0.7 });
+      return [side, side, top, top, side, side];
+    });
+    // jars: jam, pickles, honey, peanut butter, sauce — glass, a paper label, a metal lid
+    ITM.jarG = new THREE.CylinderGeometry(0.045, 0.045, 0.14, 16).translate(0, 0.07, 0);
+    ITM.jar = [['JAM', '#7a1018', '#f4ead8'], ['PICKLES', '#5a7a20', '#f0f0e0'], ['HONEY', '#d8901c', '#fff4d8'], ['PEANUT', '#a8682a', '#f8f0e0'], ['SAUCE', '#a82a14', '#f4ead0']].map(([n, glass, paper]) => {
+      const side = new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.05, map: cvs(256, 128, (g, w, h) => { g.fillStyle = glass; g.fillRect(0, 0, w, h); g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(w * 0.08, 0, 6, h); g.fillStyle = paper; g.fillRect(0, h * 0.3, w, h * 0.46); g.fillStyle = glass; g.fillRect(0, h * 0.33, w, 3); g.fillRect(0, h * 0.72, w, 3); txt(g, n, w * 0.25, h * 0.53, 26, glass); txt(g, n, w * 0.75, h * 0.53, 26, glass); }) });
+      const lid = new THREE.MeshStandardMaterial({ color: [0xb8b8b4, 0xc8a040, 0x2a2a2a][n.length % 3], roughness: 0.35, metalness: 0.8 });
+      return [side, lid, lid];
+    });
+    // DVD cases: a printed cover (title, a picture block, the blue band) on a black case
+    const TITLES = ['NIGHT RUN', 'HOME ALONE II', 'THE LAKE', 'SPACE COWBOYS', 'DINO PARK', 'LAST STAND', 'BIG CITY', 'MONSTER TRUCKS'];
+    ITM.dvd = TITLES.map((t, i) => {
+      const cover = new THREE.MeshStandardMaterial({ roughness: 0.35, map: cvs(96, 136, (g, w, h) => { const hue = (i * 47) % 360; g.fillStyle = `hsl(${hue},45%,22%)`; g.fillRect(0, 0, w, h); const gr = g.createLinearGradient(0, h * 0.2, 0, h * 0.8); gr.addColorStop(0, `hsl(${(hue + 30) % 360},60%,55%)`); gr.addColorStop(1, `hsl(${hue},50%,15%)`); g.fillStyle = gr; g.fillRect(6, h * 0.22, w - 12, h * 0.52); g.fillStyle = '#1a3a8a'; g.fillRect(0, 0, w, 14); txt(g, 'DVD', w / 2, 7, 10, '#fff'); txt(g, t, w / 2, h * 0.86, t.length > 10 ? 11 : 14, '#f4f0e0'); }) });
+      const casem = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.45 });
+      return [casem, casem, casem, casem, cover, cover];   // box faces: +x -x +y -y +z -z
+    });
+    return ITM;
+  }
+  // a designed thing of this kind at m (instanced), or null for kinds this doesn't cover
+  function designedItem(kind, m, rnd) {
+    const K = prodKit(), I = itemKit(), b = Math.floor(rnd() * 8);
+    if (kind === 'can') return inst(K.canG, K.can[b], m);
+    if (kind === 'box' || kind === 'cereal') return b % 3 ? inst(K.boxG, K.box[b], m) : inst(K.chipsG, K.chips[b % 5], m);
+    if (kind === 'bottle') return inst(K.bottleG, K.bottle[b % K.bottle.length], m);
+    if (kind === 'carton') return inst(GEO.carton, I.carton[b % 4], m);
+    if (kind === 'jar') return inst(I.jarG, I.jar[b % 5], m);
+    if (kind === 'dvd' || kind === 'item') return inst(GEO.item, I.dvd[b], m);
+    return null;
+  }
   function prodKit() {
+    PROD = PROD || {};
     if (PROD.can) return PROD;
     const lid = new THREE.MeshStandardMaterial({ color: 0xc8c8c4, roughness: 0.3, metalness: 0.9 });
     PROD.canG = new THREE.CylinderGeometry(0.037, 0.037, 0.115, 16).translate(0, 0.0575, 0);
