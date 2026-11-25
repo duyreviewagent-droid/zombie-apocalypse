@@ -464,6 +464,68 @@ export function makeWorld(scene, renderer) {
   for (let i = 0; i < 5; i++) TILE['fabric' + i] = 0.8;
   for (let i = 0; i < 3; i++) TILE['shingle' + i] = 1.4;
   W.TILE = TILE;
+  // ---- [design2] nothing plain: every flat single-colour surface in the level gets a surface ----
+  // Inside cupboards, drawers and closets: faced melamine board with PVC edge banding on the shelf fronts.
+  MAT.melamine = std({ map: TX.melamineTexture(false), roughness: 0.72, envMapIntensity: 0.6 }); MAT.edgeBand = std({ map: TX.melamineTexture(true), color: 0xe8e2d4, roughness: 0.4 });
+  TILE.melamine = 0.8; TILE.edgeBand = 0.8;
+  // Everything else that's still a bare colour (paint, metal, rubber, plastic, plaster, doors, the maps' own kits)
+  // gets a neutral detail map (TX.detailTexture) that its colour multiplies, projected box-wise in object space
+  // (1 tile = 1 m), so it doesn't depend on the geometry's UVs: merged town chunks, instanced props and small
+  // hand-built meshes all get the same scale. A material is patched once (shared: no new draw calls, one texture
+  // per kind). Picked by name where we know it, else by its look (metalness / roughness).
+  const DT_KIND = { picket: 'woodOld', fence: 'woodOld', trim: 'wood', ceiling: 'plaster', rubber: 'rough', black: 'plastic', trashBag: 'plastic', porcelain: 'glaze', porcelainDS: 'glaze', ceramicDS: 'glaze', appliance: 'paint', white: 'paint', mattress: 'fabric', case0: 'fabric', case1: 'fabric', case2: 'plastic', orange: 'plastic', bikeRed: 'metal', bikeBlue: 'metal', shelfMetal: 'metal', alu: 'metal', metal: 'metal', darkMetal: 'metal', rust: 'metal' };
+  for (let i = 0; i < 6; i++) DT_KIND['book' + i] = 'fabric';
+  const DT_SKIP = /glass|screen|mirror|water|puddle|river|sea|lake|foam|mist|spray|leafCore|shadow|bulb|lamp|neon|glow|fire|flame|blood|chrome|sky|hill|cloud|light/i;
+  const DT_NAME = new Map(); const DT_DONE = new WeakSet();
+  function dtKind(m) {
+    if (m.userData.dt) return m.userData.dt;
+    const nm = DT_NAME.get(m) || m.name || '';
+    if (nm && DT_SKIP.test(nm)) return null;
+    if (DT_KIND[nm]) return DT_KIND[nm];
+    if (/book/i.test(nm)) return 'fabric'; if (/rubber|tyre|tire/i.test(nm)) return 'rough'; if (/wood|door|plank|crate/i.test(nm)) return 'wood';
+    const lum = m.color.r * 0.3 + m.color.g * 0.6 + m.color.b * 0.1;
+    if (m.metalness >= 0.5) return m.roughness < 0.2 && m.metalness >= 0.9 ? null : 'metal';
+    if (m.roughness < 0.12) return null;   // wet, glassy, polished: leave it smooth
+    if (m.roughness >= 0.88) return lum < 0.05 ? 'rough' : 'plaster';
+    return 'paint';
+  }
+  function dtPatch(m, kind) {
+    m.map = TX.detailTexture(kind);
+    const k0 = String(m.customProgramCacheKey()), prev = m.onBeforeCompile;
+    m.onBeforeCompile = (sh, r) => {
+      if (prev) prev.call(m, sh, r);
+      sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        { vec3 dP = transformed, dN = objectNormal;
+          #ifdef USE_INSTANCING
+            dP = (instanceMatrix * vec4(dP, 1.0)).xyz; dN = mat3(instanceMatrix) * dN;
+          #endif
+          vec3 aN = abs(dN);
+          vMapUv = aN.y > aN.x && aN.y > aN.z ? dP.xz : (aN.x > aN.z ? dP.zy : dP.xy); }`);
+    };
+    m.customProgramCacheKey = () => k0 + '|dt2';
+    m.color.multiplyScalar(1.05); m.needsUpdate = true;
+  }
+  let dtNext = 0, dtN = 0;
+  const DT_OFF = /[?&]nodetail\b/.test(location.search);   // (tests: before / after shots)
+  function detailPass() {
+    if (DT_OFF) return;
+    DT_NAME.clear(); for (const k in MAT) DT_NAME.set(MAT[k], k);
+    const chars = new Set(), skip = new Set();
+    levelRoot.traverse(o => { if ((o.isSkinnedMesh || o.isBone) && o.parent) chars.add(o.parent); });
+    for (const c of chars) c.traverse(o => { if (o.material) for (const m of [].concat(o.material)) skip.add(m); });
+    levelRoot.traverse(o => {
+      if (!(o.isMesh || o.isInstancedMesh) || o.isSkinnedMesh || o.isBatchedMesh || !o.geometry || o.geometry.isInstancedBufferGeometry) return;
+      for (const m of [].concat(o.material)) {
+        if (!m || DT_DONE.has(m)) continue;
+        if (!m.isMeshStandardMaterial || skip.has(m) || m.userData.noDetail) { DT_DONE.add(m); continue; }
+        if (m.map || m.normalMap || m.transparent || m.vertexColors || m.colorWrite === false || m.alphaTest > 0 || (m.emissiveIntensity > 0.3 && m.emissive.r + m.emissive.g + m.emissive.b > 0.3)) { DT_DONE.add(m); continue; }
+        if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+        if (o.geometry.boundingSphere && o.geometry.boundingSphere.radius > 200) { DT_DONE.add(m); continue; }   // the horizon hills
+        DT_DONE.add(m); const k = dtKind(m); if (k) dtPatch(m, k);
+      }
+    });
+  }
+  W.detailPass = detailPass;
 
   // ---- the ground: lawn grass with worn dirt patches, textured in world space ----
   const MASK_N = 512, MASK_R = 160;
@@ -557,6 +619,7 @@ export function makeWorld(scene, renderer) {
 
   // ---- level ----
   let level = new THREE.Group(); scene.add(level);
+  const levelRoot = level;   // [design2] (the detail pass walks the whole level)
   let B = new Builder();
   let instLists = new Map();
   // ---- things on shelves you can actually move: slide, knock over, take ----
@@ -1515,7 +1578,7 @@ export function makeWorld(scene, renderer) {
     doorKit.set(key, out); return out;
   }
   const brass = new THREE.MeshStandardMaterial({ color: 0xb8a070, roughness: 0.3, metalness: 1 });
-  const DMATS = new Map(), doorMat = col => { if (!DMATS.has(col)) DMATS.set(col, new THREE.MeshStandardMaterial({ color: col, roughness: 0.6 })); return DMATS.get(col); };
+  const DMATS = new Map(), doorMat = col => { if (!DMATS.has(col)) DMATS.set(col, new THREE.MeshStandardMaterial({ color: col, roughness: 0.6, userData: { dt: 'wood' } }));   /* [design2] painted wood */ return DMATS.get(col); };
   // a shop door: an aluminium frame round a full-height glass pane, a push bar across it, a kick plate
   function glassDoorGeos(w) {
     const key = 'glass' + w.toFixed(3);
@@ -2110,11 +2173,12 @@ export function makeWorld(scene, renderer) {
     const t2 = 0.022;
     function hollow(U, out, inn, shelves = [], top = null, noTop = false) {
       const { W, H: Ht, D } = U;
+      if (inn === 'cabinet' || inn === 'cabinetSage' || inn === 'oak' || inn === 'white') inn = 'melamine';   // [design2] faced board inside, not the door paint
       U.box(0, 0, -D / 2 + t2 / 2, W / 2, Ht, t2 / 2, f => f === 'pz' ? inn : out);                 // back
       for (const sx of [-1, 1]) U.box(sx * (W / 2 - t2 / 2), 0, 0, t2 / 2, Ht, D / 2, f => (f === 'px') === (sx * flip < 0) ? inn : out);   // sides (the mirror swaps which face is inside)
       U.box(0, 0, 0, W / 2 - t2, 0.07, D / 2 - 0.02, f => f === 'top' ? inn : out);                // plinth / floor
       if (!noTop) U.box(0, Ht - t2, 0, W / 2, Ht, D / 2, f => f === 'top' && top ? top : f === 'bot' ? inn : out);
-      for (const y of shelves) U.box(0, y, 0, W / 2 - t2, y + 0.018, D / 2 - 0.03, inn);
+      for (const y of shelves) U.box(0, y, 0, W / 2 - t2, y + 0.018, D / 2 - 0.03, inn === 'melamine' ? f => f === 'pz' ? 'edgeBand' : 'melamine' : inn);   // [design2] edge-banded front
     }
     const doorGeo2 = (w, h) => { const k = 'd' + w.toFixed(3) + h.toFixed(3); if (!FURN.has(k)) FURN.set(k, new RoundedBoxGeometry(w, h, 0.022, 2, 0.006)); return FURN.get(k); };
     // a hinged door: hinge at bx (unit space), the leaf runs toward dir (+1 → +x); it swings out ~100°
@@ -2148,7 +2212,7 @@ export function makeWorld(scene, renderer) {
       const fr = new THREE.Mesh(FURN.get('f' + key), faceMat(mat, 'drawer', (w - 0.01) / (h - 0.01))); fr.castShadow = true; fr.receiveShadow = true; g.add(fr);
       // what's behind the front is only drawn while the drawer is (being) opened
       const inner = new THREE.Group(); inner.visible = false; g.add(inner);
-      const tr = new THREE.Mesh(FURN.get('t' + key), MAT.cabinet); tr.receiveShadow = true; inner.add(tr);
+      const tr = new THREE.Mesh(FURN.get('t' + key), mat === MAT.walnut ? MAT.walnut : MAT.melamine);   /* [design2] */ tr.receiveShadow = true; inner.add(tr);
       const pull = new THREE.Mesh(FURN.get('p' + key), mat === MAT.walnut || mat === MAT.oak ? (MAT.brass || (MAT.brass = std({ color: 0xb08a4a, roughness: 0.3, metalness: 0.9 }))) : MAT.chrome); pull.position.set(0, h * 0.55, 0); g.add(pull);
       // something in the drawer
       for (let k = 0; k < 3; k++) { const o = new THREE.Mesh(GEO.item, itemKit().dvd[Math.floor(r() * 8)]); /* [items] */ o.position.set((r() - 0.5) * (w - 0.2), 0.06, -0.08 - r() * (d - 0.2)); o.rotation.y = r() * 3; o.scale.set(0.8 + r(), 0.6, 0.8 + r()); inner.add(o); (U.items ||= []).push(propItem({ mesh: o }, 'misc')); }
@@ -4889,6 +4953,7 @@ export function makeWorld(scene, renderer) {
   let lampT = 0, houseT = 0;
   const HOUSE_D = LOW > 1 ? 22 : LOW ? 32 : 48;   // a house's cupboards and drawers are drawn this close (phones: only next door)
   W.update = (dt, t, focus, inside) => {
+    { const now = performance.now(); if (now >= dtNext) { detailPass(); dtNext = now + (dtN++ < 8 ? 4000 : 30000); } }   // [design2] (the first frame, then whatever gets built later)
     sun.target.position.set(Math.round(focus.x / texel) * texel, 0, Math.round(focus.z / texel) * texel);
     sun.position.copy(sun.target.position).addScaledVector(W.lightDir || sunDir, 140);
     dome.position.copy(focus);
@@ -5299,10 +5364,10 @@ export function makeWorld(scene, renderer) {
   };
   // load js/maps/<id>.js and build it (Maple Hollow needs no module)
   W.buildAsync = async (mapId = 'maple') => {
-    if (!mapId || mapId === 'maple') return W.build('maple');
+    if (!mapId || mapId === 'maple') { const res = W.build('maple'); detailPass(); return res; }   // [design2] detail before the shaders are warmed
     const { loadMap } = await import('./maps/index.js');
     const mod = await loadMap(mapId);
-    return W.build(mapId, mod);
+    const res = W.build(mapId, mod); detailPass(); return res;
   };
   return W;
 }

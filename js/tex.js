@@ -1295,3 +1295,64 @@ export function bookAtlasTexture() {
     return tex(c, { repeat: false });
   });
 }
+
+// ================================================================ [design2] surface detail for plain-coloured things
+// A neutral (near-white, linear) detail map that a material's own colour multiplies: orange-peel paint with scuffs
+// and chips, worn painted metal, paint over wood grain, plaster stipple, gritty rubber, moulded plastic, woven cloth,
+// glazed ceramic. One 512 px tile = 1 m (world.js projects it box-wise in object space, so it never stretches).
+// Mean ≈ 0.95, so the material's colour barely shifts. Cached per kind; phones get 256 px.
+export function detailTexture(kind = 'paint') {
+  return once('detail' + kind, () => {
+    const N = isLow() ? 256 : 512, S = N / 512, r = rng(900 + kind.length * 31 + kind.charCodeAt(0)), [c, g] = cv(N);
+    const base = { paint: 246, metal: 240, wood: 246, woodOld: 242, plaster: 247, rough: 236, plastic: 246, fabric: 238, glaze: 250 }[kind] || 244;
+    // a soft mottle: big uneven patches (paint thickness, oxidation, dust)
+    const mot = { paint: 10, metal: 22, wood: 6, woodOld: 12, plaster: 8, rough: 16, plastic: 6, fabric: 14, glaze: 4 }[kind] ?? 10;
+    paintNoise(g, N, [[base - mot, base - mot, base - mot], [base, base, base], [Math.min(255, base + mot * 0.4), Math.min(255, base + mot * 0.4), Math.min(255, base + mot * 0.4)]], valueNoise(N, [2, 6, 18], 400 + base), 0, r);
+    const ln = (x, y, a, L, w, col) => wrap9(g, N, N, () => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); g.stroke(); });
+    if (kind === 'metal') {
+      for (let k = 0; k < 900; k++) { const y = r() * N; g.fillStyle = `rgba(${r() < 0.5 ? '255,255,255' : '90,90,90'},${0.03 + r() * 0.05})`; g.fillRect(0, y, N, S * (0.5 + r())); }   // brushing / rolling marks
+      for (let k = 0; k < 140; k++) ln(r() * N, r() * N, r() * 6.28, (6 + r() * 40) * S, S * (0.6 + r() * 0.8), `rgba(${r() < 0.6 ? '255,255,255' : '60,60,60'},${0.12 + r() * 0.18})`);   // scratches
+      for (let k = 0; k < 16; k++) { const x = r() * N, y = r() * N, rr = (3 + r() * 12) * S; wrap9(g, N, N, () => { const gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, 'rgba(150,92,52,0.55)'); gr.addColorStop(1, 'rgba(150,92,52,0)'); g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, rr, rr * (0.5 + r()), r() * 3, 0, 7); g.fill(); }); }   // rust blooms
+      grime(g, N, N, 941, 0.16, 0);
+    } else if (kind === 'wood' || kind === 'woodOld') {   // paint over wood: clean (doors, trim) or weathered (fences)
+      const old = kind === 'woodOld';
+      for (let k = 0; k < 160; k++) { const x = r() * N, a = old ? 0.04 + r() * 0.07 : 0.015 + r() * 0.03; wrap9(g, N, N, () => { g.strokeStyle = `rgba(80,60,40,${a})`; g.lineWidth = S * (0.6 + r() * 1.2); g.beginPath(); g.moveTo(x, -4); g.bezierCurveTo(x + (r() - 0.5) * 8 * S, N / 3, x + (r() - 0.5) * 8 * S, N * 2 / 3, x, N + 4); g.stroke(); }); }   // grain showing through the paint
+      for (let k = 0; k < (old ? 12 : 0); k++) { const x = r() * N, y = r() * N, w = (4 + r() * 14) * S, h = (10 + r() * 40) * S; wrap9(g, N, N, () => { g.fillStyle = 'rgba(176,134,92,0.45)'; g.beginPath(); g.ellipse(x, y, w / 2, h / 2, 0, 0, 7); g.fill(); g.strokeStyle = 'rgba(90,60,36,0.35)'; g.lineWidth = S; g.stroke(); }); }   // worn through to the wood
+      for (let k = 0; k < (old ? 40 : 18); k++) ln(r() * N, r() * N, r() * 6.28, (5 + r() * 20) * S, S, `rgba(70,60,50,${old ? 0.08 + r() * 0.1 : 0.04 + r() * 0.05})`);
+      grime(g, N, N, 943, old ? 0.14 : 0.06, 0);
+    } else if (kind === 'plaster') {
+      grain(g, N, N, r, 9);   // stipple
+      for (let k = 0; k < 30; k++) { const x = r() * N, y = r() * N, R = (20 + r() * 60) * S; wrap9(g, N, N, () => { g.strokeStyle = `rgba(150,150,150,${0.04 + r() * 0.04})`; g.lineWidth = S * (2 + r() * 3); g.beginPath(); g.arc(x, y, R, r() * 6, r() * 6 + 1.5); g.stroke(); }); }   // trowel swirls
+      grime(g, N, N, 947, 0.06, 0);
+    } else if (kind === 'rough') {
+      grain(g, N, N, r, 26, 0.02, 50);
+      for (let k = 0; k < 70; k++) ln(r() * N, r() * N, r() * 6.28, (8 + r() * 40) * S, S * (1 + r() * 3), `rgba(255,255,255,${0.06 + r() * 0.1})`);   // scuffs
+      grime(g, N, N, 949, 0.2, 0);
+    } else if (kind === 'fabric') {
+      const id = g.getImageData(0, 0, N, N), d = id.data, p = Math.max(2, 3 * S | 0);
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const w = ((Math.floor(i / p) + Math.floor(j / p)) & 1) ? 1.04 : 0.92, k = (j * N + i) * 4, f = w * (0.96 + r() * 0.08); d[k] *= f; d[k + 1] *= f; d[k + 2] *= f; }   // the weave
+      g.putImageData(id, 0, 0);
+      grime(g, N, N, 951, 0.2, 0);
+    } else {   // paint / plastic / glaze: orange peel, roller streaks, scuffs, a few chips
+      grain(g, N, N, r, kind === 'glaze' ? 3 : 6);
+      if (kind === 'paint') for (let k = 0; k < 60; k++) { const x = r() * N; g.fillStyle = `rgba(${r() < 0.5 ? '255,255,255' : '120,120,120'},${0.02 + r() * 0.03})`; g.fillRect(x, 0, (2 + r() * 10) * S, N); }   // roller / brush streaks
+      const nS = { paint: 50, plastic: 30, glaze: 8 }[kind] ?? 40;
+      for (let k = 0; k < nS; k++) ln(r() * N, r() * N, r() * 6.28, (6 + r() * 26) * S, S * (0.8 + r() * 1.5), `rgba(70,70,70,${0.06 + r() * 0.1})`);   // scuffs
+      if (kind !== 'glaze') for (let k = 0; k < (kind === 'paint' ? 14 : 5); k++) { const x = r() * N, y = r() * N, R = (2 + r() * 6) * S; wrap9(g, N, N, () => { g.fillStyle = 'rgba(120,116,110,0.55)'; g.beginPath(); for (let q = 0; q < 7; q++) { const a = q / 7 * 6.28, rr = R * (0.5 + r() * 0.7); q ? g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr) : g.moveTo(x + rr, y); } g.closePath(); g.fill(); }); }   // chips
+      grime(g, N, N, 953 + base, kind === 'glaze' ? 0.04 : 0.12, 0);
+    }
+    const t = tex(c, { srgb: false, aniso: 4 }); t.colorSpace = THREE.NoColorSpace; return t;
+  });
+}
+// [design2] melamine: the faced board inside cupboards, drawers and closets — a warm white with a faint printed
+// grain, and (row 'edge') the PVC edge banding along a shelf's front: a slightly darker strip with a fine line
+export function melamineTexture(edge = false) {
+  return once('melamine' + edge, () => {
+    const N = isLow() ? 128 : 256, r = rng(edge ? 961 : 963), [c, g] = cv(N);
+    paintNoise(g, N, [[226, 220, 206], [236, 231, 219], [242, 238, 228]], valueNoise(N, [2, 8, 32], 965), 3, r);
+    for (let k = 0; k < 90; k++) { const x = r() * N, a = 0.025 + r() * 0.035; g.strokeStyle = `rgba(150,120,90,${a})`; g.lineWidth = 0.6 + r(); g.beginPath(); g.moveTo(x, -2); g.bezierCurveTo(x + (r() - 0.5) * 6, N / 3, x + (r() - 0.5) * 6, N * 2 / 3, x, N + 2); g.stroke(); }
+    if (edge) { g.fillStyle = 'rgba(120,100,80,0.10)'; g.fillRect(0, 0, N, N); for (let k = 0; k < 3; k++) { g.fillStyle = 'rgba(90,70,50,0.18)'; g.fillRect(0, (k + 0.5) * N / 3, N, 1); } }
+    grime(g, N, N, 967, 0.12, 0);
+    return tex(c);
+  });
+}
