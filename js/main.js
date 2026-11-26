@@ -35,6 +35,7 @@ import * as TX from './tex.js';
 import { buildCar, makeDrivable } from './vehicles.js';
 import * as HELI from './heli.js';
 import STATS from './stats.js';
+import ACH from './achieve.js';   // [ach] achievements (achieve.js)
 import { MAPS, validMap, loadStory, normalizeStory } from './maps/index.js';
 import { DEV, PROFILE as MOB, capTextures, makeGovernor, guardContext } from './mobile.js';   // phones / tablets: MOB is null on desktop
 import { initTouch, touchStep, touchWords, ic as touchIcon } from './touch.js';
@@ -706,7 +707,7 @@ C.events.kill = (v, by, info) => {
     else SND.zombie('die', v.s.pos, zp(v), rate);
   }
   v.deadT = 0; v.z.down = 0;
-  if (by === P) { G.stats.kills++; save.kills++; if (info.part === 'head') G.stats.heads++; STATS.event('kill', { info }); }
+  if (by === P) { G.stats.kills++; save.kills++; if (info.part === 'head') G.stats.heads++; STATS.event('kill', { info, v }); }   // [ach] v: who (achieve.js: distance, bosses)
   if (G.grabbedBy === v) releaseGrab(false);
   // they leave a body (and sometimes something on it)
   const c = world.container('corpse', v.s.pos.x, v.s.pos.z, 0.3, v.dale ? "Dale's body (orange vest)" : 'Body', 0, null, { dyn: true });
@@ -2074,7 +2075,7 @@ function boardAmbulance(A) {
   later(() => {
     G.inAmb = false; P.s.setVisible(true);
     const healed = Math.random() < PH.chance;
-    if (healed) { P.hp = P.maxHp; G.bleed = 0; G.infection = 0; G.stam = 100; toast('The paramedic patched you up — cleaned, stitched, antibiotics', 'good', 'medkit'); SND.bandage(); }
+    if (healed) { P.hp = P.maxHp; G.bleed = 0; G.infection = 0; G.stam = 100; toast('The paramedic patched you up — cleaned, stitched, antibiotics', 'good', 'medkit'); SND.bandage(); ACH.event('ambHealed'); }   // [ach]
     else toast('"Sorry — we can\'t do anything for you here." They help you back out.', 'bad');
     $('fade').classList.remove('on');
   }, 2.5);
@@ -2893,6 +2894,7 @@ function toTitle() {
   void H;
   refreshContinue();
   STATS.addTitleButton(document.querySelector('#title .menu'), '03');
+  ACH.addTitleButton(document.querySelector('#title .menu'), '04');   // [ach]
   $('career').innerHTML = save.runs ? `best: ${save.bestDays} day${save.bestDays === 1 ? '' : 's'} survived · ${save.kills} zombies put down<br>${save.escapes} escape${save.escapes === 1 ? '' : 's'} · ${save.deaths} death${save.deaths === 1 ? '' : 's'}` : 'nobody has made it out yet';
 }
 function showScreen(id) { for (const s of document.querySelectorAll('.screen')) s.classList.toggle('show', s.id === id); }
@@ -3431,6 +3433,7 @@ function step(dt) {
     if (G.heliCine) { const hc = HELI.cameraTarget(); if (hc && hc.t > 13.6) $('fade').classList.add('on'); if (HELI.cinematicDone()) endRun('escaped'); }
   }
   STATS.tick(dt, P, G);
+  ACH.tick(dt);   // [ach]
   if (G.state !== 'result') {
     if ((G.state === 'play' || G.state === 'bag' || (MP.on() && G.state !== 'title')) && G.phase === 'outbreak' && !MP.isClient()) { populate(dt); outbreakStep(dt); }   // MP: only the host's game makes the dead (and keeps doing it while friends play on)
     else if (MP.isClient() && G.phase === 'outbreak' && G.state !== 'title') mpReveal(dt);   // MP: a client's town comes apart like the host's (the wrecks, the blood, the boards)
@@ -3651,6 +3654,8 @@ function mpVehicle() {
 }
 window.ZA.MP = MP;   // (tests)
 BOSS.init({ G, getP: () => P, fx, world: () => world, camera, bigText, think, later, PEOPLE, STATS, MP, DRIVE, Q, mobile: !!MOB });   // [boss] (also adds ZA.spawnBoss, ?boss=mini|boss|giant)
+// [ach] achievements: saved in save.ach (never with ?nosave=1), a toast when earned, a screen from the title and pause menus (ZA.ACH)
+ACH.init({ STATS, save, writeSave, persist: PERSIST, G, getP: () => P, SND, showScreen, mapId: () => MAP_ID, mapName: id => (MAPS[id] && MAPS[id].name) || id, click: () => SND.phoneTap && SND.phoneTap() });
 load().then(async () => {
   toTitle();
   document.body.classList.add('ready');

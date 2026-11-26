@@ -58,9 +58,23 @@ const P = {
   lantern: '<path d="M9 3.5h6M10 3.5V6M14 3.5V6"/><rect x="7" y="6" width="10" height="13" rx="2"/><path d="M7 21h10M12 10v5"/><circle cx="12" cy="12.5" r="1.6"/>',
   card: '<rect x="3" y="6" width="18" height="12" rx="1.5"/><path d="M3 10h18M6.5 14.5h4"/>',
   bread: '<path d="M4 13c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5v4.5H4z"/><path d="M8.5 9.5l1 2.5M12 8.8l.6 2.7M15.5 9.5l-.6 2.5"/>',
+  // [ach] achievement tiers: DEADLY sword, RANGE arrow (easy/medium) or gun (hard+), MEDIUM-HARD zombie, VERY HARD big zombie, APOCALYPSE the horde of 7
+  sword: '<path d="M20.5 3.5V7L9.6 17.9l-3.5-3.5L17 3.5z"/><path d="M4.6 12.9l6.5 6.5M7.9 16.1L4 20"/><circle cx="3.4" cy="20.6" r="1"/>',
+  arrow: '<path d="M4.5 19.5L18.5 5.5"/><path d="M19.8 4.2l-6.3 1.6 4.7 4.7z"/><path d="M4.5 19.5v-4M4.5 19.5h4M7 17v-3.6M7 17h3.6"/>',
+  gun: '<path d="M2.5 7.5h17v4.4h-6.4l-1 2.4H9.3l-1.1 5.2H4.3l1.3-7.6H2.5z"/><path d="M19.5 7.5V6M10.2 11.9v1.6M4.5 9.7h12"/>',
+  zwalk: '<circle cx="10.5" cy="4.6" r="2.4"/><path d="M10.8 7.2l.6 7.3"/><path d="M11 9l6.2.6M11.2 11l5.6 1.6"/><path d="M11.4 14.5L8.5 21.5M11.4 14.5l3.4 3 .3 4"/><path d="M9.4 4.3h.01M11.6 4.3h.01"/>',
+  zbig: '<circle cx="12" cy="4.4" r="2.2"/><path d="M5.6 10.2c1.6-2.4 4-3.3 6.4-3.3s4.8.9 6.4 3.3l.9 6.8H4.7z"/><path d="M5.8 10.5L2 14.5M18.2 10.5l3.8 4"/><path d="M8.6 17l-1 4.8M15.4 17l1 4.8M10 21.8h-4M14 21.8h4"/><path d="M9.5 11.5l1.4.7M14.5 11.5l-1.4.7"/>',
+  horde: '<g stroke-width="1.35"><circle cx="4" cy="5" r="1.7"/><circle cx="9.3" cy="4.2" r="1.7"/><circle cx="14.7" cy="4.2" r="1.7"/><circle cx="20" cy="5" r="1.7"/><path d="M1.4 10.6c.4-1.9 1.4-2.8 2.6-2.8M22.6 10.6c-.4-1.9-1.4-2.8-2.6-2.8M7 9.2c.4-1.6 1.2-2.3 2.3-2.3M17 9.2c-.4-1.6-1.2-2.3-2.3-2.3"/><circle cx="6.2" cy="11.6" r="2.3"/><circle cx="12" cy="10.6" r="2.4"/><circle cx="17.8" cy="11.6" r="2.3"/><path d="M2 21.5v-2.6c0-2.6 1.8-4.2 4.2-4.2s4.2 1.6 4.2 4.2v2.6M13.6 21.5v-2.6c0-2.6 1.8-4.2 4.2-4.2s4.2 1.6 4.2 4.2v2.6"/><path d="M8.2 21.5v-3.8c0-2.4 1.6-4 3.8-4s3.8 1.6 3.8 4v3.8"/><path d="M10.4 15.6l-3.4-1M13.6 15.6l3.4-1"/></g>',
 };
 export function icon(name, cls = '') {
   return `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || P.box}</svg>`;
+}
+// [ach] a big achievement badge: a hex medal in the tier colour with the line icon inside. locked = greyed out
+export function badge(name, col = '#c62a1e', cls = '', locked = false) {
+  const c = locked ? '#5d5850' : col;
+  return `<svg class="badge ${cls}" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 3.5l24.7 14.2v28.6L32 60.5 7.3 46.3V17.7z" fill="${locked ? 'rgba(30,28,26,.85)' : 'rgba(12,10,9,.92)'}" stroke="${c}" stroke-width="2.6" stroke-linejoin="round"/>`
+    + `<path d="M32 9.5l19.5 11.2v22.6L32 54.5 12.5 43.3V20.7z" fill="${c}" fill-opacity="${locked ? 0.06 : 0.16}" stroke="${c}" stroke-opacity=".45" stroke-width="1.2" stroke-linejoin="round"/>`
+    + `<g transform="translate(15.2 15.2) scale(1.4)" fill="none" stroke="${locked ? '#77726a' : '#f3ede2'}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${P[name] || P.box}</g></svg>`;
 }
 // which icon goes with each item / weapon
 export const ITEM_ICON = {

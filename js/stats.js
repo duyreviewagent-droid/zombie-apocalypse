@@ -95,6 +95,7 @@ export { run_ as run };
 export function event(name, d = {}) {
   if (!run || run.done) return;
   d = d || {}; const c = run.c, n = Math.max(1, num(d.n) || 1);
+  if (subs.length) for (const f of subs) try { f(name, d, run); } catch (e) { console.warn(e); }   // [ach] achieve.js listens to every game moment
   switch (name) {
     case 'kill': { c.kills++; const w = d.weapon && !d.info ? weaponOf({ weapon: d.weapon }) : weaponOf(d.info || d); run.kills[w] = (run.kills[w] || 0) + 1; if (d.head || (d.info && d.info.part === 'head')) c.heads++; break; }
     case 'shot': c.shots += n; break;
@@ -188,9 +189,13 @@ export function commitRun(o = {}) {
     }
   }
   run.newRecords = newRecords;
+  for (const f of subs) try { f('end', { how, win, died, empty }, run); } catch (e) { console.warn(e); }   // [ach]
   store(KEY, L); store(KEY + '.live', null);
   return { newRecords, run };
 }
+// [ach] listeners: fn(name, data, run) for every event(), and fn('end', { how, win, died, empty }, run) when a run is committed
+const subs = [];
+export function onEvent(fn) { if (typeof fn === 'function') subs.push(fn); }
 // forget everything (a 'reset stats' button; tests)
 export function wipe() { life = blankLife(); run = blankRun({ diff: run && run.diff }); store(KEY, life); store(KEY + '.live', null); }
 
@@ -492,5 +497,5 @@ function injectCSS() {
   document.head.appendChild(s);
 }
 
-const api = { init, event, tick, run: run_, lifetime, resetRun, commitRun, wipe, open, close, isOpen, addTitleButton, pauseHTML, showInPause, resultsHTML, animate, weaponOf, causeOf, fmtHours, fmtSec, fmtDist };
+const api = { init, event, onEvent, tick, run: run_, lifetime, resetRun, commitRun, wipe, open, close, isOpen, addTitleButton, pauseHTML, showInPause, resultsHTML, animate, weaponOf, causeOf, fmtHours, fmtSec, fmtDist };
 export default api;
