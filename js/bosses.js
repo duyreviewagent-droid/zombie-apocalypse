@@ -16,8 +16,13 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 const GIANT_CHANCE = 0.08;   // the user's rule: when a mini boss spawns (its own 8% roll), 8% that The Zombie comes too
 let X = null;                // main.js: { G, getP, fx, world (getter), bigText, think, PEOPLE, STATS, MP, DRIVE, later, Q, mobile }
 const live = new Set();      // the special ones that are up and about (or just died)
-let pendingGiant = null, testBoss = null, bar = null, barU = null, kd = null, kdFree = 0;
+let announcedT = -1e9, pendingGiant = null, testBoss = null, bar = null, barU = null, kd = null, kdFree = 0;
 const W = () => X.world();
+// [mpboss] online: the host runs the bosses; a client shows them from the host's state (hp/maxHp/type come with the
+// zombie state, so the bar works as is) and feels The Zombie's quakes from the host's 'quake' events (shake, rumble,
+// dust, and being knocked off its own feet) — the host alone knocks down the dead, shoves people and breaks things.
+const mpClient = () => !!(X && X.MP && X.MP.isClient && X.MP.isClient());
+const mpHost = () => !!(X && X.MP && X.MP.isHost && X.MP.isHost());
 
 // ---------------------------------------------------------------- wiring
 export function init(ctx) {
@@ -25,12 +30,14 @@ export function init(ctx) {
   BOSSH.allow = () => X.G.phase === 'outbreak' && !(X.MP && X.MP.isClient && X.MP.isClient()) && !(X.Q && X.Q.has('noboss'));   // (?noboss=1: tests)
   BOSSH.rolled = (u, rolled) => {
     live.add(u);
+    if (u.giant && mpClient() && u.alive !== false) X.later(() => { if (u.active && u.alive && u.giant && X.G.state === 'play' && C.t - announcedT > 60) { announcedT = C.t; announce(u); } }, 0.3);   // [mpboss] a client hears it coming too
     // The Zombie: 8% whenever a mini boss rolls (not the ones out of a dead boss), one alive at a time, outbreak only
     if (rolled && u.bossT === 'mini' && !giantUp() && !pendingGiant && X.G.phase === 'outbreak' && Math.random() < GIANT_CHANCE) pendingGiant = { at: C.t + rnd(3, 6), near: u };
   };
   BOSSH.think = giantThink;
   BOSSH.heavyHit = heavyHit;
   BOSSH.step = bossStep;
+  if (X.MP && X.MP.hooks) X.MP.hooks.quake = e => { if (e.x == null) return; X.later(() => quake(null, V(e.x, 0, e.z), e.p || 1), 0.22); };   // [mpboss] (0.22 s: the host's world is shown that far behind)
   const t = X.Q && X.Q.get('boss'); if (t && BOSS_TYPES[t]) testBoss = { type: t, at: null };
   if (window.ZA) Object.assign(window.ZA, { spawnBoss, BOSS: { live, quake, pending: () => pendingGiant, clearPending: () => { pendingGiant = null; }, grid: () => grid, path: gridPath, knockPlayer, stats: () => [...live].map(u => ({ type: u.bossT, hp: Math.round(u.hp), maxHp: Math.round(u.maxHp), size: +u.s.root.scale.x.toFixed(2), sizeK: +u.sizeK.toFixed(2), walk: +u.walkSpeed.toFixed(2), run: +u.runSpeed.toFixed(2), runner: u.runner, dmgK: u.dmgK, alive: u.alive, x: +u.s.pos.x.toFixed(1), z: +u.s.pos.z.toFixed(1) })) } });
 }
@@ -89,6 +96,7 @@ export function update(dt) {
 function died(u, P) {
   const by = u.lastHitBy, mine = by && by.isPlayer;
   if (mine && X.STATS) X.STATS.event(u.giant ? 'theZombie' : u.bossT === 'boss' ? 'bosses' : 'miniBosses');
+  if (mpClient()) { if (u.giant) X.later(() => { if (X.G.state === 'play') X.bigText('THE ZOMBIE IS DOWN', mine ? 'you did it' : 'it\'s over', 4); }, 2.2); return; }   // [mpboss] the host lets the rest out (and sends its last quake)
   if (u.bossT === 'mini') X.later(() => kids(u, 5, null, P), 0.9);
   else if (u.bossT === 'boss') X.later(() => kids(u, 3, 'mini', P), 1.3);
   else if (u.giant) {
@@ -316,6 +324,7 @@ function bossStep(u, e) {
   if (!u.alive || e.jump || e.land || e.body) return;
   const P = X.getP(); if (!P) return;
   if (u.giant) {
+    if (mpClient()) return;   // [mpboss] the host's 'quake' event brings it
     const B = u.s.B; let p = u.s.pos;
     if (B.LeftFoot && B.RightFoot) { B.LeftFoot.getWorldPosition(fA); B.RightFoot.getWorldPosition(fB); p = fA.y < fB.y ? fA : fB; }
     quake(u, V(p.x, 0, p.z), 1);
@@ -336,12 +345,15 @@ function bossStep(u, e) {
 export function quake(u, p, power = 1) {
   const P = X.getP(), G = X.G, Wd = W(); if (!P) return;
   const d = Math.hypot(P.s.pos.x - p.x, P.s.pos.z - p.z);
+  if (mpHost()) X.MP.NETMOD.event('quake', { x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10, p: power });   // [mpboss] everyone else feels it too
+  const cl = mpClient();
   if (G.state === 'play' || G.state === 'bag' || G.state === 'phone') C.shake = Math.max(C.shake, Math.min(1, power * 0.95 * clamp(1 - d / 85, 0, 1)));
   rumble(power, d);
   if (X.fx && d < 90) {
     const n = X.mobile ? 4 : 10;
     for (let i = 0; i < n; i++) { const a = i / n * 6.28 + Math.random(), r = rnd(0.8, 2.8) * power; X.fx.dust(V(p.x + Math.cos(a) * r, 0.05, p.z + Math.sin(a) * r), 2, [0.34, 0.3, 0.25], 1.6 * power); }
   }
+  if (!cl) {   // [mpboss] (on a client the host's world does this)
   if (Wd.blastBreak) Wd.blastBreak(V(p.x, 0.3, p.z), 4 * power);   // whatever's under its foot is flattened
   if (Wd.breakables && Wd.hitBreakable) { let n = 0; for (const it of Wd.breakables) { if (it.broken || n > 10) continue; const dd = Math.hypot(it.x - p.x, it.z - p.z); if (dd > 4 && dd < 13 * power && Math.random() < 0.5) { n++; Wd.hitBreakable(V(it.x, (it.cy || 0.5), it.z), V(it.x - p.x, 0, it.z - p.z), 0.04, 'fists'); } } }
   // the dead around it lose their feet
@@ -355,6 +367,7 @@ export function quake(u, p, power = 1) {
     if (!n.alive || n.gone || n.hidden) continue;
     const dd = Math.hypot(n.s.pos.x - p.x, n.s.pos.z - p.z); if (dd > 12 * power || Math.random() > 1 - dd / (12 * power)) continue;
     X.PEOPLE.shoveNPC(n, V(n.s.pos.x - p.x, 0, n.s.pos.z - p.z).normalize(), P, true);
+  }
   }
   // you: right next to it you're thrown off your feet; a bit farther you stagger
   if (P.alive && !C.godMode) {

@@ -14,6 +14,8 @@ import { tier } from '../tex.js';
 const ITEMS = LOOT.ITEMS || {}, LOOT_PANEL = !!(LOOT.LOOT_KINDS && LOOT.LOOT_KINDS.panel);
 import { makeMatch } from './stadium.match.js';
 import { makeEvac } from './stadium.evac.js';
+import { Soldier } from '../soldier.js';
+import * as LOOKS from '../looks.js';
 import { textures, signAtlas, barsTexture, geos, builder, rng, bakePerson, personSource, HOME, AWAY, stadiumDecor } from './stadium.kit.js';
 const Q_HAS = k => { try { return new URLSearchParams(location.search).has(k); } catch { return false; } };
 const Q_NOREAL = () => Q_HAS('noreal');   // (test hooks: ?noreal — the far crowd figures only; ?nomatch — nobody on the pitch)
@@ -991,7 +993,15 @@ export function buildMap(K) {
           else if (q.y < 0.9) { an = -sw * 0.5 * sign(q.x); dy = q.y - 0.9; dz = q.z; transformed.y = 0.9 + dy * cos(an) - dz * sin(an); transformed.z = dy * sin(an) + dz * cos(an); }
           transformed.y += (abs(cos(aWalk.x)) - 0.5) * 0.05 * aWalk.y;
         }`;
-  const crowdMat = (rough, kind = '') => { const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: rough }); m.onBeforeCompile = sh => { Object.assign(sh.uniforms, crowdUni); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float cT, cCheer, cKeep, eT; attribute float aRank;' + (kind === 'walk' ? ' attribute vec2 aWalk;' : kind === 'seat' ? ' attribute float aGo;' : '')).replace('#include <begin_vertex>', `#include <begin_vertex>
+  // [crowdfade] the hand-over between a far figure and its real body (~22 m): a short screen-door cross-fade, not a pop.
+  // aSwap per fan: t0 + 1 when he became near (the real body dithers in, the figure out), -(t0 + 1) when he went back
+  // far, 0 never near. Both sides use the same noise per pixel with opposite tests: every pixel is exactly one of them.
+  const FADE = 0.6;
+  const SWAP_V = `attribute float aSwap; varying float vRV;`, SWAP_VM = `vRV = aSwap > 0.0 ? clamp((cT + 1.0 - aSwap) / ${FADE.toFixed(2)}, 0.0, 1.0) : aSwap < 0.0 ? 1.0 - clamp((cT + 1.0 + aSwap) / ${FADE.toFixed(2)}, 0.0, 1.0) : 0.0;`;
+  const IGN = `float cIgn = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));`;
+  const crowdMat = (rough, kind = '') => { const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: rough }); m.onBeforeCompile = sh => { Object.assign(sh.uniforms, crowdUni); sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vRV;').replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+      if (vRV > 0.0) { ${IGN} if (cIgn < vRV) discard; }`); sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float cT, cCheer, cKeep, eT; attribute float aRank; ' + SWAP_V + (kind === 'walk' ? ' attribute vec2 aWalk;' : kind === 'seat' ? ' attribute float aGo;' : '')).replace('#include <begin_vertex>', `#include <begin_vertex>
+      ${SWAP_VM}
       { vec3 ip = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]); float ph = fract(sin(dot(ip.xz, vec2(12.9898, 78.233))) * 43758.5453);
         float b = max(0.0, sin(cT * (5.0 + ph * 3.0) + ph * 40.0)); transformed.y += b * b * cCheer${kind === 'walk' ? ' * (1.0 - step(0.001, aWalk.y))' : ''} * smoothstep(0.3, 0.9, position.y);
         transformed.x += sin(cT * 1.3 + ph * 20.0) * 0.03 * smoothstep(0.6, 1.3, position.y);${kind === 'walk' ? WALK_GLSL : ''}
@@ -1039,8 +1049,9 @@ export function buildMap(K) {
   });
   const mtx = new THREE.Matrix4(), qY = new THREE.Quaternion(), vS = new THREE.Vector3(), vP = new THREE.Vector3(), AY = new THREE.Vector3(0, 1, 0), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
   const place = f => mtx.compose(vP.set(f.x, f.y, f.z), qY.setFromAxisAngle(AY, f.yaw), vS.setScalar(f.s));
+  const shareGeo = g => { const o = new THREE.BufferGeometry(); o.index = g.index; for (const a in g.attributes) o.setAttribute(a, g.attributes[a]); o.boundingSphere = g.boundingSphere; return o; };   // [crowdfade] (its own per-fan attributes; the same vertices)
   const people = (list, kit, seated, hidden = false) => {
-    const n = list.length, parts = ['top', 'legs', 'head', 'hair'].map(k => new THREE.InstancedMesh(kit[k], crowdMat(k === 'head' ? 0.6 : 0.85, seated ? 'seat' : 'walk'), n));
+    const n = list.length, parts = ['top', 'legs', 'head', 'hair'].map(k => new THREE.InstancedMesh(hidden ? shareGeo(kit[k]) : kit[k], crowdMat(k === 'head' ? 0.6 : 0.85, seated ? 'seat' : 'walk'), n));
     list.forEach((f, i) => {
       if (hidden) parts[0].setMatrixAt(i, ZERO); else { place(f); parts[0].setMatrixAt(i, mtx); }
       parts[0].setColorAt(i, f.shirt); parts[1].setColorAt(i, f.legs); parts[2].setColorAt(i, f.skin); parts[3].setColorAt(i, f.hat);   // (a third of them in a bobble hat)
@@ -1050,10 +1061,11 @@ export function buildMap(K) {
     const rk = new Float32Array(n); list.forEach((f, i) => { rk[i] = f.rank; });
     const aRank = new THREE.InstancedBufferAttribute(rk, 1), extra = seated ? new THREE.InstancedBufferAttribute(new Float32Array(n).fill(1e6), 1) : new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2);
     extra.setUsage(THREE.DynamicDrawUsage); parts[0].instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    for (const im of parts) { im.geometry.setAttribute('aRank', aRank); im.geometry.setAttribute(seated ? 'aGo' : 'aWalk', extra); im.castShadow = !seated && !hidden; im.receiveShadow = true; im.computeBoundingSphere(); crowd.add(im); }
+    const aSwap = new THREE.InstancedBufferAttribute(new Float32Array(n), 1); aSwap.setUsage(THREE.DynamicDrawUsage);
+    for (const im of parts) { im.geometry.setAttribute('aRank', aRank); im.geometry.setAttribute('aSwap', aSwap); im.geometry.setAttribute(seated ? 'aGo' : 'aWalk', extra); im.castShadow = !seated && !hidden; im.receiveShadow = true; im.computeBoundingSphere(); crowd.add(im); }
     // the standing crowd is solid (you can't walk through the queue); a fan who's gone takes his box with him
     if (!seated && !hidden) for (const f of list) if (!f.dense) f.box = K.solid(f.x, f.z, 0.2 * f.s, 0.2 * f.s, 0, 1.75 * f.s, 'wood', 0, { navSkip: true, fan: true });
-    return { list, parts, seated, extra, mat: parts[0].instanceMatrix };
+    return { list, parts, seated, extra, aSwap, mat: parts[0].instanceMatrix };
   };
   // 60% fewer fans everywhere (seats and the standing crowd), and fewer again on phones / tablets; an even spread,
   // picked without touching the layout's random sequence
@@ -1076,7 +1088,8 @@ export function buildMap(K) {
     m.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, crowdUni, { cNorm: { value: md.norm }, cMix: { value: md.part === 3 ? 0.7 : 1 }, cTorso: { value: new THREE.Vector2(...(pose === 'sit' ? [0.62, 1.08] : [0.98, 1.45])) } });
       sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
-uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, iLegs, iSkin, iHair; varying vec3 vTint, vTint2; varying float vHy;`).replace('#include <begin_vertex>', `#include <begin_vertex>
+uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, iLegs, iSkin, iHair; varying vec3 vTint, vTint2; varying float vHy; ${SWAP_V}`).replace('#include <begin_vertex>', `#include <begin_vertex>
+      ${SWAP_VM}
       #if CPART == 1
         vTint = iShirt;
       #elif CPART == 2
@@ -1095,7 +1108,8 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
         transformed.x += sin(cT * 1.3 + ph * 20.0) * 0.03 * smoothstep(0.6, 1.3, position.y);
         transformed *= step(aRank, cKeep); }
       vHy = position.y;`);
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTint, vTint2; varying float vHy; uniform float cNorm, cMix; uniform vec2 cTorso;').replace('#include <map_fragment>', `#include <map_fragment>
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vTint, vTint2; varying float vHy, vRV; uniform float cNorm, cMix; uniform vec2 cTorso;').replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+      { ${IGN} if (cIgn >= vRV) discard; }`).replace('#include <map_fragment>', `#include <map_fragment>
       #if CPART == 5
         { vec3 sc = pow(max(diffuseColor.rgb, vec3(0.0)), vec3(1.0 / 2.2)); float mx = max(max(sc.r, sc.g), sc.b), mn = min(min(sc.r, sc.g), sc.b), dl = mx - mn, sat = mx > 0.0 ? dl / mx : 0.0, hue = 0.0;
           if (dl > 0.0) { hue = mx == sc.r ? mod((sc.g - sc.b) / dl + 6.0, 6.0) : mx == sc.g ? (sc.b - sc.r) / dl + 2.0 : (sc.r - sc.g) / dl + 4.0; hue /= 6.0; }
@@ -1107,7 +1121,7 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
         { float l = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)) * cNorm; diffuseColor.rgb = mix(diffuseColor.rgb, vTint * l, cMix); }
       #endif`);
     };
-    m.customProgramCacheKey = () => 'sdHuman';
+    m.customProgramCacheKey = () => 'sdHuman2';
     return m;
   };
   const NEAR = { R: LT > 1 ? 12 : LT ? 16 : 24, cap: { stand: LT > 1 ? 8 : LT ? 14 : 36, sit: LT > 1 ? 8 : LT ? 14 : 40 }, t: 0 };
@@ -1121,18 +1135,85 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
     const [pose, k] = REAL_TODO.shift();
     try {
       const { geo, mats } = bakePerson(SRC[k], pose), cap = NEAR.cap[pose];
-      const attrs = {}; for (const a of ['iShirt', 'iLegs', 'iSkin', 'iHair']) geo.setAttribute(a, attrs[a] = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3)); geo.setAttribute('aRank', attrs.aRank = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1));
+      const attrs = {}; for (const a of ['iShirt', 'iLegs', 'iSkin', 'iHair']) geo.setAttribute(a, attrs[a] = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3)); for (const a of ['aRank', 'aSwap']) geo.setAttribute(a, attrs[a] = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1));
       const im = new THREE.InstancedMesh(geo, mats.map(md => realMat(md, pose)), cap);
       im.count = 0; im.visible = false; im.castShadow = pose === 'stand'; im.receiveShadow = true; im.frustumCulled = true;
       crowd.add(im); REAL.push({ pose, kind: k, im, attrs }); realNew = true;
     } catch (e) { console.warn('stadium crowd: no real ' + k + ' ' + pose, e); }
     if (!REAL_TODO.length) for (const q in SRC) delete SRC[q];
   };
+  // [crowdreal] the nearest dozen (fewer on phones) are not baked copies but whole people: the game's own rigged bodies
+  // from a small pool, each dressed by looks.js as the one person that fan is (his own face, tone, hair, glasses, build —
+  // the same every time you come back; the shirt and trousers the fan's own, so nothing changes colour as he's handed
+  // over). Standing ones idle and bounce with the cheer; seated ones are posed once and left (they cost nothing then).
+  // The pool is built a body at a time after the bakes; a hand-over is at most two new people a tick.
+  const SOL = { per: LT > 1 ? 2 : LT ? 3 : 4, pool: [], fail: 0 };
+  STADIUM.sol = SOL;   // (test hook)
+  const ckey = (far, i) => 'sdcrowd:' + (far.seated ? 's' : 'p') + i;
+  const hx = c => { tmpCol.copy(c); return tmpCol.getHex(); }, tmpCol = new THREE.Color();
+  const nearIdx = (list, hex, rgbOf) => { const r = hex >> 16 & 255, g = hex >> 8 & 255, b = hex & 255; let bi = 0, bd = 1e9; list.forEach((c, k) => { const [r2, g2, b2] = rgbOf(c), d = (r - r2) ** 2 + (g - g2) ** 2 + (b - b2) ** 2; if (d < bd) { bd = d; bi = k; } }); return bi; };
+  const youTop = () => { const L = STADIUM.api && STADIUM.api.player && STADIUM.api.player.s && STADIUM.api.player.s.lookL; return L && LOOKS.TOPS ? LOOKS.TOPS[L.top] : null; };
+  function growPool() {
+    const want = KIND_IDS.length * SOL.per;
+    if (SOL.pool.length >= want || SOL.fail > 2 || Q_NOREAL() || (STADIUM.evac && STADIUM.evac.on)) return;
+    const body = KIND_IDS[SOL.pool.length % KIND_IDS.length];
+    try {
+      const s = new Soldier(KINDS[body], K.level, { clone: true }); s.animLod = true; s.update(1 / 60, {}); s.setVisible(false);
+      const B = {}; s.root.traverse(o => { if (o.isBone) B[o.name.replace(/^mixamorig:?/, '')] = o; });
+      SOL.pool.push({ s, body, B, far: null, i: -1, f: null });
+    } catch (e) { SOL.fail++; console.warn('stadium crowd: no pooled body', e); }
+  }
+  const sva = new THREE.Vector3(), svb = new THREE.Vector3(), sq = new THREE.Quaternion(), sq2 = new THREE.Quaternion(), sdir = new THREE.Vector3();
+  function solAim(root, bone, child, x, y, z) {   // (as bakePerson's sitting pose)
+    if (!bone || !child) return; root.updateMatrixWorld(true);
+    bone.getWorldPosition(sva); child.getWorldPosition(svb); svb.sub(sva); if (svb.lengthSq() < 1e-10) return;
+    sdir.set(x, y, z).applyAxisAngle(AY, root.parent.rotation.y).normalize();
+    sq2.setFromUnitVectors(svb.normalize(), sdir); bone.getWorldQuaternion(sq).premultiply(sq2);
+    bone.parent.getWorldQuaternion(sq2).invert(); bone.quaternion.copy(sq2.multiply(sq));
+  }
+  function solDrive(w, dt) {
+    const f = w.f, s = w.s, gy = Soldier.groundY; Soldier.groundY = () => f.y;
+    s.pos.x = f.x; s.pos.z = f.z; s.gy = s.gyT = f.y;
+    try { s.update(dt, {}); } finally { Soldier.groundY = gy; }
+    s.pos.x = f.x; s.pos.z = f.z; s.pivot.position.y = f.y;
+  }
+  function solTake(w, far, i) {
+    const f = far.list[i], s = w.s;
+    const L0 = LOOKS.lookFor(ckey(far, i), w.body);
+    const L = { ...L0, tone: nearIdx(LOOKS.TONES, hx(f.skin), c => c), hairCol: nearIdx(LOOKS.HAIRC, hx(f.hair), c => [c >> 16 & 255, c >> 8 & 255, c & 255]), hat: L0.hat === 'cowboy' ? 'none' : L0.hat };
+    LOOKS.applyLook(s, L);
+    let top = hx(f.shirt); const yt = youTop();
+    if (yt != null) { const d = Math.abs((top >> 16) - (yt >> 16)) + Math.abs((top >> 8 & 255) - (yt >> 8 & 255)) + Math.abs((top & 255) - (yt & 255)); if (d < 90) top = 0x4a5a6a; }   // (never your colours)
+    try { LOOKS.outfit(s, top, hx(f.legs)); } catch { }
+    w.far = far; w.i = i; w.f = f; f.sol = w;
+    s.resetActs && s.resetActs(); s.place(f.x, f.z, f.yaw, f.y); solDrive(w, 1 / 30);
+    if (far.seated) {   // sat down: legs bent, hands on the thighs, hips on the seat pan where the baked one's were
+      for (const [k, Ln] of [[1, 'Left'], [-1, 'Right']]) {
+        solAim(s.root, w.B[Ln + 'UpLeg'], w.B[Ln + 'Leg'], k * 0.1, -0.1, 1); solAim(s.root, w.B[Ln + 'Leg'], w.B[Ln + 'Foot'], 0, -1, 0.15);
+        solAim(s.root, w.B[Ln + 'Arm'], w.B[Ln + 'ForeArm'], k * 0.12, -1, 0.3); solAim(s.root, w.B[Ln + 'ForeArm'], w.B[Ln + 'Hand'], -k * 0.15, -0.35, 1);
+      }
+      s.pivot.updateMatrixWorld(true);
+      if (w.B.Hips) { w.B.Hips.getWorldPosition(sva); s.pivot.position.x += f.x - 0.02 * f.s * Math.sin(f.yaw) - sva.x; s.pivot.position.y += f.y + 0.5 * f.s - sva.y; s.pivot.position.z += f.z - 0.02 * f.s * Math.cos(f.yaw) - sva.z; }
+    }
+    s.setVisible(true);
+  }
+  function solFree(w) { if (w.f) w.f.sol = null; w.far = null; w.i = -1; w.f = null; w.s.setVisible(false); }
+  // each frame: the standing ones breathe and bounce with the cheer; the crowd thinning takes them as it takes the rest
+  function solFrame(dt) {
+    for (const w of SOL.pool) {
+      if (!w.f) continue;
+      const f = w.f, keep = f.rank < crowdUni.cKeep.value; w.s.setVisible(keep);
+      if (!keep || w.far.seated) continue;
+      solDrive(w, dt);
+      const ph = (Math.sin(f.x * 12.9898 + f.z * 78.233) * 43758.5453) % 1, p = ph < 0 ? ph + 1 : ph, bb = Math.max(0, Math.sin(tAcc * (5 + p * 3) + p * 40));
+      w.s.pivot.position.y = f.y + bb * bb * crowdUni.cCheer.value * 0.6;
+    }
+  }
   const nearUpdate = focus => {
-    if (REAL_TODO.length) bakeNext();
+    if (REAL_TODO.length) bakeNext(); else growPool();
     if (!REAL.length || !focus) return;
     const fresh = realNew; realNew = false;   // (a body just baked: everybody near is re-dealt across the bodies)
-    const R2 = NEAR.R * NEAR.R;
+    const R2 = NEAR.R * NEAR.R, now = tAcc + 1, SETS = [];
     for (const far of [farSeat, farStand]) {
       const pose = far.seated ? 'sit' : 'stand', meshes = REAL.filter(r => r.pose === pose), cap = NEAR.cap[pose];
       if (!meshes.length) continue;
@@ -1143,21 +1224,55 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
       const bodyOf = f => meshes.find(r => r.kind === KIND_IDS[Math.min(KIND_IDS.length - 1, Math.floor(f.kind * KIND_IDS.length))]);
       for (let i = 0; i < far.list.length; i++) { const f = far.list[i]; if (f.left || !bodyOf(f)) continue; const dx = f.x - focus.x, dz = f.z - focus.z, dy = f.y - (focus.y || 0), d2 = (dx * dx + dz * dz + dy * dy) * (f.near ? 0.7 : 1); if (d2 < R2) cand.push([d2, i]); }
       cand.sort((a, b) => a[0] - b[0]); const want = new Set(cand.slice(0, cap).map(c => c[1]));
-      let dirty = fresh;
-      far.list.forEach((f, i) => { const w = want.has(i); if (w === f.near) return; f.near = w; dirty = true; if (w) for (const im of far.parts) im.setMatrixAt(i, ZERO); else { place(f); for (const im of far.parts) im.setMatrixAt(i, mtx); } });
-      if (!dirty) continue;
-      for (const im of far.parts) im.instanceMatrix.needsUpdate = true;
+      // [crowdfade] a fan coming near: his real body dithers in over his figure, which goes (a zero matrix) once it's
+      // done; going back far: the figure's back at once and the real one dithers out (kept in the baked list till then)
+      let dirty = fresh, mDirty = false, sDirty = false;
+      far.list.forEach((f, i) => {
+        const w = want.has(i);
+        if (w !== f.near) {
+          f.near = w; dirty = sDirty = true;
+          if (w) { f.sw = now; f.zeroed = false; }
+          else { if (f.zeroed) { place(f); for (const im of far.parts) im.setMatrixAt(i, mtx); mDirty = true; f.zeroed = false; } f.sw = f.left ? 0 : -now; }
+          far.aSwap.array[i] = f.sw;
+        } else if (w && !f.zeroed && now - f.sw > FADE + 0.05) { f.zeroed = true; for (const im of far.parts) im.setMatrixAt(i, ZERO); mDirty = true; }
+        else if (!w && f.sw < 0 && now + f.sw > FADE + 0.05) { f.sw = 0; far.aSwap.array[i] = 0; dirty = sDirty = true; }
+      });
+      if (mDirty) for (const im of far.parts) im.instanceMatrix.needsUpdate = true;
+      if (sDirty) far.aSwap.needsUpdate = true;
+      SETS.push({ far, meshes, cap, cand, want, bodyOf, dirty });
+    }
+    // [crowdreal] who's a whole person: the nearest few of each body (the ones already are a little ahead in the queue)
+    if (SOL.pool.length) {
+      for (const body of KIND_IDS) {
+        const slots = SOL.pool.filter(w => w.body === body), pick = [];
+        for (const S of SETS) for (const [d2, i] of S.cand) { const f = S.far.list[i]; if (!S.want.has(i) || S.bodyOf(f).kind !== body) continue; pick.push([d2 * (f.sol ? 0.6 : 1), S, i]); }
+        pick.sort((a, b) => a[0] - b[0]); const top = pick.slice(0, slots.length), keep = new Set(top.map(p => p[1].far.list[p[2]]));
+        for (const w of slots) if (w.f && (!keep.has(w.f) || w.f.left)) { const S = SETS.find(q => q.far === w.far); if (S) S.dirty = true; solFree(w); }
+        let n = 0;
+        for (const [, S, i] of top) {
+          const f = S.far.list[i]; if (f.sol) continue;
+          const w = slots.find(q => !q.f); if (!w || n >= 2) break;
+          try { solTake(w, S.far, i); n++; S.dirty = true; } catch (e) { console.warn('stadium crowd: dressing a fan', e); solFree(w); SOL.fail++; }
+        }
+      }
+    } else for (const S of SETS) for (const f of S.far.list) if (f.sol) f.sol = null;
+    for (const S of SETS) {
+      if (!S.dirty) continue;
+      const { far, meshes, cap, bodyOf } = S;
       for (const r of meshes) r.im.count = 0;
-      for (const i of want) {
-        const f = far.list[i], r = bodyOf(f), k = r.im.count++;
+      for (let i = 0; i < far.list.length; i++) {
+        const f = far.list[i]; if (!(f.near || f.sw < 0) || f.sol || f.left) continue;
+        const r = bodyOf(f); if (!r || r.im.count >= cap) continue;
+        const k = r.im.count++;
         place(f); r.im.setMatrixAt(k, mtx);
         r.attrs.iShirt.setXYZ(k, f.shirt.r, f.shirt.g, f.shirt.b); r.attrs.iLegs.setXYZ(k, f.legs.r, f.legs.g, f.legs.b);
-        r.attrs.iSkin.setXYZ(k, f.skin.r, f.skin.g, f.skin.b); r.attrs.iHair.setXYZ(k, f.hair.r, f.hair.g, f.hair.b); r.attrs.aRank.setX(k, f.rank);
+        r.attrs.iSkin.setXYZ(k, f.skin.r, f.skin.g, f.skin.b); r.attrs.iHair.setXYZ(k, f.hair.r, f.hair.g, f.hair.b); r.attrs.aRank.setX(k, f.rank); r.attrs.aSwap.setX(k, f.sw || 0);
       }
       for (const r of meshes) { r.im.visible = r.im.count > 0; r.im.instanceMatrix.needsUpdate = true; for (const a of Object.values(r.attrs)) a.needsUpdate = true; if (r.im.count) r.im.computeBoundingSphere(); }
     }
     // (at the evacuation a fan who's got up is the walking crowd's — stadium.evac.js — not a posed body any more)
   };
+
 
   // ================================================================ the match and the stewards (stadium.match.js)
   { const PN = (u, v) => P(N, u, v), PS = (st, u, v) => P(st, u, v);
@@ -1272,6 +1387,7 @@ uniform float cT, cCheer, cKeep; attribute float aRank; attribute vec3 iShirt, i
   STADIUM.update = (dt, focus) => {
     tAcc += dt; crowdUni.cT.value = tAcc; STADIUM.t = tAcc;
     if ((NEAR.t -= dt) <= 0 && focus) { NEAR.t = evac.on ? 0.15 : 0.3; nearUpdate(focus); }   // (the real people up close)
+    try { solFrame(dt); } catch (e) { if (!STADIUM.solErr) { STADIUM.solErr = true; console.error('stadium crowd', e); } }
     try { evac.update(dt, focus); } catch (e) { if (!STADIUM.evacErr) { STADIUM.evacErr = true; console.error('stadium evac', e); } }
     if (STADIUM.match) { try { STADIUM.match.update(dt, focus, W.time, STADIUM.phase, STADIUM.you || null); } catch (e) { if (!STADIUM.matchErr) { STADIUM.matchErr = true; console.error('stadium match', e); } } }
     // the key: once the red cabinet's been searched you have it, and the switch panel can be used

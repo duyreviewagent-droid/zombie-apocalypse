@@ -24,6 +24,7 @@ export const on = () => NET.isOnline() && NET.inGame();         // in an online 
 export const isClient = () => on() && NET.isClient();           // ...and somebody else's game runs the world
 export const isHost = () => on() && NET.isHost();
 export const NETMOD = NET;
+export const hooks = {};   // [mpboss] bosses.js: hooks.quake(e) on a client
 
 export function init(ctx) {
   X = ctx;
@@ -187,6 +188,7 @@ function onEvent(e) {
     case 'revive': if (G.state === 'dead' && downT >= 0) { downT = -1; X.respawn(X.getP().s.pos.x, X.getP().s.pos.z); X.toast(`${nameOf(e.from)} got you back up`, 'good'); } break;
     case 'heal': X.healMe(e.hp || 0, nameOf(e.from)); break;
     case 'give': for (const id of e.items || []) X.giveMe(id, nameOf(e.from)); break;
+    case 'quake': if (isClient() && hooks.quake) hooks.quake(e); break;   // [mpboss] The Zombie's foot came down on the host (bosses.js)
     case 'lobbyClosed': if (G.state === 'title') X.showScreen('title'); break;
   }
 }

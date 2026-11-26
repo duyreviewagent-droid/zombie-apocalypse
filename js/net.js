@@ -327,7 +327,7 @@ function worldSnap() {
     if (!u.active) continue;
     const s = u.s; if (!nearAny(s.pos.x, s.pos.z, 140)) continue;
     const f = (u.alive ? 1 : 0) | (u.big ? 2 : 0) | (u.runner ? 4 : 0) | (u.z && u.z.down > 0 ? 8 : 0) | (u.crawl ? 16 : 0) | (u.limp ? 32 : 0) | (u.z && u.z.state === 'chase' ? 64 : 0) | (u.turned ? 128 : 0);
-    w.z.push([nid(u), r2(s.pos.x), r2(s.pos.z), r2(s.yaw), r2(s.vel.x), r2(s.vel.z), f, ...actPack(s), Z.pool.indexOf(u), u.variant || 0, r2(s.root.scale.x), Math.round(u.hp), u.bossT || 0]);   // [13]: boss type (bosses.js)
+    w.z.push([nid(u), r2(s.pos.x), r2(s.pos.z), r2(s.yaw), r2(s.vel.x), r2(s.vel.z), f, ...actPack(s), Z.pool.indexOf(u), u.variant || 0, r2(s.root.scale.x), Math.round(u.hp), u.bossT || 0, ...(u.bossT ? [Math.round(u.maxHp)] : [])]);   // [13]: boss type (bosses.js); [14] [mpboss] a boss's full hp (for the client's boss bar)
   }
   const ppl = X.people ? X.people() : [];
   for (let i = 0; i < ppl.length; i++) {
@@ -588,6 +588,7 @@ function adopt(e) {
   if (!u) return null;
   wake(u, x, z, { yaw, big: !!(f & 2), runner: !!(f & 4), hp, boss: boss || null, force: true });   // the host's boss type, or none (no rolls here)
   u.s.root.scale.setScalar(sc || 1); if (u.bossT) u.sizeK = (sc || 1) * 1.05;
+  if (e[14]) u.maxHp = e[14];   // [mpboss]
   u.netId = id; u.puppet = true; u.nbuf = []; u.crawl = !!(f & 16); u.limp = !!(f & 32);
   if (!(f & 1)) { u.alive = false; u.s.dead = true; u.s.play('Death_D', { hold: true, snap: true, from: 3 }); u.deadT = 6; }
   ZM.set(id, u);
@@ -601,7 +602,7 @@ export function zombiesStep(dt) {
   for (const u of ZM.values()) {
     const o = sample(u.nbuf, t, 1, 2, 3, 4, 5); if (!o) continue;
     const a = o.a, f = a[6], s = u.s, d = s.pos.distanceTo(F);
-    u.hp = a[12]; u.big = !!(f & 2); u.crawl = !!(f & 16); u.limp = !!(f & 32);
+    u.hp = a[12]; if (a[14]) u.maxHp = a[14]; u.big = !!(f & 2); u.crawl = !!(f & 16); u.limp = !!(f & 32);
     if (!(f & 1) && u.alive) { u.alive = false; u.deadT = 0; s.dead = true; s.resetActs(); s.play('Death_D', { hold: true, fade: 0.1, rate: 1.1 }); }
     else if ((f & 1) && !u.alive && !(u.netKillT && now() - u.netKillT < 2500)) { u.alive = true; s.dead = false; s.resetActs(); }
     if (u.z) { u.z.down = f & 8 ? 1 : 0; u.z.state = f & 64 ? 'chase' : 'idle'; }

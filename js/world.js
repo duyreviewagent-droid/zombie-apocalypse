@@ -457,6 +457,28 @@ export function makeWorld(scene, renderer) {
   }
   foliage(MAT.leaves, 0.045); foliage(MAT.leaves2, 0.045); foliage(MAT.needles, 0.025); foliage(MAT.hedge, 0.008);
   W.MAT = MAT;
+  // [nightin] the houses' windows at night, seen from the street: every house's outer glass is glassLit, and the shader
+  // looks up the nearest house (a small uniform table, refreshed about once a second) for how lit it is — dark, on,
+  // or (after the outbreak) a failing bulb — and varies the glow window to window (a lamp nearer one pane than the
+  // next). Glass that's no house's (other maps' lit buildings) stays lit as before. No new materials, no draw calls.
+  const NH = 64, HU = { uHouse: { value: Array.from({ length: NH }, () => new THREE.Vector4(1e5, 1e5, 0, 0)) }, uHN: { value: 0 }, uNT: { value: 0 } };
+  W.nightHouses = HU;
+  const glPrev = MAT.glassLit.onBeforeCompile, glKey = MAT.glassLit.customProgramCacheKey.call(MAT.glassLit);
+  MAT.glassLit.onBeforeCompile = (sh, r) => {
+    if (glPrev && glPrev !== THREE.Material.prototype.onBeforeCompile) glPrev.call(MAT.glassLit, sh, r);
+    Object.assign(sh.uniforms, HU);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vGW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvGW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec3 vGW; uniform vec4 uHouse[${NH}]; uniform int uHN; uniform float uNT;`).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      { float lv = 1.0, ph = 0.0, bd = 1e9;
+        for (int i = 0; i < ${NH}; i++) { if (i >= uHN) break; vec2 d = vGW.xz - uHouse[i].xy; float dd = dot(d, d); if (dd < bd) { bd = dd; lv = uHouse[i].z; ph = uHouse[i].w; } }
+        if (bd > 81.0) { lv = 1.0; ph = 0.0; }
+        if (ph > 0.0) { float t = uNT * (6.0 + ph * 5.0) + ph * 60.0; lv *= (sin(t) > -0.35 || sin(t * 0.29) > 0.9) ? 0.8 + 0.2 * sin(t * 3.7) : 0.1; }
+        vec2 wc = floor(vGW.xz * 0.9) + floor(vGW.y * 0.7) * 17.0; float wv = fract(sin(dot(wc, vec2(12.9898, 78.233))) * 43758.5453);
+        float glow = lv * (0.7 + 0.55 * wv) * (0.85 + 0.3 * smoothstep(0.6, 2.4, fract(vGW.y / 3.2) * 3.2));   // (a pane nearer the lamp; the top of the window brighter)
+        totalEmissiveRadiance *= glow; diffuseColor.a = mix(0.24, diffuseColor.a, clamp(lv, 0.0, 1.0)); }`);
+  };
+  MAT.glassLit.customProgramCacheKey = () => 'glassLitN' + glKey;
   // metres per texture repeat for each material
   const TILE = { roadWhite: 1.5, roadLine: 1.5, mulch: 1.2, ceilTile: 0.6, ceiling: 3, road: 6, walk: 1.5, drive: 3, concrete: 3, curb: 1.5, brick: 2, trim: 1, plank: 1.5, fence: 1.5, bark: 1.5, floorWood: 2.4, floorCarpet: 2, floorCarpet2: 2, floorTile: 1.2, floorTile2: 1.2, cabinet: 1, darkWood: 1, counter: 1.5, counterG: 1.5, counterB: 1.5, counterM: 1.5, counterL: 1.5, walnut: 1, oak: 1, cabinetSage: 1, steel: 1, tileSubway: 0.6, tileSubway2: 0.6, tileBath: 0.6, tileBath2: 0.6, dirt: 3, gravel: 2, rug0: 2, rug1: 2 };
   for (let i = 0; i < 8; i++) TILE['siding' + i] = 1;
@@ -1730,7 +1752,7 @@ export function makeWorld(scene, renderer) {
           const m = (g0 + g1) / 2, [cx, cz] = P(ax + dx * m, az + dz * m), hw = (g1 - g0) / 2;
           if (sill > 0) {   // a window: glass, sash rails, a sill, casing boards round it; solid all the way up
             const fro = sill >= 1.25;   // the high little windows (bathroom, kitchen side) are frosted
-            B.box(cx, sill, cz, hw, lintel, 0.012, wyaw, f => f === 'pz' || f === 'nz' ? (fro ? 'frosted' : H.lit && inZ && f === (inZ < 0 ? 'pz' : 'nz') ? 'glassLit' : 'glass') : null, TILE);
+            B.box(cx, sill, cz, hw, lintel, 0.012, wyaw, f => f === 'pz' || f === 'nz' ? (fro ? 'frosted' : inZ && f === (inZ < 0 ? 'pz' : 'nz') ? 'glassLit' : 'glass') : null, TILE);
             B.box(cx, sill, cz, hw + 0.04, sill + 0.05, T / 2 + 0.05, wyaw, ALL('trim'), TILE);
             B.box(cx, (sill + lintel) / 2 - 0.02, cz, hw, (sill + lintel) / 2 + 0.02, 0.02, wyaw, ALL('trim'), TILE);
             if (hw > 0.6) B.box(cx, sill, cz, 0.018, lintel, 0.02, wyaw, ALL('trim'), TILE);   // a muntin down the middle of the wide ones
@@ -3054,8 +3076,25 @@ export function makeWorld(scene, renderer) {
       for (let i = 0; i < p.count; i++) r = Math.max(r, Math.hypot(p.getX(i) - x, p.getZ(i) - z));
       for (let i = 0; i < p.count; i++) uv.setXY(i, uv.getX(i) * r * 6.283 / tu, p.getY(i) / tv); };
     const rpt = t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t; };
+    // [design3n] lit windows at night: a mask per facade texture (where glass is), and the facade shader picks per
+    // window (4 bays × 4 floors per 12 m tile) whether that room is lit — warm lamps, a few cold-blue TVs, most dark;
+    // after the outbreak fewer, and some of them flickering. Ramps with W.daylight; no lights, no extra draw calls.
+    let wmCv = null;
+    const winMask = () => { wmCv = document.createElement('canvas'); wmCv.width = wmCv.height = 512; const e = wmCv.getContext('2d'); e.fillStyle = '#000'; e.fillRect(0, 0, 512, 512); return e; };
+    const winTex = () => { const t = rpt(new THREE.CanvasTexture(wmCv)); wmCv = null; return t; };
+    const WU = { uWinLit: { value: 0.42 }, uWinFl: { value: 0 }, uWinT: { value: 0 } };
+    const winGlow = m => { m.emissive = new THREE.Color(0xffffff); m.emissiveIntensity = 0;
+      m.onBeforeCompile = sh => { Object.assign(sh.uniforms, WU);
+        sh.fragmentShader = 'uniform float uWinLit, uWinFl, uWinT;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', `
+          { vec2 wc = floor(vEmissiveMapUv * 4.0); float h = fract(sin(dot(wc, vec2(12.9898, 78.233))) * 43758.5453), h2 = fract(h * 113.7 + 0.31);
+            float on = step(h, uWinLit), tv = step(0.84, h2);
+            vec3 c = mix(vec3(1.0, 0.6, 0.26) * (0.75 + 0.5 * h2), vec3(0.32, 0.5, 1.0) * (0.75 + 0.25 * sin(uWinT * (2.0 + h * 9.0) + h * 40.0) * sin(uWinT * 7.3 + h2 * 20.0)), tv);
+            float fl = step(0.7, h2) * (1.0 - tv) * uWinFl;   // after the outbreak: a failing bulb, a fire's glow
+            c *= mix(1.0, 0.15 + 0.85 * step(0.35, fract(sin(floor(uWinT * (5.0 + h2 * 9.0)) * 12.7 + h * 91.0) * 4375.5)), fl);
+            totalEmissiveRadiance *= texture2D(emissiveMap, vEmissiveMapUv).r * c * on; }`); };
+      m.customProgramCacheKey = () => 'winGlow'; };
     // a 12 m × 12 m facade (four bays × four floors): each window different — glass, blinds, curtains, boarded, smashed
-    const windows = (g, S, R, frame, sill) => {
+    const windows = (g, S, R, frame, sill, e = null) => {   // [design3n] e: the night mask (white where a lit room would show)
       for (let f = 0; f < 4; f++) for (let b = 0; b < 4; b++) {
         const x = (b * 3 + 0.85) * S, w = 1.3 * S, y = 512 - (f * 3 + 2.4) * S, hh = 1.5 * S, v = R();
         g.fillStyle = frame; g.fillRect(x - 3, y - 3, w + 6, hh + 6);
@@ -3063,7 +3102,10 @@ export function makeWorld(scene, renderer) {
         if (v < 0.18) { g.fillStyle = '#d8ccb0'; g.fillRect(x, y, w * 0.35, hh); g.fillRect(x + w * 0.65, y, w * 0.35, hh); }   // curtains
         else if (v < 0.34) { g.fillStyle = '#c8c4b8'; g.fillRect(x, y, w, hh * (0.3 + R() * 0.6)); g.fillStyle = 'rgba(0,0,0,0.25)'; for (let k = y; k < y + hh * 0.8; k += 3) g.fillRect(x, k, w, 1); }   // blinds
         else if (v < 0.46) { g.fillStyle = '#7a5a3a'; for (let k = 0; k < 4; k++) g.fillRect(x - 2, y + k * hh / 4 + 1, w + 4, hh / 4 - 2); g.strokeStyle = '#4a3420'; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + w, y + hh); g.moveTo(x + w, y); g.lineTo(x, y + hh); g.stroke(); }   // boarded up
-        else if (v < 0.56) { g.fillStyle = '#0a0c0e'; g.beginPath(); g.moveTo(x, y + hh); for (let k = 0; k <= 6; k++) g.lineTo(x + k * w / 6, y + hh * (0.15 + R() * 0.6)); g.lineTo(x + w, y + hh); g.fill(); }   // smashed
+        if (e && v >= 0.46) { e.fillStyle = v < 0.56 ? '#2a2a2a' : '#ffffff'; e.fillRect(x, y, w, hh); }
+        if (e && v < 0.34) { e.fillStyle = v < 0.18 ? '#b0b0b0' : '#ffffff'; e.fillRect(x, y, w, hh); if (v < 0.18) { e.fillStyle = '#ffffff'; e.fillRect(x + w * 0.35, y, w * 0.3, hh); } else { e.fillStyle = '#5a5a5a'; e.fillRect(x, y, w, hh * 0.55); } }   // (glow through curtains, under half-down blinds)
+        if (e) { e.fillStyle = '#000'; e.fillRect(x + w / 2 - 1.5, y, 3, hh); e.fillRect(x, y + hh * 0.45, w, 3); }
+        if (v >= 0.46 && v < 0.56) { g.fillStyle = '#0a0c0e'; g.beginPath(); g.moveTo(x, y + hh); for (let k = 0; k <= 6; k++) g.lineTo(x + k * w / 6, y + hh * (0.15 + R() * 0.6)); g.lineTo(x + w, y + hh); g.fill(); }   // smashed
         g.fillStyle = frame; g.fillRect(x + w / 2 - 1.5, y, 3, hh); g.fillRect(x, y + hh * 0.45, w, 3);   // mullions
         g.fillStyle = sill; g.fillRect(x - 5, y + hh + 2, w + 10, 5);
         g.fillStyle = 'rgba(40,30,20,0.18)'; g.fillRect(x + R() * w, y + hh + 7, 3 + R() * 6, 10 + R() * 30);   // a stain running from the sill
@@ -3073,13 +3115,15 @@ export function makeWorld(scene, renderer) {
       for (let y = 0; y < h; y += 4) for (let x = (y / 4 % 2) * 5; x < w; x += 10) { g.fillStyle = `rgba(${R() < 0.5 ? '40,20,14' : '200,140,110'},${R() * 0.16})`; g.fillRect(x, y, 9, 3); }
       g.fillStyle = 'rgba(210,200,185,0.22)'; for (let y = 3; y < h; y += 4) g.fillRect(0, y, w, 1);
       for (let f = 0; f < 4; f++) { g.fillStyle = 'rgba(200,190,170,0.5)'; g.fillRect(0, h - f * 3 * S - 4, w, 4); }   // a stone band at each floor
-      windows(g, S, R, '#e8e2d4', '#c8c0b0'); }));
+      windows(g, S, R, '#e8e2d4', '#c8c0b0', winMask()); }));
+    const brickE = winTex();
     const concTx = rpt(ctex(512, 512, (g, w, h, R) => { const S = w / 12;
       g.fillStyle = '#b4b0a6'; g.fillRect(0, 0, w, h);
       for (let k = 0; k < 400; k++) { g.fillStyle = `rgba(${R() < 0.5 ? '60,58,52' : '230,228,220'},${R() * 0.08})`; g.fillRect(R() * w, R() * h, 4 + R() * 30, 4 + R() * 30); }
       g.fillStyle = 'rgba(60,60,56,0.35)'; for (let k = 0; k <= 4; k++) { g.fillRect(0, h - k * 3 * S, w, 2); g.fillRect(k * 3 * S, 0, 2, h); }   // panel joints
       g.fillStyle = '#6a7a84'; for (let f = 0; f < 4; f++) g.fillRect(0, h - (f * 3 + 2.65) * S, w, 4);   // a painted band under each row of windows
-      windows(g, S, R, '#3a3e42', '#8a8880'); }));
+      windows(g, S, R, '#3a3e42', '#8a8880', winMask()); }));
+    const concE = winTex();
     const siloTx = rpt(ctex(256, 256, (g, w, h, R) => {   // slip-formed concrete: lift lines, runs of rust and damp
       g.fillStyle = '#b6b0a2'; g.fillRect(0, 0, w, h);
       for (let y = 0; y < h; y += 21) { g.fillStyle = 'rgba(70,66,58,0.22)'; g.fillRect(0, y, w, 1.5); }
@@ -3092,8 +3136,10 @@ export function makeWorld(scene, renderer) {
       const x = w / 2 - 0.75 * S, y = h - 6.4 * S, ww = 1.5 * S, hh = 4.2 * S;
       g.fillStyle = '#5a5248'; g.beginPath(); g.moveTo(x - 4, y + hh + 4); g.lineTo(x - 4, y + ww / 2); g.arc(x + ww / 2, y + ww / 2, ww / 2 + 4, Math.PI, 0); g.lineTo(x + ww + 4, y + hh + 4); g.fill();
       const C3 = ['#6a2a3a', '#2a3a6a', '#7a6a2a', '#2a5a3a', '#3a2a5a'];
-      for (let yy = y; yy < y + hh; yy += 12) for (let xx = x; xx < x + ww; xx += 10) { g.fillStyle = C3[(R() * C3.length) | 0]; g.fillRect(xx + 1, yy + 1, 8, 10); }   // stained glass
+      const e = winMask().canvas.getContext('2d');   // [design3n] the glass glows at night
+      for (let yy = y; yy < y + hh; yy += 12) for (let xx = x; xx < x + ww; xx += 10) { g.fillStyle = C3[(R() * C3.length) | 0]; g.fillRect(xx + 1, yy + 1, 8, 10); e.fillStyle = g.fillStyle; e.fillRect(xx + 1, yy + 1, 8, 10); }   // stained glass
       g.fillStyle = '#f4f2ea'; g.fillRect(x - 8, y + hh + 4, ww + 16, 6); }));
+    const churchE = winTex(); churchE.colorSpace = THREE.SRGBColorSpace;
     const shingTx = rpt(ctex(128, 128, (g, w, h, R) => { g.fillStyle = '#3c4248'; g.fillRect(0, 0, w, h);
       for (let y = 0; y < h; y += 8) for (let x = (y / 8 % 2) * 6; x < w; x += 12) { g.fillStyle = `rgba(${R() < 0.5 ? '0,0,0' : '160,170,180'},${R() * 0.25})`; g.fillRect(x, y, 11, 7); }
       g.fillStyle = 'rgba(0,0,0,0.4)'; for (let y = 7; y < h; y += 8) g.fillRect(0, y, w, 1); }));
@@ -3106,8 +3152,10 @@ export function makeWorld(scene, renderer) {
       g.fillStyle = '#2a2a2a'; g.font = 'bold 44px Helvetica'; g.fillText('OPEN 24 HOURS', w / 2, 150); g.font = '32px Helvetica'; g.fillText('NEXT EXIT  →  2 MI', w / 2, 210);
       g.fillStyle = 'rgba(60,50,40,0.3)'; for (let k = 0; k < 40; k++) g.fillRect(Math.random() * w, Math.random() * h, 3, 20 + Math.random() * 60);
       g.fillStyle = 'rgba(242,234,208,0.9)'; g.fillRect(w * 0.62, 0, w * 0.4, h * 0.35); });   // a torn corner
-    const brickF = sm(0xffffff, { map: brickTx }), concF = sm(0xffffff, { map: concTx }), siloM = sm(0xffffff, { map: siloTx }), churchM = sm(0xffffff, { map: clapTx }), signM = sm(0xffffff, { map: signTx }), boardM = sm(0xffffff, { map: boardTx });
+    const brickF = sm(0xffffff, { map: brickTx, emissiveMap: brickE }), concF = sm(0xffffff, { map: concTx, emissiveMap: concE }), siloM = sm(0xffffff, { map: siloTx }), churchM = sm(0xffffff, { map: clapTx }), signM = sm(0xffffff, { map: signTx }), boardM = sm(0xffffff, { map: boardTx });
     roofM.map = shingTx; roofM.userData.base.setHex(0xd0d4d8);
+    winGlow(brickF); winGlow(concF);   // [design3n]
+    churchM.emissiveMap = churchE; churchM.emissive = new THREE.Color(0xffd8a0); churchM.emissiveIntensity = 0;   // [design3n] candles behind the stained glass
     const woodT = sm(0x5a4232);
     // the water tower, north-west past the fence
     { const x = -168, z = -150, H = 30, up = new THREE.Vector3(0, 1, 0);
@@ -3166,12 +3214,17 @@ export function makeWorld(scene, renderer) {
       for (const y of [8, 20, 31]) add(new THREE.TorusGeometry(2.2 - y * 0.024, 0.12, 4, 12).rotateX(Math.PI / 2), dark, 196, y, 178); }
     for (const [m, gs] of BKT) { const o = new THREE.Mesh(mergeGeometries(gs), m); o.castShadow = o.receiveShadow = false; G2.add(o); }
     // hazy: each piece blends toward the fog colour as if seen through ~100 m of air (more in rain, at night darker)
-    const fogC = new THREE.Color();
+    const fogC = new THREE.Color(); let ruinN = 0, ruined = false;
     W.anims.push(() => {
       const d = scene.fog.density, k = clamp(1 - Math.exp(-((d * 105) ** 2)), 0.25, 0.97);
       fogC.copy(scene.fog.color);
       const lit = 0.35 + W.daylight * 0.65;
       for (const m of mats) { m.color.copy(m.userData.base).multiplyScalar(lit).lerp(fogC, k); }
+      // [design3n] the windows come on as it gets dark (through the haze: dimmer in fog and rain)
+      const night = clamp((0.5 - W.daylight) / 0.35, 0, 1), haze = 1 - k * 0.55;
+      if (--ruinN <= 0) { ruinN = 30; ruined = W.chaos.some(it => it.shown); }
+      WU.uWinLit.value = ruined ? 0.24 : 0.42; WU.uWinFl.value = ruined ? 1 : 0; WU.uWinT.value = performance.now() / 1000;
+      brickF.emissiveIntensity = concF.emissiveIntensity = night * 2.2 * haze; churchM.emissiveIntensity = night * (ruined ? 0.5 : 1.1) * haze;
     });
   }
   // ================================================================ BUILD THE TOWN
@@ -4493,6 +4546,7 @@ export function makeWorld(scene, renderer) {
   }
 
   function finish() {
+    const n0 = level.children.length;   // [perf2] (the merged town chunks made here: static for good, see shadowProxies)
     B.finish(level, MAT);
     for (const L of instLists.values()) {
       const { geo, mat, ms, shadow } = L;
@@ -4503,6 +4557,7 @@ export function makeWorld(scene, renderer) {
     }
     instLists.clear();
     flushX(XM, level);
+    for (let i = n0; i < level.children.length; i++) { const o = level.children[i]; if (o.isMesh && !o.isInstancedMesh) o.userData.statChunk = 1; }
     for (const it of W.chaos) {
       it.B.finish(it.g, MAT); flushX(it.xm, it.g);
       for (const L of it.inst.values()) { const { geo, mat, ms, shadow } = L; const im = new THREE.InstancedMesh(geo, mat, ms.length); ms.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = shadow; im.receiveShadow = true; im.computeBoundingSphere(); it.g.add(im); L.im = im; }
@@ -5051,12 +5106,111 @@ export function makeWorld(scene, renderer) {
     }
   }
 
+  // [perf2] (1) a mesh with a material ARRAY draws once per geometry group (a box: 6 draws, in the shadow pass too),
+  // even when most faces share one material. Same-material groups are made contiguous and joined (the attributes are
+  // shared, only the index is rebuilt, cached per geometry + material pattern): same pixels, far fewer draws.
+  const RG_DONE = new WeakSet(), RG_CACHE = new Map();
+  function regroup(o) {
+    const g = o.geometry, ms = o.material;
+    if (!g || !g.groups || g.groups.length < 2 || ms.some(m => !m) || g.morphAttributes.position) return;
+    for (const k in g.attributes) if (g.attributes[k].isInstancedBufferAttribute || g.attributes[k].isInterleavedBufferAttribute) return;
+    const sig = g.groups.map(gr => ms[gr.materialIndex] ? ms[gr.materialIndex].uuid : '-').join();
+    const key = g.uuid + '|' + sig;
+    let ng = RG_CACHE.get(key);
+    if (ng === undefined) {
+      ng = null;
+      const order = [], byM = new Map();
+      g.groups.forEach(gr => { const m = ms[gr.materialIndex]; if (!m) return; if (!byM.has(m)) { byM.set(m, []); order.push(m); } byM.get(m).push(gr); });
+      if (order.length < g.groups.length) {
+        const n = g.index ? g.index.count : g.attributes.position.count, src = g.index ? g.index.array : null;
+        const out = new (n > 65535 || (g.attributes.position.count > 65535) ? Uint32Array : Uint16Array)(g.groups.reduce((s, gr) => s + Math.min(gr.count, n - gr.start), 0));
+        ng = new THREE.BufferGeometry(); for (const k in g.attributes) ng.setAttribute(k, g.attributes[k]);
+        let w = 0;
+        for (const m of order) { const s0 = w; for (const gr of byM.get(m)) { const e = Math.min(gr.start + gr.count, n); for (let i = gr.start; i < e; i++) out[w++] = src ? src[i] : i; } ng.addGroup(s0, w - s0, ms.indexOf(m)); }
+        ng.setIndex(new THREE.BufferAttribute(out, 1));
+        if (!g.boundingSphere) g.computeBoundingSphere(); ng.boundingSphere = g.boundingSphere.clone();
+        if (g.boundingBox) ng.boundingBox = g.boundingBox.clone();
+        ng.userData = g.userData;
+      }
+      RG_CACHE.set(key, ng);
+    }
+    if (ng) o.geometry = ng;
+  }
+  // [perf2] (2) desktop: a small thing's sun shadow is only drawn near the camera (a cupboard's, a car's chrome
+  // trim's, a fence picket's, a bin's): past a few dozen metres it's a few texels inside the big shadows around
+  // it, and every caster is a draw call in the shadow pass. The bigger the thing, the further its shadow is kept;
+  // anything 3 m and up (houses, trees, the merged street chunks) always casts.
+  const SHC = [], SHC_SEEN = new WeakSet();
+  function perfScan() {
+    if (/noperf2/.test(location.search)) return;   // (?noperf2: the old way, for comparisons)
+    for (const H of W.houses) { if (H.HG) H.HG.userData.perfIn = true; if (H.atticG) H.atticG.userData.perfIn = true; }
+    levelRoot.traverse(o => {
+      if (!o.isMesh || o.isSkinnedMesh) return;
+      if (Array.isArray(o.material) && !RG_DONE.has(o)) { RG_DONE.add(o); regroup(o); }
+      if (LOW || SHC_SEEN.has(o)) return; SHC_SEEN.add(o);
+      if (!o.castShadow || o.isInstancedMesh || !o.geometry) return;
+      const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere(); const sp = g.boundingSphere; if (!sp || !(sp.radius >= 0)) return;
+      o.updateWorldMatrix(true, false);
+      const r = sp.radius * o.matrixWorld.getMaxScaleOnAxis(); if (r >= 3) return;
+      let ind = false; for (let q = o.parent; q && q !== levelRoot; q = q.parent) if (q.userData.perfIn) { ind = true; break; }
+      const D = ind ? Math.min(16, 10 + r * 20) : 14 + r * 36;   // (a house's cupboards and drawers: only round you — through a window their shadow is lost in the room's)
+      SHC.push([o, sp.center.x, sp.center.y, sp.center.z, D * D, true]);
+    });
+  }
+  let shI = 0, shT = 0;
+  function shadowFar(dt, p) {   // (p: the focus — the player, or the camera's pivot; measured flat)
+    if (!SHC.length || !p) return;
+    shT += dt; const n = Math.min(SHC.length, Math.ceil(SHC.length * Math.min(1, shT * 5))); if (n < 64 && n < SHC.length) return; shT = 0;
+    for (let k = 0; k < n; k++) {
+      if (shI >= SHC.length) shI = 0;
+      const c = SHC[shI++], o = c[0], e = o.matrixWorld.elements; if (o.userData.pxd) continue;
+      const x = e[0] * c[1] + e[4] * c[2] + e[8] * c[3] + e[12] - p.x, zz = e[2] * c[1] + e[6] * c[2] + e[10] * c[3] + e[14] - p.z;
+      const d2 = x * x + zz * zz, on = c[5] ? d2 < c[4] * 1.1 : d2 < c[4] * 0.9;
+      if (on !== c[5]) { c[5] = on; o.castShadow = on; }
+    }
+  }
+  // [perf2] (3) desktop: the merged town chunks (static for good) cast their sun shadow through one position-only
+  // proxy per 55 m cell instead of one mesh per material: the shadow pass doesn't care about materials, so ~40 draws
+  // per cell become 1-2. The proxies' material is switched on only while the shadow map renders (never in the view).
+  // (alpha-tested / see-through / vertex-animated materials keep casting themselves.)
+  const PX_MAT = [THREE.FrontSide, THREE.BackSide, THREE.DoubleSide].map(side => new THREE.MeshBasicMaterial({ side, visible: false, colorWrite: false, depthWrite: false }));
+  let pxDone = false;
+  function shadowProxies() {
+    if (pxDone || LOW || !renderer || /noperf2/.test(location.search)) return; pxDone = true;
+    const cells = new Map(), used = [];
+    levelRoot.updateMatrixWorld(true);
+    for (const o of levelRoot.children) {
+      if (!o.userData.statChunk || !o.castShadow || !o.visible || Array.isArray(o.material) || o.customDepthMaterial || o.layers.mask !== 1) continue;
+      const m = o.material, g = o.geometry;
+      if (!m || m.alphaTest > 0 || m.transparent || m.alphaMap || m.displacementMap || m.alphaHash || m.alphaToCoverage || (m.map && m.alphaTest) || !g.attributes.position || g.morphAttributes.position) continue;
+      if (!g.boundingSphere) g.computeBoundingSphere(); const c = g.boundingSphere.center.clone().applyMatrix4(o.matrixWorld);
+      const side = m.shadowSide != null ? m.shadowSide : m.side, k = Math.floor(c.x / 55) + ',' + Math.floor(c.z / 55) + '|' + side;
+      let L = cells.get(k); if (!L) cells.set(k, L = { side, list: [], n: 0 }); L.list.push(o); L.n += g.index ? g.index.count : g.attributes.position.count;
+    }
+    for (const L of cells.values()) {
+      const pos = new Float32Array(L.n * 3); let w = 0; const v = new THREE.Vector3();
+      for (const o of L.list) {
+        const g = o.geometry, P = g.attributes.position, idx = g.index ? g.index.array : null, n = idx ? idx.length : P.count;
+        for (let i = 0; i < n; i++) { v.fromBufferAttribute(P, idx ? idx[i] : i).applyMatrix4(o.matrixWorld); pos[w++] = v.x; pos[w++] = v.y; pos[w++] = v.z; }
+        o.castShadow = false; o.userData.pxd = 1; used.push(o);
+      }
+      const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); pg.computeBoundingSphere();
+      pg.attributes.position.onUpload(function () { this.array = new Float32Array(0); });   // (the GPU has it: no second copy kept in memory)
+      const px = new THREE.Mesh(pg, PX_MAT[L.side] || PX_MAT[0]); px.castShadow = true; px.receiveShadow = false; px.matrixAutoUpdate = false; px.userData.shadowProxy = true; px.name = 'shadowProxy'; px.raycast = () => {};
+      levelRoot.add(px);
+    }
+    const SM = renderer.shadowMap, r0 = SM.render;
+    SM.render = function (...a) { for (const m of PX_MAT) m.visible = true; try { return r0.apply(this, a); } finally { for (const m of PX_MAT) m.visible = false; } };
+    W.shadowProxyCount = cells.size; W.shadowProxied = used.length;
+  }
+  W.perfScan = perfScan; W._shc = SHC;
+
   // ================================================================ per frame
   const texel = (SS * 2) / sun.shadow.mapSize.x;
   let lampT = 0, houseT = 0;
   const HOUSE_D = LOW > 1 ? 22 : LOW ? 32 : 48;   // a house's cupboards and drawers are drawn this close (phones: only next door)
   W.update = (dt, t, focus, inside) => {
-    { const now = performance.now(); if (now >= dtNext) { detailPass(); dtNext = now + (dtN++ < 8 ? 4000 : 30000); } }   // [design2] (the first frame, then whatever gets built later)
+    { const now = performance.now(); if (now >= dtNext) { detailPass(); perfScan(); shadowProxies(); /* [perf2] */ dtNext = now + (dtN++ < 8 ? 4000 : 30000); } }   // [design2] (the first frame, then whatever gets built later)
     sun.target.position.set(Math.round(focus.x / texel) * texel, 0, Math.round(focus.z / texel) * texel);
     sun.position.copy(sun.target.position).addScaledVector(W.lightDir || sunDir, 140);
     dome.position.copy(focus);
@@ -5065,7 +5219,8 @@ export function makeWorld(scene, renderer) {
     uni.time.value = t; FOL.fTime.value = t;
     grass.update(t, focus);
     updateProps(dt); updateBreakables(dt);
-    if (LOW) cullFar(dt, focus, inside && !inside.cave ? 0.45 : 1);   // indoors only the near things can be seen (out of the windows)
+    if (LOW) cullFar(dt, focus, inside && !inside.cave ? 0.45 : 1);
+    if (!LOW) shadowFar(dt, focus);   // [perf2]   // indoors only the near things can be seen (out of the windows)
     for (const c of W.shutCargo) { const v = (c.openK || 0) > 0.3; for (const it of c.items) if (it.mesh.visible !== (v && !it.taken)) it.mesh.visible = v && !it.taken; }   // a closed trunk lid hides what's inside
     for (let i = W.opening.length - 1; i >= 0; i--) {
       const c = W.opening[i], up = c.openTarget === 1;
@@ -5105,8 +5260,16 @@ export function makeWorld(scene, renderer) {
     // indoors as the day goes: a warm lamp-lit room (one light, moved to whichever house you're in), eased on
     // (placed over the middle of the room you're in; in a big hall it hangs over you, kept inside the room)
     { let want = inside && !up && W.daylight < 0.6 ? 6 * (1 - W.daylight / 0.6) * (W.powerOn ?? 1) : 0;
-      if (want > 0) want *= placeRoomLight(inside, focus);
-      roomLight.intensity += (want - roomLight.intensity) * Math.min(1, dt * 3); if (roomLight.intensity < 0.01) roomLight.intensity = 0; }
+      if (want > 0) { want *= placeRoomLight(inside, focus); roomLight.userData.nh = inside; }
+      // [nightin] outside after dark: the nearest house with its lights on has a lamp-lit room behind the glowing glass
+      // (the same one pooled light, moved there; it fades out before it moves to another house)
+      let flk = false;
+      if (!inside && W.daylight < 0.45 && (W.powerOn ?? 1) > 0) {
+        let best = null, bd = 26;
+        for (const H of W.houses) { if (!(H.nightLv > 0.3)) continue; const d = Math.hypot(H.x - focus.x, H.z - focus.z); if (d < bd) { bd = d; best = H; } }
+        if (best) { if (roomLight.userData.nh !== best && roomLight.intensity > 0.05) want = 0; else { roomLight.userData.nh = best; placeRoomLight(best, best); want = 3.4 * best.nightLv * nightFlk(best); flk = best.nightFl > 0; } }
+      }
+      roomLight.intensity += (want - roomLight.intensity) * Math.min(1, dt * 3); if (flk && roomLight.userData.nh) roomLight.intensity = want; if (roomLight.intensity < 0.01) roomLight.intensity = 0; }
     // a cave / a windowless room never goes pitch black: the sky's fill has a floor in there
     if (inside && inside.cave && hemi.intensity < 0.32) hemi.intensity = 0.32;
     // the house lamps' shades and the ceiling fixtures glow once it's dark (if there's power)
@@ -5146,7 +5309,7 @@ export function makeWorld(scene, renderer) {
     // porch lanterns, the gas station canopy, the store sign at night; the store's tubes once the trouble starts
     const dark = W.daylight < 0.4;
     MAT.porchOn.emissiveIntensity = dark ? 2.2 : 0;
-    { const k = clamp((0.5 - W.daylight) * 3, 0, 1); MAT.glassLit.emissiveIntensity = k * 0.85; MAT.glassLit.opacity = 0.24 + k * 0.5; }
+    { const k = clamp((0.5 - W.daylight) * 3, 0, 1); MAT.glassLit.emissiveIntensity = k * 1.25; MAT.glassLit.opacity = 0.24 + k * 0.38; nightHouses(dt, k); }   // [nightin]
     if (W.canopyLights) { W.canopyLights.emissiveIntensity = W.daylight < 0.5 ? 2.5 : 0; canopyLight.intensity = W.daylight < 0.5 ? 60 : 0; }
     if (W.storeSign) W.storeSign.emissiveIntensity = dark ? 0.9 : 0.25;
     if (W.storeLights) {
@@ -5173,6 +5336,27 @@ export function makeWorld(scene, renderer) {
   W.placeCanopyLight = (x, z) => { canopyLight.position.set(x, 4.4, z); canopyLight.target.position.set(x, 0, z); canopyLight.target.updateMatrixWorld(); };
   const atticLight = new THREE.PointLight(0xffd6a0, 0, 9, 1.6); addLight(atticLight, scene);
   const roomLight = new THREE.PointLight(0xffd8a8, 0, 8, 1.5); addLight(roomLight, scene);
+  // [nightin] which houses have their lights on tonight: before the outbreak about half (coming on one by one as it
+  // gets dark); after it fewer, and some of those a failing bulb. W.nightHouses' table feeds the glassLit shader.
+  const NI = { t: 0, rn: 0, ruined: false };
+  const hsh = (i, m) => (Math.imul(i * 31 + 7, m) >>> 0) / 4294967296;
+  function nightHouses(dt, k) {
+    HU.uNT.value = (performance.now() / 1000) % 1000;
+    if ((NI.t -= dt) > 0) return; NI.t = 0.4;
+    if (--NI.rn <= 0) { NI.rn = 5; NI.ruined = W.chaos.some(it => it.shown); }
+    const U = HU.uHouse.value, pw = (W.powerOn ?? 1) > 0; let n = 0;
+    for (const H of W.houses) {
+      if (n >= U.length) break;
+      const a = hsh(H.id, 0x9E3779B1), b = hsh(H.id, 0x85EBCA6B), on = pw && (NI.ruined ? b < 0.3 : (H.lit || a < 0.2));
+      H.nightLv = on ? clamp((k - (a * 7.3 % 1) * 0.45) / 0.3, 0, 1) : 0; H.nightFl = on && NI.ruined && a < 0.45 ? 0.3 + a : 0;
+      U[n++].set(H.x, H.z, H.nightLv, H.nightFl);
+    }
+    HU.uHN.value = n;
+  }
+  function nightFlk(H) {   // (the shader's failing bulb, the same on the CPU)
+    const ph = H.nightFl; if (!(ph > 0)) return 1;
+    const t = HU.uNT.value * (6 + ph * 5) + ph * 60; return Math.sin(t) > -0.35 || Math.sin(t * 0.29) > 0.9 ? 0.8 + 0.2 * Math.sin(t * 3.7) : 0.1;
+  }
   // move the room light to the room the player is in (H.rooms, in the house's local frame); returns an intensity scale
   function placeRoomLight(H, f) {
     const c = Math.cos(H.yaw), sn = Math.sin(H.yaw), fl = H.flip || 1, dx = f.x - H.x, dz = f.z - H.z;
