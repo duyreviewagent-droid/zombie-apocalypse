@@ -2822,7 +2822,7 @@ varying vec3 vGW; uniform vec4 uHouse[${NH}]; uniform int uHN; uniform float uNT
   W.blood = null;   // set below once decals exist
 
   // ---- blood pools and splats (decals on the floor) ----
-  const bloodMats = [1, 2, 3].map(i => new THREE.MeshStandardMaterial({ map: TX.bloodTexture(i), color: 0x8a6a6a, transparent: true, opacity: 0.92, depthWrite: false, roughness: 0.3, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+  const bloodMats = [1, 2, 3].map(i => new THREE.MeshStandardMaterial({ map: TX.bloodTexture(i), color: 0xe8d8d8, transparent: true, opacity: 0.92, depthWrite: false, roughness: 0.3, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
   const decalGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   const decals = []; let decalI = 0;
   for (let i = 0; i < 90; i++) { const m = new THREE.Mesh(decalGeo, bloodMats[i % 3]); m.visible = false; m.receiveShadow = true; m.renderOrder = 1; scene.add(m); decals.push(m); }

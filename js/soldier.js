@@ -152,6 +152,8 @@ let LOD_FAR2 = 32 * 32, LOD_FARN = 3, LOD_OFF = 6, lodSet = false;
 function setLod() { lodSet = true; const t = tier(); if (t) { const f = t > 1 ? 18 : 24; LOD_FAR2 = f * f; LOD_FARN = t > 1 ? 4 : 3; LOD_OFF = t > 1 ? 10 : 8; } }
 const BODY_R = [['Hips', 0.12], ['Spine1', 0.12], ['Spine2', 0.125], ['Neck', 0.07], ['Head', 0.1], ['LeftArm', 0.06], ['RightArm', 0.06], ['LeftForeArm', 0.045], ['RightForeArm', 0.045], ['LeftHand', 0.03], ['RightHand', 0.03], ['LeftUpLeg', 0.085], ['RightUpLeg', 0.085], ['LeftLeg', 0.055], ['RightLeg', 0.055], ['LeftFoot', 0.045], ['RightFoot', 0.045]];
 const vLift = new THREE.Vector3();
+// [corpse] the bones code turns on top of the captured pose (see update: kept from piling up on a held pose)
+const HELD_BONES = ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head', 'LeftShoulder', 'RightShoulder', 'LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm', 'LeftHand', 'RightHand', 'LeftUpLeg', 'RightUpLeg', 'LeftLeg', 'RightLeg'];
 const STEP_H = [[0.02, -1], [0.52, 1]], STEP_Z = [[0.99, -1], [0.64, 1]];
 // what the camera can see (worked out once a frame, shared by everybody)
 const FR = new THREE.Frustum(), PM = new THREE.Matrix4(), SPH = new THREE.Sphere();
@@ -420,7 +422,16 @@ export class Soldier {
     // far ones cast no shadow: their skinned vertices aren't processed a second time for a shadow too small to see
     const cs = !far; if (this._cs !== cs) { this._cs = cs; this.pivot.traverse(o => { if (o.isMesh && !o.userData.noShadow) o.castShadow = cs; }); }
     this.frozen = this.lodN !== 0;
-    if (!this.frozen) this.mixer.update(0);
+    if (!this.frozen) {
+      // [corpse] three.js's mixer only writes a bone when the clip's value for it CHANGED since the last frame: on a held
+      // pose (a body lying still at the end of its fall, a crawler on its back) it writes nothing, and every turn laid on
+      // top (the dead pose's flung arms, the turned head, a crawler's neck) piled up frame after frame — the arms, legs
+      // and head of the dead wound round and round on the floor. A bone the mixer left alone goes back to the clip's pose.
+      const HB = this._hb ||= HELD_BONES.map(n => this.B[n]).filter(Boolean).map(b => ({ b, clip: b.quaternion.clone(), post: new THREE.Quaternion() }));
+      for (const h of HB) h.post.copy(h.b.quaternion);
+      this.mixer.update(0);
+      for (const h of HB) { if (h.b.quaternion.equals(h.post)) h.b.quaternion.copy(h.clip); else h.clip.copy(h.b.quaternion); }
+    }
     // a woman's walk: the hips roll more, the shoulders swing less (on top of the shared captured stride)
     if (!this.frozen && (this.root.userData.female || this.kind.root.userData.female) && this.B.Hips) {
       const wk = (ww + wr * 0.6) * lw * st, ph2 = (this.phase + k.offW) * Math.PI * 2;
@@ -461,11 +472,10 @@ export class Soldier {
     this.pivot.position.y = J.y + this.gy + this.liftK;
     this.pivot.rotation.set(this.pitchLean * (1 - actTotal), this.yaw, this.lean * (1 - actTotal), 'YXZ');
     this.pivot.updateMatrixWorld(true);
-    if (lying) {   // how far would the lowest part of the body be under the floor?
-      const k = this.root.scale.y; let need = 0;
-      for (const [n, r] of BODY_R) { const bn = this.B[n]; if (!bn) continue; bn.getWorldPosition(vLift); need = Math.max(need, r * k - (vLift.y - this.pivot.position.y + J.y)); }
-      this.liftNeed = Math.min(0.35, need);
-    } else this.liftNeed = 0;
+    // [corpse] a body on the floor: how far it must be lifted is measured on its finished pose (after its own way of
+    // lying, below) — measured here on the bare clip it came out different every time the far/off-screen pose skipping
+    // (frozen frames) changed, and the body bobbed up and down on the floor
+    if (!lying) this.liftNeed = 0;
 
     // ---- footsteps: heels land at phase 0.02 and 0.52 ----
     const loco = Math.max(1 - wi, ca * this.crouchW) * (1 - actTotal);
@@ -498,6 +508,11 @@ export class Soldier {
         if (B.Head) addTurn(B.Head, UP, j * 0.3);
       }
     } else if (!lying && !this.dead) this.deadPose = null;
+    if (lying) {   // how far would the lowest part of the body be under the floor?  [corpse] (on the finished pose; used next frame)
+      const k = this.root.scale.y; let need = 0;
+      for (const [n, r] of BODY_R) { const bn = this.B[n]; if (!bn) continue; bn.getWorldPosition(vLift); need = Math.max(need, r * k - (vLift.y - this.pivot.position.y + J.y)); }
+      this.liftNeed = Math.min(0.35, need);
+    }
     // ---- upper body: twist and bend to the aim ----
     const cw = this.combatW * (1 - actTotal);
     this.twist = clamp(wrapPi(this.aimYaw - this.yaw), -1.6, 1.6) * cw;

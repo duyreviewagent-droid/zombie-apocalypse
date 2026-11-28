@@ -589,7 +589,7 @@ function adopt(e) {
   wake(u, x, z, { yaw, big: !!(f & 2), runner: !!(f & 4), hp, boss: boss || null, force: true });   // the host's boss type, or none (no rolls here)
   u.s.root.scale.setScalar(sc || 1); if (u.bossT) u.sizeK = (sc || 1) * 1.05;
   if (e[14]) u.maxHp = e[14];   // [mpboss]
-  u.netId = id; u.puppet = true; u.nbuf = []; u.crawl = !!(f & 16); u.limp = !!(f & 32);
+  u.netId = id; u.puppet = true; u.nbuf = []; u.netKillT = 0; u.crawl = !!(f & 16); u.limp = !!(f & 32);
   if (!(f & 1)) { u.alive = false; u.s.dead = true; u.s.play('Death_D', { hold: true, snap: true, from: 3 }); u.deadT = 6; }
   ZM.set(id, u);
   return u;
@@ -603,13 +603,16 @@ export function zombiesStep(dt) {
     const o = sample(u.nbuf, t, 1, 2, 3, 4, 5); if (!o) continue;
     const a = o.a, f = a[6], s = u.s, d = s.pos.distanceTo(F);
     u.hp = a[12]; if (a[14]) u.maxHp = a[14]; u.big = !!(f & 2); u.crawl = !!(f & 16); u.limp = !!(f & 32);
-    if (!(f & 1) && u.alive) { u.alive = false; u.deadT = 0; s.dead = true; s.resetActs(); s.play('Death_D', { hold: true, fade: 0.1, rate: 1.1 }); }
-    else if ((f & 1) && !u.alive && !(u.netKillT && now() - u.netKillT < 2500)) { u.alive = true; s.dead = false; s.resetActs(); }
+    if (!(f & 1) && u.alive) { u.alive = false; u.deadT = 0; s.dead = true; u.netKillT = 0; s.resetActs(); s.play('Death_D', { hold: true, fade: 0.1, rate: 1.1 }); }
+    else if ((f & 1) && !u.alive && !(u.netKillT && now() - u.netKillT < 2500)) { u.alive = true; s.dead = false; u.netKillT = 0; s.resetActs(); }
     if (u.z) { u.z.down = f & 8 ? 1 : 0; u.z.state = f & 64 ? 'chase' : 'idle'; }
     const tx = s.pos.x - cam.position.x, tz = s.pos.z - cam.position.z, tl = Math.hypot(tx, tz) || 1;
     const show = d < 5 || ((tx * camF.x + tz * camF.z) / tl > -0.35 && d < 110);
     if (s.visible !== show) s.setVisible(show);
-    if (!u.alive) { u.deadT += dt; if (u.deadT < 6) { syncActs(s, a[7], 0); drive(s, o, dt, {}); } continue; }
+    // [corpse] one WE killed falls and lies here on its own (combat.js's fall): the host's snapshots still show it alive
+    // and walking for a moment, and following them dragged the body along the floor and spun it round (and played the
+    // living one's moves on it). One the host killed follows the host's fall as before.
+    if (!u.alive) { u.deadT += dt; if (u.deadT < 6) { if (u.netKillT) s.update(dt, {}); else { syncActs(s, a[7], 0); drive(s, o, dt, {}); } } continue; }
     syncActs(s, a[7], a[8]);
     drive(s, o, dt, { aimYaw: o.yaw, combat: 0 });
     if (s.visible && d < 45) { s.pivot.updateMatrixWorld(true); zombiePose(u, nearestTo(s.pos), dt); }

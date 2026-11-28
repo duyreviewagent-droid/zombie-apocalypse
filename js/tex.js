@@ -757,10 +757,10 @@ export function bookSpineTexture(seed = 30) {
 export function bloodTexture(seed = 1) {
   const N = 256, r = rng(seed);
   const [c, g] = cv(N);
-  const blob = (x, y, s, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, s); gr.addColorStop(0, `rgba(48,4,3,${a})`); gr.addColorStop(0.7, `rgba(62,7,5,${a * 0.85})`); gr.addColorStop(1, 'rgba(70,8,5,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, s, 0, 7); g.fill(); };
+  const blob = (x, y, s, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, s); gr.addColorStop(0, `rgba(128,8,6,${a})`); gr.addColorStop(0.7, `rgba(150,14,10,${a * 0.85})`); gr.addColorStop(1, 'rgba(70,8,5,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, s, 0, 7); g.fill(); };
   for (let k = 0; k < 7; k++) blob(N / 2 + (r() - 0.5) * 60, N / 2 + (r() - 0.5) * 60, 20 + r() * 40, 0.9);
   for (let k = 0; k < 40; k++) { const a = r() * 6.28, d = 50 + r() * 70; blob(N / 2 + Math.cos(a) * d, N / 2 + Math.sin(a) * d, 2 + r() * 7, 0.85); }
-  for (let k = 0; k < 6; k++) { const a = r() * 6.28; g.strokeStyle = 'rgba(80,8,5,0.8)'; g.lineWidth = 2 + r() * 3; g.beginPath(); g.moveTo(N / 2, N / 2); g.lineTo(N / 2 + Math.cos(a) * (60 + r() * 50), N / 2 + Math.sin(a) * (60 + r() * 50)); g.stroke(); }
+  for (let k = 0; k < 6; k++) { const a = r() * 6.28; g.strokeStyle = 'rgba(165,18,12,0.85)'; g.lineWidth = 2 + r() * 3; g.beginPath(); g.moveTo(N / 2, N / 2); g.lineTo(N / 2 + Math.cos(a) * (60 + r() * 50), N / 2 + Math.sin(a) * (60 + r() * 50)); g.stroke(); }
   return tex(c, { repeat: false });
 }
 // car paint with dust and rust spots

@@ -449,8 +449,8 @@ export function makeFX(scene, world = null) {
     // a hit: a spray of dark droplets thrown along the blow, a fine red mist, drops falling to the ground
     blood(p, d, amt = 1) {
       const dx = d ? d.x : 0, dy = d ? d.y : 0, dz = d ? d.z : 0;
-      for (let i = 0; i < 22 * amt; i++) { const k = 0.8 + Math.random() * 2.6; bits.emit(p.x, p.y, p.z, dx * k * 1.4 + rnd(1.3), dy * k + rnd(1) + 0.6, dz * k * 1.4 + rnd(1.3), 0.5 + Math.random() * 0.5, 0.022 + Math.random() * 0.02, 0.012, 0.32 + Math.random() * 0.1, 0.015, 0.01, 1, 9.8, 0.3); }
-      for (let i = 0; i < 6 * amt; i++) smoke.emit(p.x + rnd(0.05), p.y + rnd(0.05), p.z + rnd(0.05), dx * 0.9 + rnd(0.4), dy * 0.5 + rnd(0.3), dz * 0.9 + rnd(0.4), 0.35 + Math.random() * 0.35, 0.05, 0.32 * amt, 0.34, 0.02, 0.015, 0.55, 0.5, 3.5);
+      for (let i = 0; i < 22 * amt; i++) { const k = 0.8 + Math.random() * 2.6; bits.emit(p.x, p.y, p.z, dx * k * 1.4 + rnd(1.3), dy * k + rnd(1) + 0.6, dz * k * 1.4 + rnd(1.3), 0.5 + Math.random() * 0.5, 0.022 + Math.random() * 0.02, 0.012, 0.62 + Math.random() * 0.14, 0.03, 0.02, 1, 9.8, 0.3); }   // [blood] properly red drops
+      for (let i = 0; i < 6 * amt; i++) smoke.emit(p.x + rnd(0.05), p.y + rnd(0.05), p.z + rnd(0.05), dx * 0.9 + rnd(0.4), dy * 0.5 + rnd(0.3), dz * 0.9 + rnd(0.4), 0.35 + Math.random() * 0.35, 0.05, 0.32 * amt, 0.6, 0.04, 0.03, 0.55, 0.5, 3.5);
       if (F.onBlood) F.onBlood(p, d, amt);
     },
     // a thrown bottle shattering: glints of glass

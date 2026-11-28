@@ -473,9 +473,16 @@ export function hurtNPC(u, dmg, by, opt = {}) {
     return;
   }
   // pulled down
-  u.alive = false; u.downAt = C.t; u.s.dead = true; u.s.resetActs(); u.s.lookAt = null; u.hpSeen = u.hp;
-  if (by && by.s) u.s.yaw = Math.atan2(u.s.pos.x - bp.x, u.s.pos.z - bp.z) + Math.PI;
-  const drate = opt.fever ? rnd(0.5, 0.62) : rnd(0.9, 1.15); u.s.play('Death_D', { hold: true, fade: opt.fever ? 0.45 : 0.1, rate: drate });   // the fever: they sag and go down slowly
+  // [corpse] already on the floor (knocked out, tripped, or a shot/blast in combat.js already dropped them) or still
+  // getting up: they die where they lie — never pop back upright to fall again, never spin round on the floor
+  const S0 = u.s, lyingD = S0.act === 'Death_D', rising = S0.act === 'LayToIdle' && S0.acts.LayToIdle && S0.actTime() < S0.acts.LayToIdle.dur * 0.6;
+  u.alive = false; u.downAt = C.t; u.s.dead = true; if (!lyingD && !rising) u.s.resetActs(); else if (S0.up && S0.ups[S0.up]) { S0.ups[S0.up].target = 0; S0.up = null; } u.s.lookAt = null; u.hpSeen = u.hp;
+  // standing: they go over backwards, away from whoever did it — eased round over the fall (soldier.js fallYaw), no snap
+  if (by && by.s && !lyingD && !rising) { const want = Math.atan2(u.s.pos.x - bp.x, u.s.pos.z - bp.z) + Math.PI; S0.fallYaw = S0.yaw + clamp(wrapPi(want - S0.yaw), -0.7, 0.7); }
+  const drate = opt.fever ? rnd(0.5, 0.62) : rnd(0.9, 1.15);
+  if (lyingD) { const c = S0.acts.Death_D; c.opt = { ...c.opt, hold: true, loop: false }; }   // (stays down: the getting-up never comes)
+  else if (rising) S0.play('Death_D', { hold: true, from: S0.acts.Death_D.dur * 0.7, fade: 0.35 });
+  else u.s.play('Death_D', { hold: true, fade: opt.fever ? 0.45 : 0.1, rate: drate });   // the fever: they sag and go down slowly
   if (u.mel) u.mel.hideAll();
   if (opt.fever) { vox(u, 'sigh', { pri: 2 }); X.SND.bodyFall && X.SND.bodyFall(u.s.pos, 0.6, (X.SND.DEATH_HIT || 1.2) / drate); u.vUntil = C.t + 2; }
   else {

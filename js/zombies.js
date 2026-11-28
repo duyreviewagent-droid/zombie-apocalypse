@@ -147,11 +147,11 @@ ${LK ? LK.decl : ''}
           zRel = zRS * skinM + zRC * clothM; zWet = wound * skinM;
         }
         // old blood is near black-red; dried brown on some of them (never round the mouth: that's fresh)
-        vec3 bcol = mix(vec3(0.045, 0.006, 0.004), vec3(0.11, 0.013, 0.008), zf(P * 4.0));
-        bcol = mix(bcol, vec3(0.11, 0.05, 0.03), zDry * (0.6 + 0.4 * zf(P * 2.0)) * (1.0 - mouth));
+        vec3 bcol = mix(vec3(0.2, 0.012, 0.008), vec3(0.36, 0.024, 0.014), zf(P * 4.0));   // [blood] red, not black
+        bcol = mix(bcol, vec3(0.2, 0.045, 0.025), zDry * (0.6 + 0.4 * zf(P * 2.0)) * (1.0 - mouth));
         blood = clamp(blood, 0.0, 1.0);
         // [zReal] a stain dries from the edge in: a brown crust round the rim, still wet and dark in the middle
-        bcol = mix(bcol, vec3(0.13, 0.055, 0.03), (1.0 - smoothstep(0.3, 0.85, blood)) * 0.55 * (1.0 - mouth));
+        bcol = mix(bcol, vec3(0.22, 0.05, 0.028), (1.0 - smoothstep(0.3, 0.85, blood)) * 0.55 * (1.0 - mouth));
         zWet = max(zWet, smoothstep(0.5, 0.95, blood) * (1.0 - zDry * 0.7));
         c = mix(c, bcol, blood * 0.9);
         c = mix(c0, c, zAmt);

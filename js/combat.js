@@ -220,7 +220,7 @@ export function kill(v, by, info = {}) {
   if (S.up && S.ups[S.up]) { S.ups[S.up].target = 0; S.up = null; }
   v.diedDown = down || rising;   // (already on the floor when it died: no fall, no thud)
   S.deathRate = 1;
-  if (down) { if (S.act !== 'Death_D') S.play('Death_D', { hold: true, from: DDd - 0.05, fade: 0.3 }); }
+  if (down) { if (S.act !== 'Death_D') S.play('Death_D', { hold: true, from: DDd - 0.05, fade: 0.3 }); else if (DD && DD.t > DDd * 0.6) S.vel.set(0, 0, 0); }   // [corpse] (already flat on the floor: it doesn't slide off along it)
   else if (rising) S.play('Death_D', { hold: true, from: DDd * 0.7, fade: 0.35 });
   else {
     const head = info.part === 'head' && !info.blast;
